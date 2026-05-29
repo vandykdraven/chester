@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+@theme {
+  /* Menambahkan warna kustom */
+  --color-chester-pink: #ED8899;
+  --color-chester-gray: #F5F5F5;
+  --color-chester-text: #333333;
+  
+  /* Menambahkan font kustom */
+  --font-lora: "Lora", serif;
+}
+
+body {
+  font-family: var(--font-lora);
+}
