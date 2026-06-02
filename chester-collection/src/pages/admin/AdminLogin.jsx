@@ -1,10 +1,56 @@
-import { Link } from "react-router-dom";
-import { ShieldCheck, ArrowLeft } from "lucide-react";
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { ShieldCheck, ArrowLeft, Loader2 } from "lucide-react";
+import axios from "axios";
 
 export default function AdminLogin() {
+  const navigate = useNavigate();
+
+  // State untuk form input
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  // State untuk status pengiriman data
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+
+    try {
+      // Mengirimkan data input ke server Node.js kita
+      const response = await axios.post(
+        "http://localhost:5000/api/admin/login",
+        {
+          email,
+          password,
+        },
+      );
+
+      // Jika sukses, simpan Token JWT dan data Admin ke memori browser (localStorage)
+      localStorage.setItem("adminToken", response.data.token);
+      localStorage.setItem("adminData", JSON.stringify(response.data.admin));
+
+      // Alihkan halaman secara aman langsung menuju Dashboard Admin
+      navigate("/admin");
+    } catch (err) {
+      // Jika gagal, tangkap pesan error dari server backend
+      if (err.response && err.response.data) {
+        setError(err.response.data.message);
+      } else {
+        setError(
+          "Tidak dapat terhubung ke server backend. Pastikan server Node.js menyala!",
+        );
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="bg-gray-50 min-h-screen font-lora flex flex-col justify-center items-center py-12 px-4 sm:px-6 lg:px-8">
-      {/* Tombol Kembali ke Website */}
       <div className="absolute top-8 left-8">
         <Link
           to="/"
@@ -15,7 +61,6 @@ export default function AdminLogin() {
       </div>
 
       <div className="max-w-md w-full space-y-8 bg-white p-10 rounded-2xl shadow-xl border border-gray-100">
-        {/* Header Form */}
         <div className="text-center">
           <div className="mx-auto h-16 w-16 bg-pink-50 rounded-full flex items-center justify-center mb-4">
             <ShieldCheck size={32} className="text-chester-pink" />
@@ -28,8 +73,18 @@ export default function AdminLogin() {
           </p>
         </div>
 
-        {/* Form Login */}
-        <form className="mt-8 space-y-6">
+        {/* Notifikasi Error jika login gagal */}
+        {error && (
+          <div
+            className="bg-red-50 border-l-4 border-red-500 text-red-700 p-4 text-sm rounded animate-shake"
+            role="alert"
+          >
+            <p className="font-bold">Gagal Masuk</p>
+            <p>{error}</p>
+          </div>
+        )}
+
+        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
           <div className="space-y-5">
             <div>
               <label
@@ -40,10 +95,12 @@ export default function AdminLogin() {
               </label>
               <input
                 id="email"
-                name="email"
                 type="email"
                 required
-                className="w-full border border-gray-300 px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-chester-pink focus:border-transparent transition bg-gray-50 focus:bg-white"
+                disabled={loading}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full border border-gray-300 px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-chester-pink focus:border-transparent transition bg-gray-50 focus:bg-white disabled:opacity-50"
                 placeholder="admin@chester.com"
               />
             </div>
@@ -56,10 +113,12 @@ export default function AdminLogin() {
               </label>
               <input
                 id="password"
-                name="password"
                 type="password"
                 required
-                className="w-full border border-gray-300 px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-chester-pink focus:border-transparent transition bg-gray-50 focus:bg-white"
+                disabled={loading}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full border border-gray-300 px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-chester-pink focus:border-transparent transition bg-gray-50 focus:bg-white disabled:opacity-50"
                 placeholder="••••••••"
               />
             </div>
@@ -69,7 +128,6 @@ export default function AdminLogin() {
             <div className="flex items-center">
               <input
                 id="remember-me"
-                name="remember-me"
                 type="checkbox"
                 className="h-4 w-4 accent-chester-pink border-gray-300 rounded cursor-pointer"
               />
@@ -80,7 +138,6 @@ export default function AdminLogin() {
                 Ingat saya
               </label>
             </div>
-
             <div className="text-sm">
               <a
                 href="#"
@@ -92,12 +149,20 @@ export default function AdminLogin() {
           </div>
 
           <div>
-            <Link
-              to="/admin"
-              className="w-full flex justify-center py-3.5 px-4 border border-transparent rounded-lg shadow-sm text-sm font-bold uppercase tracking-widest text-white bg-chester-pink hover:bg-gray-900 transition-colors duration-300"
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full flex justify-center items-center gap-2 py-3.5 px-4 border border-transparent rounded-lg shadow-sm text-sm font-bold uppercase tracking-widest text-white bg-chester-pink hover:bg-gray-900 transition-colors duration-300 disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
-              Masuk ke Dashboard
-            </Link>
+              {loading ? (
+                <>
+                  <Loader2 size={18} className="animate-spin" />
+                  Memverifikasi...
+                </>
+              ) : (
+                "Masuk ke Dashboard"
+              )}
+            </button>
           </div>
         </form>
 
