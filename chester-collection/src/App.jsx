@@ -15,6 +15,7 @@ import AdminLayout from "./pages/admin/AdminLayout";
 import Dashboard from "./pages/admin/Dashboard";
 import ProductList from "./pages/admin/ProductList";
 import AdminLogin from "./pages/admin/AdminLogin";
+import AdminGuard from "./components/AdminGuard";
 
 const formatRupiah = (angka) => {
   return new Intl.NumberFormat("id-ID", {
