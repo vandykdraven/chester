@@ -14,7 +14,10 @@ import Register from "./pages/Register";
 import AdminLayout from "./pages/admin/AdminLayout";
 import Dashboard from "./pages/admin/Dashboard";
 import ProductList from "./pages/admin/ProductList";
+import ProductAdd from "./pages/admin/ProductAdd";
 import AdminLogin from "./pages/admin/AdminLogin";
+
+// Import Penjaga Rute
 import AdminGuard from "./components/AdminGuard";
 
 const formatRupiah = (angka) => {
@@ -98,7 +101,6 @@ const Header = ({ setIsCartOpen, cartCount }) => {
         </div>
       </header>
 
-      {/* Sidebar Mobile Menu */}
       <div
         className={`fixed inset-0 z-50 bg-black/50 lg:hidden transition-opacity duration-300 ${isMobileMenuOpen ? "opacity-100 visible" : "opacity-0 invisible"}`}
         onClick={() => setIsMobileMenuOpen(false)}
@@ -187,7 +189,6 @@ const Footer = () => {
             </a>
           </div>
           <div className="flex items-center gap-5 md:ml-4">
-            {/* Ikon Sosial Media (Dirapikan agar tidak error Unterminated String) */}
             <a
               href="#"
               className="opacity-80 hover:opacity-100 hover:scale-110 transition-all duration-300"
@@ -207,7 +208,6 @@ const Footer = () => {
                 <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path>
               </svg>
             </a>
-
             <a
               href="#"
               className="opacity-80 hover:opacity-100 hover:scale-110 transition-all duration-300"
@@ -229,7 +229,6 @@ const Footer = () => {
                 <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
               </svg>
             </a>
-
             <a
               href="#"
               className="opacity-80 hover:opacity-100 hover:scale-110 transition-all duration-300"
@@ -249,7 +248,6 @@ const Footer = () => {
                 <path d="M22 4s-.7 2.1-2 3.4c1.6 10-9.4 17.3-18 11.6 2.2.1 4.4-.6 6-2C3 15.5.5 9.6 3 5c2.2 2.6 5.6 4.1 9 4-.9-4.2 4-6.6 7-3.8 1.1 0 3-1.2 3-1.2z"></path>
               </svg>
             </a>
-
             <a
               href="#"
               className="opacity-80 hover:opacity-100 hover:scale-110 transition-all duration-300"
@@ -322,16 +320,20 @@ export default function App() {
     <Router>
       <Routes>
         {/* ======================================= */}
-        {/* RUTE ADMIN LOGIN (Berdiri Sendiri) */}
+        {/* RUTE ADMIN LOGIN (Bebas Diakses)          */}
         {/* ======================================= */}
         <Route path="/admin-login" element={<AdminLogin />} />
 
         {/* ======================================= */}
-        {/* RUTE ADMIN (Tanpa Header/Footer Publik) */}
+        {/* RUTE ADMIN (Dilindungi oleh AdminGuard) */}
         {/* ======================================= */}
-        <Route path="/admin" element={<AdminLayout />}>
-          <Route index element={<Dashboard />} />
-          <Route path="products" element={<ProductList />} />
+        <Route element={<AdminGuard />}>
+          {/* Semua yang ada di dalam /admin HANYA BISA diakses kalau AdminGuard mengizinkan */}
+          <Route path="/admin" element={<AdminLayout />}>
+            <Route index element={<Dashboard />} />
+            <Route path="products" element={<ProductList />} />
+            <Route path="products/add" element={<ProductAdd />} />
+          </Route>
         </Route>
 
         {/* ======================================= */}
