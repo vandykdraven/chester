@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
+// Tambahkan CheckCircle dan AlertCircle untuk ikon notifikasi custom
 import {
   ArrowLeft,
   Save,
@@ -7,14 +8,39 @@ import {
   Plus,
   Trash2,
   X,
+  CheckCircle,
+  AlertCircle,
 } from "lucide-react";
 import Quill from "quill";
+import axios from "axios";
+import "quill/dist/quill.snow.css";
+import { quillModules } from "../../utils/quillConfig";
 
 export default function ProductAdd() {
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const editorRef = useRef(null);
   const quillInstance = useRef(null);
+
+  // --- 1. STATE UNTUK CUSTOM ALERT ---
+  const [customAlert, setCustomAlert] = useState({
+    show: false,
+    message: "",
+    type: "success", // bisa 'success' atau 'error'
+  });
+
+  // Fungsi pembantu untuk memunculkan alert custom
+  const showAlert = (message, type = "success") => {
+    setCustomAlert({ show: true, message, type });
+
+    // Jika tipenya error, biarkan admin menutupnya atau hilang sendiri dalam 4 detik
+    // Jika sukses, nanti penutupan akan diatur bersamaan dengan redirect
+    if (type === "error") {
+      setTimeout(() => {
+        setCustomAlert({ show: false, message: "", type: "success" });
+      }, 4000);
+    }
+  };
 
   const [dbCategories, setDbCategories] = useState([
     { id: "cat_1", name: "Atasan" },
@@ -43,30 +69,32 @@ export default function ProductAdd() {
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  // Inisialisasi QuillJS 2.0.3 secara aman
   useEffect(() => {
-    if (editorRef.current && !quillInstance.current) {
-      quillInstance.current = new Quill(editorRef.current, {
-        theme: "snow",
-        placeholder:
-          "Tuliskan detail bahan, ukuran, dan spesifikasi produk di sini...",
-        modules: {
-          toolbar: [
-            [{ header: [1, 2, 3, false] }],
-            ["bold", "italic", "underline", "strike"],
-            [{ list: "ordered" }, { list: "bullet" }],
-            ["link", "clean"],
-          ],
-        },
-      });
+    // 1. Pastikan elemen div sudah dirender oleh React
+    if (!editorRef.current) return;
 
-      quillInstance.current.on("text-change", () => {
-        setFormData((prev) => ({
-          ...prev,
-          description: quillInstance.current.root.innerHTML,
-        }));
-      });
-    }
+    // 2. CEGAH DUPLIKASI (PENTING):
+    // Jika quillInstance sudah ada isinya, hentikan proses agar tidak dobel!
+    if (quillInstance.current) return;
+
+    // 3. Inisialisasi Quill
+    quillInstance.current = new Quill(editorRef.current, {
+      theme: "snow",
+      placeholder:
+        "Tuliskan detail bahan, ukuran, dan spesifikasi produk di sini...",
+      modules: quillModules,
+    });
+
+    // 4. Tangkap ketikan admin
+    quillInstance.current.on("text-change", () => {
+      setFormData((prev) => ({
+        ...prev,
+        description: quillInstance.current.root.innerHTML,
+      }));
+    });
+
+    // Catatan: Fungsi `return () => { ... }` (cleanup) sengaja KITA HAPUS
+    // agar React tidak mereset Quill di tengah jalan saat Strict Mode beraksi.
   }, []);
 
   const [images, setImages] = useState([null, null, null, null, null]);
@@ -182,28 +210,94 @@ export default function ProductAdd() {
     });
   }, [variantTypes, hasVariant]);
 
-  const handleSubmit = (e) => {
+  // --- 2. LOGIKA HANDLESUBMIT DENGAN NOTIFIKASI CUSTOM & REDIRECT ---
+  const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // Validasi Foto Utama menggunakan Custom Alert
+    if (!images[0] || !images[0].file) {
+      showAlert("Foto utama produk wajib diunggah!", "error");
+      return;
+    }
+
     setIsSubmitting(true);
 
-    const finalData = {
-      ...formData,
-      images,
-      hasVariant,
-      variantTypes: hasVariant ? variantTypes : [],
-      variantMatrix: hasVariant ? variantMatrix : [],
-      wholesales,
-    };
+    try {
+      const dataToSend = new FormData();
+      dataToSend.append("primaryImage", images[0].file);
 
-    console.log("Payload Data Produk Siap Kirim:", finalData);
-    setTimeout(() => {
-      alert("Berhasil! Struktur data aman.");
+      for (let i = 1; i <= 4; i++) {
+        if (images[i] && images[i].file) {
+          dataToSend.append("supportingImages", images[i].file);
+        }
+      }
+
+      const payloadData = {
+        ...formData,
+        hasVariant,
+        variantTypes: hasVariant ? variantTypes : [],
+        variantMatrix: hasVariant ? variantMatrix : [],
+        wholesales,
+      };
+
+      dataToSend.append("data", JSON.stringify(payloadData));
+
+      const response = await axios.post(
+        `${import.meta.env.VITE_API_URL}/products`,
+        dataToSend,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        },
+      );
+
+      if (response.data.success) {
+        // Panggil Custom Alert Sukses
+        showAlert("Berhasil! Produk telah ditambahkan ke Database.", "success");
+
+        // Beri jeda 2 detik agar admin bisa melihat alert-nya, lalu redirect otomatis
+        setTimeout(() => {
+          setCustomAlert({ show: false, message: "", type: "success" });
+          navigate("/admin/products");
+        }, 2000);
+      }
+    } catch (error) {
+      console.error("Gagal menyimpan produk:", error);
+      showAlert("Terjadi kesalahan sistem. Gagal menyimpan produk.", "error");
       setIsSubmitting(false);
-    }, 1000);
+    }
   };
 
   return (
-    <div className="max-w-5xl mx-auto pb-12">
+    <div className="max-w-5xl mx-auto pb-12 relative">
+      {/* ================================================================= */}
+      {/* --- ELEMENT UI UNTUK CUSTOM COMPONENT TOAST ALERT (TAILWIND) --- */}
+      {/* ================================================================= */}
+      {customAlert.show && (
+        <div className="fixed top-6 right-6 z-50 animate-bounce">
+          <div
+            className={`flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-xl border text-sm font-semibold transition-all text-white ${
+              customAlert.type === "success"
+                ? "bg-emerald-500 border-emerald-400"
+                : "bg-rose-500 border-rose-400"
+            }`}
+          >
+            {customAlert.type === "success" ? (
+              <CheckCircle size={20} />
+            ) : (
+              <AlertCircle size={20} />
+            )}
+            <span>{customAlert.message}</span>
+            <button
+              onClick={() => setCustomAlert({ ...customAlert, show: false })}
+              className="ml-2 hover:opacity-70 transition"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+      )}
       <style>{`
         .ql-toolbar.ql-snow {
           border-color: #e5e7eb !important;
@@ -243,7 +337,6 @@ export default function ProductAdd() {
         .ql-editor ul { list-style-type: disc !important; padding-left: 1.5em !important; }
         .ql-editor ol { list-style-type: decimal !important; padding-left: 1.5em !important; }
       `}</style>
-
       <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
         <div className="flex items-center gap-4">
           <Link
@@ -264,7 +357,6 @@ export default function ProductAdd() {
           <Save size={18} /> {isSubmitting ? "Menyimpan..." : "Simpan Produk"}
         </button>
       </div>
-
       <form
         className="grid grid-cols-1 lg:grid-cols-3 gap-8"
         onSubmit={handleSubmit}
