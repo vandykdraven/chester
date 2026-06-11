@@ -16,6 +16,8 @@ import Dashboard from "./pages/admin/Dashboard";
 import ProductList from "./pages/admin/ProductList";
 import ProductAdd from "./pages/admin/ProductAdd";
 import AdminLogin from "./pages/admin/AdminLogin";
+import ProductEdit from "./pages/admin/ProductEdit";
+import GalleryList from "./pages/admin/GalleryList";
 
 // Import Penjaga Rute
 import AdminGuard from "./components/AdminGuard";
@@ -333,6 +335,8 @@ export default function App() {
             <Route index element={<Dashboard />} />
             <Route path="products" element={<ProductList />} />
             <Route path="products/add" element={<ProductAdd />} />
+            <Route path="/admin/products/edit/:id" element={<ProductEdit />} />
+            <Route path="/admin/products/gallery" element={<GalleryList />} />
           </Route>
         </Route>
 
