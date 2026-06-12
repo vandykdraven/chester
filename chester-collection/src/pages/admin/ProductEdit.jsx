@@ -9,6 +9,8 @@ import {
   X,
   CheckCircle,
   AlertCircle,
+  UploadCloud,
+  Database,
 } from "lucide-react";
 import Quill from "quill";
 import axios from "axios";
@@ -20,10 +22,17 @@ export default function ProductEdit() {
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+
   const editorRef = useRef(null);
   const quillInstance = useRef(null);
+  const fileInputRef = useRef(null);
+  const [activeSlot, setActiveSlot] = useState(null);
 
-  // --- STATE CUSTOM ALERT ---
+  // --- DATA MASTER ---
+  const [sizeGuides, setSizeGuides] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [tags, setTags] = useState([]);
+
   const [customAlert, setCustomAlert] = useState({
     show: false,
     message: "",
@@ -32,20 +41,12 @@ export default function ProductEdit() {
 
   const showAlert = (message, type = "success") => {
     setCustomAlert({ show: true, message, type });
-    if (type === "error") {
+    if (type === "error")
       setTimeout(
         () => setCustomAlert({ show: false, message: "", type: "success" }),
         4000,
       );
-    }
   };
-
-  const [dbCategories] = useState([
-    { id: "cat_1", name: "Atasan" },
-    { id: "cat_2", name: "Bawahan" },
-    { id: "cat_3", name: "Gaun & Dress" },
-    { id: "cat_4", name: "Aksesoris" },
-  ]);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -63,17 +64,43 @@ export default function ProductEdit() {
     seo_keywords: "",
   });
 
-  // Slot 0: Utama, Slot 1-4: Pendukung
+  // Dual-Path Media State
   const [images, setImages] = useState([null, null, null, null, null]);
+  const [showGallery, setShowGallery] = useState(false);
+  const [galleryMedia, setGalleryMedia] = useState([]);
+  const [isGalleryLoading, setIsGalleryLoading] = useState(false);
+
   const [wholesales, setWholesales] = useState([]);
   const [hasVariant, setHasVariant] = useState(false);
   const [variantTypes, setVariantTypes] = useState([
-    { name: "Ukuran", options: ["S", "M", "L"] },
+    { name: "Ukuran", options: [] },
   ]);
   const [optionInputs, setOptionInputs] = useState({});
   const [variantMatrix, setVariantMatrix] = useState([]);
 
-  // --- 1. MEMUAT SELEURUH DATA PRODUK DARI MYSQL ---
+  const BASE_URL = import.meta.env.VITE_API_URL.replace("/api", "");
+
+  // --- 1. AMBIL MASTER DATA (PANDUAN UKURAN, KATEGORI, TAG) DARI DB ---
+  useEffect(() => {
+    const fetchMasterData = async () => {
+      try {
+        const [guidesRes, catsRes, tagsRes] = await Promise.all([
+          axios.get(`${import.meta.env.VITE_API_URL}/size-guides`),
+          axios.get(`${import.meta.env.VITE_API_URL}/categories`),
+          axios.get(`${import.meta.env.VITE_API_URL}/tags`),
+        ]);
+
+        if (guidesRes.data.success) setSizeGuides(guidesRes.data.data);
+        if (catsRes.data.success) setCategories(catsRes.data.data);
+        if (tagsRes.data.success) setTags(tagsRes.data.data);
+      } catch (error) {
+        console.error("Gagal memuat data master:", error);
+      }
+    };
+    fetchMasterData();
+  }, []);
+
+  // --- 2. AMBIL DATA PRODUK UNTUK DIEDIT ---
   useEffect(() => {
     const loadProductData = async () => {
       try {
@@ -100,7 +127,6 @@ export default function ProductEdit() {
           });
 
           setHasVariant(p.has_variant === 1);
-
           if (p.has_variant === 1 && p.variant_types_json) {
             setVariantTypes(JSON.parse(p.variant_types_json));
             setVariantMatrix(p.variants);
@@ -115,30 +141,24 @@ export default function ProductEdit() {
             );
           }
 
-          // Rekonstruksi Gambar Lama dari Server
-          const BASE_URL = import.meta.env.VITE_API_URL.replace("/api", "");
+          // Konstruksi Gambar
           const loadedImages = [null, null, null, null, null];
-
           const primaryImg = p.images.find((img) => img.is_primary === 1);
-          if (primaryImg) {
+          if (primaryImg)
             loadedImages[0] = {
-              image_url: primaryImg.image_url,
+              type: "existing",
+              path: primaryImg.image_url,
               url: `${BASE_URL}${primaryImg.image_url}`,
-              is_primary: true,
-              isExisting: true,
             };
-          }
 
           const supportingImgs = p.images.filter((img) => img.is_primary === 0);
           supportingImgs.forEach((img, index) => {
-            if (index < 4) {
+            if (index < 4)
               loadedImages[index + 1] = {
-                image_url: img.image_url,
+                type: "existing",
+                path: img.image_url,
                 url: `${BASE_URL}${img.image_url}`,
-                is_primary: false,
-                isExisting: true,
               };
-            }
           });
           setImages(loadedImages);
 
@@ -147,108 +167,199 @@ export default function ProductEdit() {
           }
         }
       } catch (error) {
-        console.error("Gagal memuat data produk:", error);
-        showAlert("Gagal memuat data produk dari server", "error");
+        console.error("Gagal memuat produk:", error);
+        showAlert("Gagal memuat data produk.", "error");
       } finally {
         setIsLoading(false);
       }
     };
-
     loadProductData();
   }, [id]);
 
-  // --- 2. INISIALISASI QUILL EDITOR ---
+  // --- 3. INITIALIZE QUILL ---
   useEffect(() => {
     if (!editorRef.current || quillInstance.current) return;
-
     quillInstance.current = new Quill(editorRef.current, {
       theme: "snow",
-      placeholder:
-        "Tuliskan detail bahan, ukuran, dan spesifikasi produk di sini...",
       modules: quillModules,
     });
-
     quillInstance.current.on("text-change", () => {
       setFormData((prev) => ({
         ...prev,
         description: quillInstance.current.root.innerHTML,
       }));
     });
-
-    if (formData.description) {
+    if (formData.description)
       quillInstance.current.root.innerHTML = formData.description;
-    }
   }, [isLoading]);
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+  const handleChange = (e) =>
+    setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+
+  // --- 4. MEDIA HANDLERS ---
+  const triggerPCUpload = (slotIdx) => {
+    setActiveSlot(slotIdx);
+    fileInputRef.current.click();
   };
 
-  // --- 3. LOGIKA DETEKSI UNGGRAH/EDIT FOTO LIVE ---
-  const handleImageChange = (index, e) => {
+  const handlePCFileChange = (e) => {
     const file = e.target.files[0];
-    if (file) {
-      const imageUrl = URL.createObjectURL(file);
-      const newImages = [...images];
-      // Menyimpan file biner baru untuk diupload, serta menandai status primary-nya
-      newImages[index] = {
-        file: file,
-        url: imageUrl,
-        is_primary: index === 0,
-        isExisting: false,
-      };
-      setImages(newImages);
+    if (!file) return;
+    const newImages = [...images];
+    newImages[activeSlot] = {
+      type: "pc",
+      file: file,
+      url: URL.createObjectURL(file),
+    };
+    setImages(newImages);
+    e.target.value = "";
+  };
+
+  const triggerServerGallery = (slotIdx) => {
+    setActiveSlot(slotIdx);
+    setShowGallery(true);
+    if (galleryMedia.length === 0) loadGalleryData();
+  };
+
+  const loadGalleryData = async () => {
+    setIsGalleryLoading(true);
+    try {
+      const response = await axios.get(
+        `${import.meta.env.VITE_API_URL}/gallery?limit=50`,
+      );
+      if (response.data.success) setGalleryMedia(response.data.data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsGalleryLoading(false);
     }
   };
 
-  const removeImage = (index, e) => {
+  const handleSelectFromGallery = (filePath) => {
+    const newImages = [...images];
+    newImages[activeSlot] = {
+      type: "server",
+      path: filePath,
+      url: `${BASE_URL}${filePath}`,
+    };
+    setImages(newImages);
+    setShowGallery(false);
+  };
+
+  const removeImageSlot = (slotIdx, e) => {
     e.preventDefault();
     const newImages = [...images];
-    newImages[index] = null;
+    newImages[slotIdx] = null;
     setImages(newImages);
   };
 
-  // --- 4. LOGIKA SIMPAN PERUBAHAN EDIT (SUBMIT MULTIPART FORMDATA) ---
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!images[0]) {
-      showAlert("Foto utama produk tidak boleh kosong!", "error");
+  // =======================================================================
+  // LOGIKA SMART TAGGING (AUTOCOMPLETE & AUTO-SAVE)
+  // =======================================================================
+  const [tagInput, setTagInput] = useState("");
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  const currentKeywords = formData.seo_keywords
+    ? formData.seo_keywords
+        .split(",")
+        .map((k) => k.trim())
+        .filter((k) => k)
+    : [];
+
+  const suggestedTags = tags.filter(
+    (t) =>
+      t.name.toLowerCase().includes(tagInput.toLowerCase()) &&
+      !currentKeywords
+        .map((k) => k.toLowerCase())
+        .includes(t.name.toLowerCase()),
+  );
+
+  const addTagToSEO = async (tagName) => {
+    const trimmedName = tagName.trim();
+    if (!trimmedName) return;
+
+    if (
+      currentKeywords
+        .map((k) => k.toLowerCase())
+        .includes(trimmedName.toLowerCase())
+    ) {
+      setTagInput("");
       return;
     }
 
+    const isExistInDB = tags.find(
+      (t) => t.name.toLowerCase() === trimmedName.toLowerCase(),
+    );
+    if (!isExistInDB) {
+      try {
+        await axios.post(`${import.meta.env.VITE_API_URL}/tags`, {
+          name: trimmedName,
+        });
+        setTags([...tags, { id: Date.now(), name: trimmedName }]);
+      } catch (error) {
+        console.error("Gagal auto-save tag:", error);
+      }
+    }
+
+    const newKeywords = [...currentKeywords, trimmedName];
+    setFormData((prev) => ({ ...prev, seo_keywords: newKeywords.join(", ") }));
+    setTagInput("");
+    setShowSuggestions(false);
+  };
+
+  const removeTagFromSEO = (indexToRemove) => {
+    const newKeywords = currentKeywords.filter(
+      (_, idx) => idx !== indexToRemove,
+    );
+    setFormData((prev) => ({ ...prev, seo_keywords: newKeywords.join(", ") }));
+  };
+
+  const handleTagKeyDown = (e) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      addTagToSEO(tagInput);
+    }
+  };
+
+  // --- 5. SUBMIT HANDLER ---
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!images[0]) {
+      showAlert("Foto utama produk wajib diisi!", "error");
+      return;
+    }
     setIsSubmitting(true);
 
     try {
       const dataToSend = new FormData();
-
-      // Kelompokkan file biner baru yang diunggah dari PC admin
-      if (images[0].file) {
+      if (images[0].type === "pc" && images[0].file)
         dataToSend.append("primaryImage", images[0].file);
-      }
-
       for (let i = 1; i <= 4; i++) {
-        if (images[i] && images[i].file) {
+        if (images[i] && images[i].type === "pc" && images[i].file)
           dataToSend.append("supportingImages", images[i].file);
-        }
       }
 
-      // Payload data teks dikirim bersamaan
-      const payloadData = {
+      const imagesConfig = images.map((img) =>
+        img
+          ? {
+              type: img.type,
+              path:
+                img.type === "server" || img.type === "existing"
+                  ? img.path
+                  : null,
+            }
+          : null,
+      );
+
+      const payload = {
         ...formData,
         has_variant: hasVariant,
         variantTypes: hasVariant ? variantTypes : [],
         variantMatrix: hasVariant ? variantMatrix : [],
         wholesales,
-        // Kirim penanda gambar lama yang dipertahankan admin ke backend
-        existingImages: images.map((img) =>
-          img && img.isExisting
-            ? { image_url: img.image_url, is_primary: img.is_primary }
-            : null,
-        ),
+        imagesConfig,
       };
-
-      dataToSend.append("data", JSON.stringify(payloadData));
+      dataToSend.append("data", JSON.stringify(payload));
 
       const response = await axios.put(
         `${import.meta.env.VITE_API_URL}/products/${id}`,
@@ -259,23 +370,16 @@ export default function ProductEdit() {
       );
 
       if (response.data.success) {
-        showAlert(
-          "Berhasil! Perubahan produk dan media telah disimpan.",
-          "success",
-        );
-        setTimeout(() => {
-          setCustomAlert({ show: false, message: "", type: "success" });
-          navigate("/admin/products");
-        }, 2000);
+        showAlert("Perubahan produk berhasil disimpan.", "success");
+        setTimeout(() => navigate("/admin/products"), 2000);
       }
     } catch (error) {
-      console.error("Gagal mengupdate produk:", error);
-      showAlert("Terjadi kesalahan sistem saat menyimpan.", "error");
+      showAlert("Terjadi kesalahan saat menyimpan produk.", "error");
       setIsSubmitting(false);
     }
   };
 
-  // --- 5. LOGIKA FORM MANAJEMEN GROSIR & VARIASI (SAMA PERSIS SEPERTI ADD) ---
+  // --- VARIANTS & WHOLESALE HANDLERS ---
   const addWholesale = () =>
     setWholesales([...wholesales, { minQty: "", price: "" }]);
   const removeWholesale = (index) =>
@@ -329,13 +433,11 @@ export default function ProductEdit() {
       (vt) => vt.name.trim() && vt.options.length > 0,
     );
     if (validTypes.length === 0) return;
-
     const optionsArrays = validTypes.map((vt) => vt.options);
     const combos = optionsArrays.reduce(
       (a, b) => a.flatMap((d) => b.map((e) => [...d, e])),
       [[]],
     );
-
     setVariantMatrix((prevMatrix) => {
       return combos.map((combo) => {
         const key = combo.join("-");
@@ -357,28 +459,28 @@ export default function ProductEdit() {
     });
   }, [variantTypes, hasVariant, isLoading]);
 
-  if (isLoading) {
+  if (isLoading)
     return (
       <div className="flex flex-col items-center justify-center min-h-[400px] gap-3 text-gray-500">
         <div className="h-8 w-8 border-4 border-chester-pink border-t-transparent rounded-full animate-spin"></div>
-        <p className="text-sm font-semibold">
-          Mengambil data produk lengkap...
-        </p>
+        <p className="text-sm font-semibold">Memuat produk...</p>
       </div>
     );
-  }
 
   return (
     <div className="max-w-5xl mx-auto pb-12 relative">
-      {/* CUSTOM TOAST ALERT MELAYANG */}
+      <input
+        type="file"
+        accept="image/*"
+        ref={fileInputRef}
+        onChange={handlePCFileChange}
+        className="hidden"
+      />
+
       {customAlert.show && (
         <div className="fixed top-6 right-6 z-50 animate-bounce">
           <div
-            className={`flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-xl border text-sm font-semibold text-white ${
-              customAlert.type === "success"
-                ? "bg-emerald-500 border-emerald-400"
-                : "bg-rose-500 border-rose-400"
-            }`}
+            className={`flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-xl border text-sm font-semibold text-white ${customAlert.type === "success" ? "bg-emerald-500 border-emerald-400" : "bg-rose-500 border-rose-400"}`}
           >
             {customAlert.type === "success" ? (
               <CheckCircle size={20} />
@@ -390,12 +492,57 @@ export default function ProductEdit() {
         </div>
       )}
 
-      {/* HEADER BAR */}
+      {/* MODAL GALERI SERVER */}
+      {showGallery && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden animate-scale-up">
+            <div className="px-6 py-4 border-b flex justify-between items-center bg-gray-50">
+              <h3 className="font-bold text-lg text-gray-800">
+                Pilih Foto dari Galeri Server
+              </h3>
+              <button
+                onClick={() => setShowGallery(false)}
+                className="p-2 text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto flex-1">
+              {isGalleryLoading ? (
+                <div className="flex justify-center h-40 items-center">
+                  <div className="h-6 w-6 border-2 border-chester-pink border-t-transparent rounded-full animate-spin"></div>
+                </div>
+              ) : galleryMedia.length === 0 ? (
+                <p className="text-center text-gray-400 py-10">
+                  Pustaka media kosong.
+                </p>
+              ) : (
+                <div className="grid grid-cols-4 sm:grid-cols-5 gap-4">
+                  {galleryMedia.map((media) => (
+                    <div
+                      key={media.id}
+                      onClick={() => handleSelectFromGallery(media.file_path)}
+                      className="cursor-pointer aspect-square rounded-xl overflow-hidden border hover:border-chester-pink transition shadow-sm"
+                    >
+                      <img
+                        src={`${BASE_URL}${media.file_path}`}
+                        alt="Media"
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
         <div className="flex items-center gap-4">
           <Link
             to="/admin/products"
-            className="p-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600"
+            className="p-2 bg-white border rounded-lg hover:bg-gray-50"
           >
             <ArrowLeft size={20} />
           </Link>
@@ -404,7 +551,7 @@ export default function ProductEdit() {
         <button
           onClick={handleSubmit}
           disabled={isSubmitting}
-          className="bg-chester-pink text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-gray-900 transition shadow-sm"
+          className="bg-chester-pink text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-gray-900 transition"
         >
           <Save size={18} />{" "}
           {isSubmitting ? "Menyimpan..." : "Simpan Perubahan"}
@@ -416,8 +563,7 @@ export default function ProductEdit() {
         onSubmit={handleSubmit}
       >
         <div className="lg:col-span-2 flex flex-col gap-8">
-          {/* INFORMASI DASAR */}
-          <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
+          <div className="bg-white p-6 rounded-xl border shadow-sm">
             <h2 className="text-lg font-bold text-chester-text mb-6">
               Informasi Dasar
             </h2>
@@ -432,27 +578,30 @@ export default function ProductEdit() {
                   required
                   value={formData.name}
                   onChange={handleChange}
-                  className="w-full border border-gray-300 px-4 py-2.5 rounded-lg focus:outline-none focus:border-chester-pink"
+                  className="w-full border px-4 py-2.5 rounded-lg focus:outline-none focus:border-chester-pink"
                 />
               </div>
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">
                   Deskripsi Produk
                 </label>
-                <div ref={editorRef} className="bg-white"></div>
+                <div
+                  ref={editorRef}
+                  className="bg-white min-h-[200px] border rounded-lg"
+                ></div>
               </div>
             </div>
           </div>
 
           {/* VARIASI PRODUK */}
-          <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
+          <div className="bg-white p-6 rounded-xl border shadow-sm">
             <div className="flex justify-between items-center mb-6">
               <div>
                 <h2 className="text-lg font-bold text-chester-text">
                   Variasi Produk
                 </h2>
                 <p className="text-xs text-gray-500 mt-1">
-                  Atur harga, stok, dan berat untuk setiap ukuran/warna.
+                  Aktifkan untuk ukuran atau warna bersilang.
                 </p>
               </div>
               <label className="flex items-center cursor-pointer relative">
@@ -472,11 +621,11 @@ export default function ProductEdit() {
             </div>
 
             {hasVariant && (
-              <div className="flex flex-col gap-6 border-t border-gray-100 pt-6">
+              <div className="flex flex-col gap-6 border-t pt-6">
                 {variantTypes.map((vt, index) => (
                   <div
                     key={index}
-                    className="flex flex-col gap-4 p-5 bg-gray-50 rounded-xl border border-gray-200 relative"
+                    className="flex flex-col gap-4 p-5 bg-gray-50 rounded-xl border relative"
                   >
                     <button
                       type="button"
@@ -495,7 +644,7 @@ export default function ProductEdit() {
                         onChange={(e) =>
                           updateVariantTypeName(index, e.target.value)
                         }
-                        className="w-full border border-gray-300 px-3 py-2 rounded-lg text-sm"
+                        className="w-full border px-3 py-2 rounded-lg text-sm"
                       />
                     </div>
                     <div className="w-full">
@@ -506,7 +655,7 @@ export default function ProductEdit() {
                         {vt.options?.map((opt, optIndex) => (
                           <span
                             key={optIndex}
-                            className="bg-white border border-chester-pink text-chester-pink px-3 py-1.5 rounded-lg text-sm font-semibold flex items-center gap-2 shadow-sm"
+                            className="bg-white border border-chester-pink text-chester-pink px-3 py-1.5 rounded-lg text-sm font-semibold flex items-center gap-2"
                           >
                             {opt}
                             <button
@@ -514,7 +663,6 @@ export default function ProductEdit() {
                               onClick={() =>
                                 handleRemoveOption(index, optIndex)
                               }
-                              className="hover:text-red-500"
                             >
                               <X size={14} />
                             </button>
@@ -533,12 +681,12 @@ export default function ProductEdit() {
                           }
                           onKeyDown={(e) => handleOptionKeyDown(e, index)}
                           placeholder="Ketik lalu Enter"
-                          className="flex-1 border border-gray-300 px-3 py-2 rounded-lg text-sm"
+                          className="flex-1 border px-3 py-2 rounded-lg text-sm"
                         />
                         <button
                           type="button"
                           onClick={() => handleAddOption(index)}
-                          className="bg-gray-800 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-black"
+                          className="bg-gray-800 text-white px-4 py-2 rounded-lg text-sm"
                         >
                           Tambah
                         </button>
@@ -551,42 +699,31 @@ export default function ProductEdit() {
                   onClick={addVariantType}
                   className="w-max py-2 px-4 border-2 border-dashed border-chester-pink text-chester-pink text-sm font-bold rounded-lg flex items-center gap-2"
                 >
-                  <Plus size={16} /> Tambah Variasi Induk
+                  <Plus size={16} /> Tambah Kategori Variasi
                 </button>
 
                 {variantMatrix.length > 0 && (
-                  <div className="mt-6 overflow-x-auto border border-gray-200 rounded-xl">
-                    <table className="w-full text-left border-collapse min-w-[750px]">
+                  <div className="overflow-x-auto border rounded-xl mt-4">
+                    <table className="w-full text-left min-w-[750px]">
                       <thead>
-                        <tr className="bg-gray-100 text-xs text-gray-700 uppercase tracking-wider">
-                          <th className="p-4 border-b border-gray-200 font-bold">
-                            Kombinasi
-                          </th>
-                          <th className="p-4 border-b border-gray-200 font-bold w-28">
-                            Harga (Rp)
-                          </th>
-                          <th className="p-4 border-b border-gray-200 font-bold w-28">
-                            Coret (Rp)
-                          </th>
-                          <th className="p-4 border-b border-gray-200 font-bold w-24">
-                            Stok
-                          </th>
-                          <th className="p-4 border-b border-gray-200 font-bold w-24">
-                            Berat (gr)
-                          </th>
-                          <th className="p-4 border-b border-gray-200 font-bold w-32">
-                            SKU
-                          </th>
+                        <tr className="bg-gray-100 text-xs text-gray-700 font-bold uppercase">
+                          <th className="p-4">Kombinasi</th>
+                          <th className="p-4 w-28">Harga (Rp)</th>
+                          <th className="p-4 w-28">Coret (Rp)</th>
+                          <th className="p-4 w-24">Stok</th>
+                          <th className="p-4 w-24">Berat (gr)</th>
+                          <th className="p-4 w-32">SKU</th>
                         </tr>
                       </thead>
-                      <tbody className="bg-white">
+                      <tbody>
                         {variantMatrix.map((item, index) => (
-                          <tr key={index} className="hover:bg-gray-50">
-                            <td className="p-3 border-b border-gray-100 text-sm font-bold text-chester-pink">
+                          <tr key={index} className="border-b">
+                            <td className="p-3 text-sm font-bold text-chester-pink">
                               {item.variant_key ||
-                                item.combination?.join(" - ")}
+                                item.key ||
+                                item.combination?.join("-")}
                             </td>
-                            <td className="p-3 border-b border-gray-100">
+                            <td className="p-3">
                               <input
                                 type="number"
                                 value={item.price}
@@ -597,10 +734,10 @@ export default function ProductEdit() {
                                     e.target.value,
                                   )
                                 }
-                                className="w-full p-2 border rounded-md text-sm"
+                                className="w-full p-2 border rounded text-sm"
                               />
                             </td>
-                            <td className="p-3 border-b border-gray-100">
+                            <td className="p-3">
                               <input
                                 type="number"
                                 value={item.original_price}
@@ -611,10 +748,10 @@ export default function ProductEdit() {
                                     e.target.value,
                                   )
                                 }
-                                className="w-full p-2 border rounded-md text-sm"
+                                className="w-full p-2 border rounded text-sm"
                               />
                             </td>
-                            <td className="p-3 border-b border-gray-100">
+                            <td className="p-3">
                               <input
                                 type="number"
                                 value={item.stock}
@@ -625,10 +762,10 @@ export default function ProductEdit() {
                                     e.target.value,
                                   )
                                 }
-                                className="w-full p-2 border rounded-md text-sm"
+                                className="w-full p-2 border rounded text-sm"
                               />
                             </td>
-                            <td className="p-3 border-b border-gray-100">
+                            <td className="p-3">
                               <input
                                 type="number"
                                 value={item.weight}
@@ -639,10 +776,10 @@ export default function ProductEdit() {
                                     e.target.value,
                                   )
                                 }
-                                className="w-full p-2 border rounded-md text-sm"
+                                className="w-full p-2 border rounded text-sm"
                               />
                             </td>
-                            <td className="p-3 border-b border-gray-100">
+                            <td className="p-3">
                               <input
                                 type="text"
                                 value={item.sku}
@@ -653,7 +790,7 @@ export default function ProductEdit() {
                                     e.target.value,
                                   )
                                 }
-                                className="w-full p-2 border rounded-md text-sm"
+                                className="w-full p-2 border rounded text-sm uppercase"
                               />
                             </td>
                           </tr>
@@ -667,7 +804,7 @@ export default function ProductEdit() {
           </div>
 
           {/* HARGA GROSIR */}
-          <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
+          <div className="bg-white p-6 rounded-xl border shadow-sm">
             <h2 className="text-lg font-bold text-chester-text mb-4">
               Harga Grosir
             </h2>
@@ -675,10 +812,10 @@ export default function ProductEdit() {
               {wholesales.map((ws, index) => (
                 <div
                   key={index}
-                  className="flex gap-4 items-center bg-gray-50 p-3 rounded-lg border border-gray-200"
+                  className="flex gap-4 items-center bg-gray-50 p-3 rounded-lg border"
                 >
                   <div className="flex-1">
-                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                    <label className="block text-xs font-bold mb-1">
                       Minimal Qty
                     </label>
                     <input
@@ -687,11 +824,11 @@ export default function ProductEdit() {
                       onChange={(e) =>
                         updateWholesale(index, "minQty", e.target.value)
                       }
-                      className="w-full border border-gray-300 px-4 py-2 rounded-lg text-sm"
+                      className="w-full border px-4 py-2 rounded-lg text-sm"
                     />
                   </div>
                   <div className="flex-1">
-                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                    <label className="block text-xs font-bold mb-1">
                       Harga (Rp)
                     </label>
                     <input
@@ -700,7 +837,7 @@ export default function ProductEdit() {
                       onChange={(e) =>
                         updateWholesale(index, "price", e.target.value)
                       }
-                      className="w-full border border-gray-300 px-4 py-2 rounded-lg text-sm"
+                      className="w-full border px-4 py-2 rounded-lg text-sm"
                     />
                   </div>
                   <button
@@ -717,15 +854,15 @@ export default function ProductEdit() {
                 onClick={addWholesale}
                 className="w-max mt-2 text-sm font-bold text-chester-pink flex items-center gap-1"
               >
-                <Plus size={16} /> Tambah Ketentuan Grosir
+                <Plus size={16} /> Tambah Grosir
               </button>
             </div>
           </div>
 
-          {/* PENGATURAN SEO */}
-          <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
+          {/* SEO SETTINGS & SMART TAGGING */}
+          <div className="bg-white p-6 rounded-xl border shadow-sm">
             <h2 className="text-lg font-bold text-chester-text mb-6">
-              Pengaturan SEO
+              Pengaturan SEO & Tag
             </h2>
             <div className="flex flex-col gap-5">
               <div>
@@ -737,7 +874,7 @@ export default function ProductEdit() {
                   name="seo_title"
                   value={formData.seo_title}
                   onChange={handleChange}
-                  className="w-full border border-gray-300 px-4 py-2.5 rounded-lg"
+                  className="w-full border px-4 py-2.5 rounded-lg"
                 />
               </div>
               <div>
@@ -749,39 +886,90 @@ export default function ProductEdit() {
                   rows="3"
                   value={formData.seo_description}
                   onChange={handleChange}
-                  className="w-full border border-gray-300 px-4 py-3 rounded-lg resize-none"
+                  className="w-full border px-4 py-3 rounded-lg resize-none"
                 ></textarea>
               </div>
+
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">
-                  Kata Kunci (Keywords)
+                  SEO Keywords / Tag Produk
                 </label>
-                <input
-                  type="text"
-                  name="seo_keywords"
-                  value={formData.seo_keywords}
-                  onChange={handleChange}
-                  className="w-full border border-gray-300 px-4 py-2.5 rounded-lg"
-                />
+                <div className="relative">
+                  <div className="flex flex-wrap gap-2 w-full border border-gray-300 px-3 py-2 rounded-lg bg-white focus-within:border-chester-pink min-h-[46px] items-center transition-colors">
+                    {currentKeywords.map((kw, idx) => (
+                      <span
+                        key={idx}
+                        className="bg-pink-50 text-chester-pink border border-pink-200 px-2.5 py-1 rounded-md text-xs font-bold flex items-center gap-1.5 shadow-sm"
+                      >
+                        {kw}
+                        <button
+                          type="button"
+                          onClick={() => removeTagFromSEO(idx)}
+                          className="hover:bg-red-500 hover:text-white rounded-full p-0.5 transition-colors"
+                        >
+                          <X size={12} />
+                        </button>
+                      </span>
+                    ))}
+                    <input
+                      type="text"
+                      value={tagInput}
+                      onChange={(e) => {
+                        setTagInput(e.target.value);
+                        setShowSuggestions(true);
+                      }}
+                      onKeyDown={handleTagKeyDown}
+                      onFocus={() => setShowSuggestions(true)}
+                      onBlur={() =>
+                        setTimeout(() => setShowSuggestions(false), 200)
+                      }
+                      placeholder={
+                        currentKeywords.length === 0
+                          ? "Ketik lalu tekan Enter..."
+                          : "Ketik lagi..."
+                      }
+                      className="flex-1 min-w-[150px] outline-none bg-transparent text-sm text-gray-700 placeholder-gray-400"
+                    />
+                  </div>
+
+                  {showSuggestions && tagInput && (
+                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-2xl max-h-48 overflow-y-auto">
+                      {suggestedTags.length > 0 ? (
+                        suggestedTags.map((tag) => (
+                          <div
+                            key={tag.id}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              addTagToSEO(tag.name);
+                            }}
+                            className="px-4 py-2.5 hover:bg-pink-50 hover:text-chester-pink cursor-pointer text-sm font-semibold text-gray-700 transition border-b border-gray-50 last:border-0"
+                          >
+                            <span className="opacity-40 mr-2">#</span>
+                            {tag.name}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="px-4 py-3 text-sm text-gray-500 bg-gray-50 rounded-b-xl border-t border-gray-100">
+                          Tekan{" "}
+                          <span className="font-bold text-gray-700">Enter</span>{" "}
+                          untuk menambah Tag baru.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* RIGHT COLUMN */}
+        {/* KOLOM KANAN */}
         <div className="flex flex-col gap-8">
-          {/* MEDIA PRODUK (LIVE UPDATE GAMBAR PC) */}
-          <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
+          <div className="bg-white p-6 rounded-xl border shadow-sm">
             <h2 className="text-lg font-bold text-chester-text mb-4">
-              Media Produk
+              Media Katalog
             </h2>
-            <label className="relative border-2 border-dashed border-chester-pink bg-pink-50 rounded-xl p-8 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-pink-100 transition group mb-4 aspect-square overflow-hidden">
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => handleImageChange(0, e)}
-              />
+            <div className="relative border-2 border-dashed border-gray-200 bg-gray-50 rounded-xl p-4 flex flex-col items-center justify-center text-center aspect-square mb-4 overflow-hidden group">
               {images[0] ? (
                 <>
                   <img
@@ -790,36 +978,44 @@ export default function ProductEdit() {
                     className="absolute inset-0 w-full h-full object-cover z-10"
                   />
                   <button
-                    onClick={(e) => removeImage(0, e)}
+                    onClick={(e) => removeImageSlot(0, e)}
                     className="absolute top-3 right-3 bg-white text-red-500 rounded p-1.5 shadow-md z-20 hover:bg-red-500 hover:text-white"
                   >
                     <Trash2 size={16} />
                   </button>
                 </>
               ) : (
-                <>
-                  <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center mb-3 shadow-sm">
-                    <ImageIcon className="text-chester-pink" size={24} />
-                  </div>
-                  <p className="text-sm font-bold text-chester-text mb-1">
+                <div className="z-10 flex flex-col items-center">
+                  <ImageIcon className="text-gray-300 mb-2" size={32} />
+                  <p className="text-xs font-bold text-gray-500 mb-3">
                     Foto Utama
                   </p>
-                </>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => triggerPCUpload(0)}
+                      className="px-2.5 py-1.5 bg-gray-800 text-white text-xs rounded font-semibold flex items-center gap-1 hover:bg-black"
+                    >
+                      <UploadCloud size={12} /> PC
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => triggerServerGallery(0)}
+                      className="px-2.5 py-1.5 bg-white text-chester-pink border border-chester-pink text-xs rounded font-semibold flex items-center gap-1 hover:bg-pink-50"
+                    >
+                      <Database size={12} /> Server
+                    </button>
+                  </div>
+                </div>
               )}
-            </label>
+            </div>
 
             <div className="grid grid-cols-4 gap-2">
               {[1, 2, 3, 4].map((idx) => (
-                <label
+                <div
                   key={idx}
-                  className="relative border-2 border-dashed border-gray-200 rounded-lg aspect-square flex flex-col items-center justify-center cursor-pointer hover:border-chester-pink hover:bg-pink-50 transition text-gray-400 overflow-hidden"
+                  className="relative border-2 border-dashed border-gray-200 bg-gray-50 rounded-lg aspect-square flex flex-col items-center justify-center text-center overflow-hidden group"
                 >
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => handleImageChange(idx, e)}
-                  />
                   {images[idx] ? (
                     <>
                       <img
@@ -828,29 +1024,46 @@ export default function ProductEdit() {
                         className="absolute inset-0 w-full h-full object-cover z-10"
                       />
                       <button
-                        onClick={(e) => removeImage(idx, e)}
+                        onClick={(e) => removeImageSlot(idx, e)}
                         className="absolute top-1 right-1 bg-white/80 text-red-500 rounded p-1 z-20"
                       >
                         <X size={12} />
                       </button>
                     </>
                   ) : (
-                    <Plus size={20} />
+                    <div className="flex flex-col items-center gap-1 p-0.5">
+                      <Plus size={14} className="text-gray-400" />
+                      <div className="flex flex-col gap-1">
+                        <button
+                          type="button"
+                          onClick={() => triggerPCUpload(idx)}
+                          className="p-1 bg-gray-800 text-white rounded text-[9px] font-bold"
+                        >
+                          <UploadCloud size={10} className="mx-auto" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => triggerServerGallery(idx)}
+                          className="p-1 bg-white text-chester-pink border border-chester-pink rounded text-[9px] font-bold"
+                        >
+                          <Database size={10} className="mx-auto" />
+                        </button>
+                      </div>
+                    </div>
                   )}
-                </label>
+                </div>
               ))}
             </div>
           </div>
 
-          {/* HARGA & INVENTARIS MANUAL (JIKA STANDAR) */}
           {!hasVariant && (
-            <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
+            <div className="bg-white p-6 rounded-xl border shadow-sm">
               <h2 className="text-lg font-bold text-chester-text mb-6">
                 Harga & Inventaris
               </h2>
               <div className="flex flex-col gap-5">
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                  <label className="block text-sm font-bold mb-2">
                     Harga Jual (Rp) *
                   </label>
                   <input
@@ -858,11 +1071,11 @@ export default function ProductEdit() {
                     name="price"
                     value={formData.price}
                     onChange={handleChange}
-                    className="w-full border border-gray-300 px-4 py-2.5 rounded-lg"
+                    className="w-full border px-4 py-2.5 rounded-lg"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                  <label className="block text-sm font-bold mb-2">
                     Harga Coret
                   </label>
                   <input
@@ -870,24 +1083,22 @@ export default function ProductEdit() {
                     name="original_price"
                     value={formData.original_price}
                     onChange={handleChange}
-                    className="w-full border border-gray-300 px-4 py-2.5 rounded-lg"
+                    className="w-full border px-4 py-2.5 rounded-lg"
                   />
                 </div>
                 <div className="flex gap-4">
                   <div className="flex-1">
-                    <label className="block text-sm font-bold text-gray-700 mb-2">
-                      Stok
-                    </label>
+                    <label className="block text-sm font-bold mb-2">Stok</label>
                     <input
                       type="number"
                       name="stock"
                       value={formData.stock}
                       onChange={handleChange}
-                      className="w-full border border-gray-300 px-4 py-2.5 rounded-lg"
+                      className="w-full border px-4 py-2.5 rounded-lg"
                     />
                   </div>
                   <div className="flex-1">
-                    <label className="block text-sm font-bold text-gray-700 mb-2">
+                    <label className="block text-sm font-bold mb-2">
                       Berat (gr)
                     </label>
                     <input
@@ -895,54 +1106,79 @@ export default function ProductEdit() {
                       name="weight"
                       value={formData.weight}
                       onChange={handleChange}
-                      className="w-full border border-gray-300 px-4 py-2.5 rounded-lg"
+                      className="w-full border px-4 py-2.5 rounded-lg"
                     />
                   </div>
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    SKU
-                  </label>
+                  <label className="block text-sm font-bold mb-2">SKU</label>
                   <input
                     type="text"
                     name="sku"
                     value={formData.sku}
                     onChange={handleChange}
-                    className="w-full border border-gray-300 px-4 py-2.5 rounded-lg uppercase"
+                    className="w-full border px-4 py-2.5 rounded-lg uppercase"
                   />
                 </div>
               </div>
             </div>
           )}
 
-          {/* STATUS & KATEGORI */}
-          <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
+          <div className="bg-white p-6 rounded-xl border shadow-sm">
             <h2 className="text-lg font-bold text-chester-text mb-4">
-              Status & Kategori
+              Pengaturan Katalog
             </h2>
             <div className="flex flex-col gap-5">
-              <select
-                name="status"
-                value={formData.status}
-                onChange={handleChange}
-                className="w-full border border-gray-300 px-4 py-2.5 rounded-lg bg-white"
-              >
-                <option value="available">Aktif</option>
-                <option value="draft">Draf</option>
-              </select>
-              <select
-                name="category_id"
-                value={formData.category_id}
-                onChange={handleChange}
-                className="w-full border border-gray-300 px-4 py-2.5 rounded-lg bg-white"
-              >
-                <option value="">-- Pilih Kategori --</option>
-                {dbCategories.map((cat) => (
-                  <option key={cat.id} value={cat.id}>
-                    {cat.name}
-                  </option>
-                ))}
-              </select>
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
+                  Status Produk
+                </label>
+                <select
+                  name="status"
+                  value={formData.status}
+                  onChange={handleChange}
+                  className="w-full border px-4 py-2.5 rounded-lg"
+                >
+                  <option value="available">Aktif</option>
+                  <option value="draft">Draf</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
+                  Kategori Toko
+                </label>
+                <select
+                  name="category_id"
+                  value={formData.category_id}
+                  onChange={handleChange}
+                  className="w-full border px-4 py-2.5 rounded-lg"
+                >
+                  <option value="">-- Pilih Kategori --</option>
+                  {categories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-2">
+                  Template Panduan Ukuran
+                </label>
+                <select
+                  name="size_guide_id"
+                  value={formData.size_guide_id}
+                  onChange={handleChange}
+                  className="w-full border px-4 py-2.5 rounded-lg"
+                >
+                  <option value="">-- Tanpa Panduan Ukuran --</option>
+                  {sizeGuides.map((guide) => (
+                    <option key={guide.id} value={guide.id}>
+                      {guide.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           </div>
         </div>

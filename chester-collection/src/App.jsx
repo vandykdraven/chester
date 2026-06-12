@@ -15,9 +15,13 @@ import AdminLayout from "./pages/admin/AdminLayout";
 import Dashboard from "./pages/admin/Dashboard";
 import ProductList from "./pages/admin/ProductList";
 import ProductAdd from "./pages/admin/ProductAdd";
+import ProductTag from "./pages/admin/ProductTag";
 import AdminLogin from "./pages/admin/AdminLogin";
 import ProductEdit from "./pages/admin/ProductEdit";
 import GalleryList from "./pages/admin/GalleryList";
+import SizeGuideList from "./pages/admin/SizeGuideList";
+import SizeGuideForm from "./pages/admin/SizeGuideForm";
+import ProductCategory from "./pages/admin/ProductCategory";
 
 // Import Penjaga Rute
 import AdminGuard from "./components/AdminGuard";
@@ -335,8 +339,15 @@ export default function App() {
             <Route index element={<Dashboard />} />
             <Route path="products" element={<ProductList />} />
             <Route path="products/add" element={<ProductAdd />} />
-            <Route path="/admin/products/edit/:id" element={<ProductEdit />} />
-            <Route path="/admin/products/gallery" element={<GalleryList />} />
+            <Route path="product-tags" element={<ProductTag />} />
+            <Route path="product-categories" element={<ProductCategory />} />
+            <Route path="products/edit/:id" element={<ProductEdit />} />
+            <Route path="products/gallery" element={<GalleryList />} />
+
+            {/* Rute Panduan Ukuran */}
+            <Route path="size-guides" element={<SizeGuideList />} />
+            <Route path="size-guides/add" element={<SizeGuideForm />} />
+            <Route path="size-guides/edit/:id" element={<SizeGuideForm />} />
           </Route>
         </Route>
 

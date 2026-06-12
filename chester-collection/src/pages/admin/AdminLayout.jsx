@@ -11,6 +11,7 @@ import {
   X,
   ExternalLink,
   ChevronDown,
+  Image as ImageIcon,
 } from "lucide-react";
 import logo from "../../assets/logo.png"; // Pastikan path logo sesuai
 
@@ -36,6 +37,11 @@ export default function AdminLayout() {
       path: "/admin/orders",
     },
     { name: "Pelanggan", icon: <Users size={20} />, path: "/admin/customers" },
+    {
+      name: "Galeri Media",
+      icon: <ImageIcon size={20} />,
+      path: "/admin/products/gallery",
+    },
     {
       name: "Pengaturan",
       icon: <Settings size={20} />,
@@ -116,6 +122,13 @@ export default function AdminLayout() {
                   className="pl-11 pr-4 py-2 text-sm text-gray-500 hover:text-chester-pink hover:bg-pink-50/50 rounded-lg transition-colors font-medium"
                 >
                   Tag & Label
+                </Link>
+                <Link
+                  to="/admin/size-guides"
+                  onClick={() => setIsSidebarOpen(false)}
+                  className="pl-11 pr-4 py-2 text-sm text-gray-500 hover:text-chester-pink hover:bg-pink-50/50 rounded-lg transition-colors font-medium"
+                >
+                  Panduan Ukuran
                 </Link>
                 <Link
                   to="/admin/product-vouchers"

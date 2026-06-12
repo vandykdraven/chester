@@ -73,17 +73,16 @@ const cpUpload = upload.fields([
 ]);
 
 // =======================================================================
-// ENDPOINT: TAMBAH PRODUK BARU (POST /api/products)
+// ENDPOINT: TAMBAH PRODUK BARU + DUAL MEDIA SOURCE (POST /api/products)
 // =======================================================================
 app.post("/api/products", cpUpload, async (req, res) => {
-  // Karena data teks dikirim bersamaan dengan file (multipart/form-data),
-  // kita harus mem-parsing string JSON dari req.body
   try {
     const productData = JSON.parse(req.body.data);
 
     const {
       name,
       category,
+      size_guide_id, // Kolom panduan ukuran baru
       description,
       price,
       original_price,
@@ -98,6 +97,7 @@ app.post("/api/products", cpUpload, async (req, res) => {
       seo_title,
       seo_description,
       seo_keywords,
+      imagesConfig, // Menerima konfigurasi sumber media tiap slot [slot0, slot1, slot2, slot3, slot4]
     } = productData;
 
     if (!name) {
@@ -106,22 +106,21 @@ app.post("/api/products", cpUpload, async (req, res) => {
         .json({ success: false, message: "Nama produk wajib diisi!" });
     }
 
-    // --- PROSES TRANSAKSI DATABASE ---
-    // Menggunakan Transaction agar jika salah satu tabel gagal disimpan, seluruh data dibatalkan otomatis (keamanan data)
     const connection = await db.getConnection();
     await connection.beginTransaction();
 
     try {
-      // 1. Simpan Data Induk Produk ke tabel `products`
+      // 1. Simpan Data Induk Produk ke tabel `products` (Termasuk size_guide_id)
       const [productResult] = await connection.query(
         `INSERT INTO products (
-          name, category_id, description, status, price, original_price, 
+          name, category_id, size_guide_id, description, status, price, original_price, 
           stock, weight, sku, has_variant, variant_types_json, 
           seo_title, seo_description, seo_keywords
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )`,
         [
           name,
           category || null,
+          size_guide_id || null, // Disimpan ke MySQL
           description || null,
           status || "available",
           hasVariant ? 0 : price || 0,
@@ -139,29 +138,53 @@ app.post("/api/products", cpUpload, async (req, res) => {
 
       const productId = productResult.insertId;
 
-      // 2. Simpan Data Gambar ke tabel `product_images`
-      // Ambil file Gambar Utama jika diunggah
-      if (req.files["primaryImage"]) {
-        const primaryFile = req.files["primaryImage"][0];
-        const primaryUrl = `/uploads/products/${primaryFile.filename}`;
-        await connection.query(
-          `INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 1)`,
-          [productId, primaryUrl],
-        );
-      }
+      // 2. LOGIKA BARU: PROSES PEMILIHAN GAMBAR CAMPURAN (PC / SERVER)
+      const imgCfg = imagesConfig || [];
 
-      // Ambil berkas Gambar Pendukung jika diunggah
-      if (req.files["supportingImages"]) {
-        for (const file of req.files["supportingImages"]) {
-          const supportingUrl = `/uploads/products/${file.filename}`;
+      // --- A. Proses Slot 0 (Foto Utama) ---
+      if (imgCfg[0]) {
+        if (imgCfg[0].type === "pc" && req.files["primaryImage"]) {
+          const primaryFile = req.files["primaryImage"][0];
+          const primaryUrl = `/uploads/products/${primaryFile.filename}`;
           await connection.query(
-            `INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 0)`,
-            [productId, supportingUrl],
+            `INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 1)`,
+            [productId, primaryUrl],
+          );
+        } else if (imgCfg[0].type === "server" && imgCfg[0].path) {
+          await connection.query(
+            `INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 1)`,
+            [productId, imgCfg[0].path],
           );
         }
       }
 
-      // 3. Simpan Data Variasi (Jika hasVariant aktif) ke tabel `product_variants`
+      // --- B. Proses Slot 1-4 (Foto Pendukung) ---
+      let pcUploadIndex = 0;
+      for (let i = 1; i <= 4; i++) {
+        const slotConfig = imgCfg[i];
+        if (slotConfig) {
+          if (
+            slotConfig.type === "pc" &&
+            req.files["supportingImages"] &&
+            req.files["supportingImages"][pcUploadIndex]
+          ) {
+            const file = req.files["supportingImages"][pcUploadIndex];
+            const supportingUrl = `/uploads/products/${file.filename}`;
+            await connection.query(
+              `INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 0)`,
+              [productId, supportingUrl],
+            );
+            pcUploadIndex++;
+          } else if (slotConfig.type === "server" && slotConfig.path) {
+            await connection.query(
+              `INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 0)`,
+              [productId, slotConfig.path],
+            );
+          }
+        }
+      }
+
+      // 3. Simpan Data Variasi ke tabel `product_variants`
       if (hasVariant && variantMatrix && variantMatrix.length > 0) {
         for (const variant of variantMatrix) {
           await connection.query(
@@ -169,7 +192,7 @@ app.post("/api/products", cpUpload, async (req, res) => {
              VALUES (?, ?, ?, ?, ?, ?, ? )`,
             [
               productId,
-              variant.key, // Contoh: "M-Merah"
+              variant.key,
               variant.price || 0,
               variant.original_price || 0,
               variant.stock || 0,
@@ -192,7 +215,6 @@ app.post("/api/products", cpUpload, async (req, res) => {
         }
       }
 
-      // Jika seluruh baris eksekusi SQL di atas berhasil tanpa error, kunci data secara permanen!
       await connection.commit();
       connection.release();
 
@@ -202,7 +224,6 @@ app.post("/api/products", cpUpload, async (req, res) => {
         productId: productId,
       });
     } catch (dbError) {
-      // Jika terjadi kegagalan di tengah jalan, batalkan semua simpanan SQL di atas (Rollback)
       await connection.rollback();
       connection.release();
       throw dbError;
@@ -218,11 +239,10 @@ app.post("/api/products", cpUpload, async (req, res) => {
 });
 
 // =======================================================================
-// ENDPOINT: AMBIL SEMUA PRODUK (GET /api/products)
+// ENDPOINT: AMBUL SEMUA PRODUK (GET /api/products)
 // =======================================================================
 app.get("/api/products", async (req, res) => {
   try {
-    // Query ini menggabungkan 3 tabel: Induk Produk, Foto Utama, dan Data Variasi (Harga & Stok)
     const [rows] = await db.query(`
       SELECT 
         p.id, 
@@ -266,10 +286,6 @@ app.delete("/api/products/:id", async (req, res) => {
   const productId = req.params.id;
 
   try {
-    // Menghapus produk dari database.
-    // Berkat relasi ON DELETE CASCADE, data di tabel product_images, product_variants,
-    // dan product_wholesales akan otomatis ikut terhapus dari MySQL.
-    // *Catatan: File fisik gambar (JPG/PNG) di folder server TETAP AMAN untuk modul Galeri nanti.
     const [result] = await db.query("DELETE FROM products WHERE id = ?", [
       productId,
     ]);
@@ -336,7 +352,7 @@ app.get("/api/products/:id", async (req, res) => {
 });
 
 // =======================================================================
-// ENDPOINT: SIMPAN PERUBAHAN EDIT PRODUK + UPDATE GAMBAR (PUT /api/products/:id)
+// ENDPOINT: SIMPAN PERUBAHAN EDIT PRODUK + DUAL MEDIA (PUT /api/products/:id)
 // =======================================================================
 app.put(
   "/api/products/:id",
@@ -347,7 +363,6 @@ app.put(
   async (req, res) => {
     const productId = req.params.id;
 
-    // Karena menggunakan multipart/form-data, data teks dibungkus di dalam req.body.data
     if (!req.body.data) {
       return res
         .status(400)
@@ -369,7 +384,10 @@ app.put(
       variantTypes,
       variantMatrix,
       wholesales,
-      existingImages, // Daftar gambar lama yang TIDAK diubah oleh admin
+      seo_title,
+      seo_description,
+      seo_keywords,
+      imagesConfig, // Menerima susunan gambar baru (PC, Server, atau format lama)
     } = JSON.parse(req.body.data);
 
     const connection = await db.getConnection();
@@ -378,16 +396,14 @@ app.put(
 
       // 1. Update data induk produk
       await connection.query(
-        `
-      UPDATE products SET 
-        name = ?, category_id = ?, size_guide_id = ?, description = ?, status = ?, 
-        price = ?, original_price = ?, stock = ?, weight = ?, sku = ?, 
-        has_variant = ?, variant_types_json = ?
-      WHERE id = ?
-    `,
+        `UPDATE products SET 
+          name = ?, category_id = ?, size_guide_id = ?, description = ?, status = ?, 
+          price = ?, original_price = ?, stock = ?, weight = ?, sku = ?, 
+          has_variant = ?, variant_types_json = ?, seo_title = ?, seo_description = ?, seo_keywords = ?
+        WHERE id = ?`,
         [
           name,
-          category_id,
+          category_id || null,
           size_guide_id || null,
           description,
           status,
@@ -398,11 +414,14 @@ app.put(
           sku,
           has_variant ? 1 : 0,
           has_variant ? JSON.stringify(variantTypes) : null,
+          seo_title || null,
+          seo_description || null,
+          seo_keywords || null,
           productId,
         ],
       );
 
-      // 2. Update data Grosir (Hapus yang lama, ganti baru)
+      // 2. Update data Grosir
       await connection.query(
         "DELETE FROM product_wholesales WHERE product_id = ?",
         [productId],
@@ -418,7 +437,7 @@ app.put(
         }
       }
 
-      // 3. Update data Variasi (Hapus yang lama, ganti baru)
+      // 3. Update data Variasi
       await connection.query(
         "DELETE FROM product_variants WHERE product_id = ?",
         [productId],
@@ -426,11 +445,8 @@ app.put(
       if (has_variant && variantMatrix && variantMatrix.length > 0) {
         for (const row of variantMatrix) {
           await connection.query(
-            `
-          INSERT INTO product_variants 
-            (product_id, variant_key, price, original_price, stock, weight, sku) 
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `,
+            `INSERT INTO product_variants (product_id, variant_key, price, original_price, stock, weight, sku) 
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
             [
               productId,
               row.key || row.variant_key || row.combination?.join("-"),
@@ -444,68 +460,65 @@ app.put(
         }
       }
 
-      // 4. LOGIKA PEMROSESAN GAMBAR (EDIT FOTO LIVE)
-      // Ambil semua data relasi gambar yang lama di DB sebelum kita rombak
-      const [oldDbImages] = await connection.query(
-        "SELECT * FROM product_images WHERE product_id = ?",
-        [productId],
-      );
-
-      // Hapus semua relasi gambar lama milik produk ini di DB (File fisik di server aman sesuai konsep Galeri)
+      // 4. LOGIKA PEMROSESAN GAMBAR (DUAL-PATH & PERTAHANKAN GAMBAR LAMA)
       await connection.query(
         "DELETE FROM product_images WHERE product_id = ?",
         [productId],
       );
 
-      // --- A. Proses Foto Utama ---
-      if (req.files && req.files["primaryImage"]) {
-        // Jika admin mengunggah FOTO UTAMA BARU dari PC
-        const primaryFile = req.files["primaryImage"][0];
-        const primaryUrl = `/uploads/products/${primaryFile.filename}`;
-        await connection.query(
-          "INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 1)",
-          [productId, primaryUrl],
-        );
-      } else if (existingImages && existingImages[0]) {
-        // Jika admin TIDAK mengubah foto utama, pertahankan gambar lama
-        await connection.query(
-          "INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 1)",
-          [productId, existingImages[0].image_url],
-        );
+      const imgCfg = imagesConfig || [];
+
+      // --- A. Proses Foto Utama (Slot 0) ---
+      if (imgCfg[0]) {
+        if (imgCfg[0].type === "pc" && req.files["primaryImage"]) {
+          const primaryUrl = `/uploads/products/${req.files["primaryImage"][0].filename}`;
+          await connection.query(
+            "INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 1)",
+            [productId, primaryUrl],
+          );
+        } else if (
+          (imgCfg[0].type === "server" || imgCfg[0].type === "existing") &&
+          imgCfg[0].path
+        ) {
+          await connection.query(
+            "INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 1)",
+            [productId, imgCfg[0].path],
+          );
+        }
       }
 
-      // --- B. Proses Foto Pendukung (Indeks 1 sampai 4) ---
-      // Kita looping slot foto pendukung
-      let newSupportingFileIndex = 0;
+      // --- B. Proses Foto Pendukung (Slot 1-4) ---
+      let pcUploadIndex = 0;
       for (let i = 1; i <= 4; i++) {
-        // Cek apakah ada file baru yang diupload untuk slot pendukung ini
-        // Multer mengelompokkan semua file pendukung dalam satu array 'supportingImages'
-        const hasNewFile =
-          req.files &&
-          req.files["supportingImages"] &&
-          req.files["supportingImages"][newSupportingFileIndex];
-
-        if (hasNewFile) {
-          const file = req.files["supportingImages"][newSupportingFileIndex];
-          const url = `/uploads/products/${file.filename}`;
-          await connection.query(
-            "INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 0)",
-            [productId, url],
-          );
-          newSupportingFileIndex++;
-        } else if (existingImages && existingImages[i]) {
-          // Jika slot ini tidak diisi file baru, tapi di data awal ada gambar lamanya dan tidak dihapus
-          await connection.query(
-            "INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 0)",
-            [productId, existingImages[i].image_url],
-          );
+        const slotConfig = imgCfg[i];
+        if (slotConfig) {
+          if (
+            slotConfig.type === "pc" &&
+            req.files["supportingImages"] &&
+            req.files["supportingImages"][pcUploadIndex]
+          ) {
+            const supportingUrl = `/uploads/products/${req.files["supportingImages"][pcUploadIndex].filename}`;
+            await connection.query(
+              "INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 0)",
+              [productId, supportingUrl],
+            );
+            pcUploadIndex++;
+          } else if (
+            (slotConfig.type === "server" || slotConfig.type === "existing") &&
+            slotConfig.path
+          ) {
+            await connection.query(
+              "INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 0)",
+              [productId, slotConfig.path],
+            );
+          }
         }
       }
 
       await connection.commit();
       return res.json({
         success: true,
-        message: "Produk dan media foto berhasil diperbarui!",
+        message: "Produk dan media berhasil diperbarui!",
       });
     } catch (error) {
       await connection.rollback();
@@ -521,30 +534,8 @@ app.put(
 );
 
 // =======================================================================
-// ENDPOINT GALERI: AMBIL SEMUA MEDIA (GET /api/gallery)
-// =======================================================================
-app.get("/api/gallery", async (req, res) => {
-  try {
-    const [rows] = await db.query(
-      "SELECT * FROM gallery_media ORDER BY created_at DESC",
-    );
-    return res.status(200).json({
-      success: true,
-      message: "Daftar galeri berhasil dimuat",
-      data: rows,
-    });
-  } catch (error) {
-    console.error("Gagal mengambil data galeri:", error);
-    return res
-      .status(500)
-      .json({ success: false, message: "Terjadi kesalahan server." });
-  }
-});
-
-// =======================================================================
 // ENDPOINT GALERI: UPLOAD GAMBAR BARU KE GALERI (POST /api/gallery/upload)
 // =======================================================================
-// Kita gunakan middleware upload.single('galleryFile') bawaan multer yang sudah dikonfigurasi di atas
 app.post(
   "/api/gallery/upload",
   upload.single("galleryFile"),
@@ -560,7 +551,6 @@ app.post(
       const filename = req.file.originalname;
       const fileSize = req.file.size;
 
-      // Simpan catatan manifest file ke database gallery_media
       const [result] = await db.query(
         "INSERT INTO gallery_media (filename, file_path, file_size) VALUES (?, ?, ?)",
         [filename, filePath, fileSize],
@@ -586,12 +576,63 @@ app.post(
 );
 
 // =======================================================================
-// ENDPOINT GALERI: HAPUS GAMBAR PERMANEN DARI GALERI (DELETE /api/gallery/:id)
+// ENDPOINT GALERI: AMBIL MEDIA DENGAN PAGING & PENCARIAN (GET /api/gallery)
+// =======================================================================
+app.get("/api/gallery", async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 15;
+    const search = req.query.search || "";
+    const offset = (page - 1) * limit;
+
+    let queryCount = "SELECT COUNT(*) as total FROM gallery_media";
+    let queryData = "SELECT * FROM gallery_media";
+    const queryParams = [];
+
+    if (search) {
+      const searchPattern = `%${search}%`;
+      queryCount += " WHERE filename LIKE ?";
+      queryData += " WHERE filename LIKE ?";
+      queryParams.push(searchPattern);
+    }
+
+    queryData += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
+
+    const [countResult] = await db.query(
+      queryCount,
+      search ? [queryParams[0]] : [],
+    );
+    const totalItems = countResult[0].total;
+    const totalPages = Math.ceil(totalItems / limit);
+
+    queryParams.push(limit, offset);
+    const [rows] = await db.query(queryData, queryParams);
+
+    return res.status(200).json({
+      success: true,
+      message: "Daftar galeri berhasil dimuat",
+      data: rows,
+      pagination: {
+        totalItems,
+        totalPages,
+        currentPage: page,
+        limit,
+      },
+    });
+  } catch (error) {
+    console.error("Gagal mengambil data galeri:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server." });
+  }
+});
+
+// =======================================================================
+// ENDPOINT GALERI: HAPUS MEDIA PERMANEN DARI GALERI
 // =======================================================================
 app.delete("/api/gallery/:id", async (req, res) => {
   const mediaId = req.params.id;
   try {
-    // 1. Cari nama file fisiknya dulu
     const [rows] = await db.query(
       "SELECT file_path FROM gallery_media WHERE id = ?",
       [mediaId],
@@ -601,30 +642,433 @@ app.delete("/api/gallery/:id", async (req, res) => {
         .status(404)
         .json({ success: false, message: "Media tidak ditemukan." });
     }
-
     const media = rows[0];
-
-    // 2. Hapus data dari database
     await db.query("DELETE FROM gallery_media WHERE id = ?", [mediaId]);
 
-    // 3. Hapus file fisik dari penyimpanan komputer server
     const filePath = path.join(__dirname, media.file_path);
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath);
     }
-
     return res.json({
       success: true,
-      message: "Gambar berhasil dihapus permanen dari server!",
+      message: "Gambar berhasil dihapus dari server!",
     });
   } catch (error) {
     console.error("Gagal menghapus media galeri:", error);
     return res
       .status(500)
-      .json({
-        success: false,
-        message: "Terjadi kesalahan server saat menghapus gambar.",
-      });
+      .json({ success: false, message: "Terjadi kesalahan server." });
+  }
+});
+
+// =======================================================================
+// ENDPOINT PANDUAN UKURAN (SIZE GUIDES)
+// =======================================================================
+
+// 1. Ambil semua daftar panduan ukuran (GET)
+app.get("/api/size-guides", async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      "SELECT * FROM size_guides ORDER BY created_at DESC",
+    );
+    return res.status(200).json({ success: true, data: rows });
+  } catch (error) {
+    console.error("Gagal mengambil panduan ukuran:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server." });
+  }
+});
+
+// 2. Tambah panduan ukuran baru (POST)
+app.post("/api/size-guides", async (req, res) => {
+  const { name, content, image_url } = req.body;
+
+  if (!name) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Nama panduan wajib diisi!" });
+  }
+
+  try {
+    await db.query(
+      "INSERT INTO size_guides (name, content, image_url) VALUES (?, ?, ?)",
+      [name, content || null, image_url || null],
+    );
+    return res
+      .status(201)
+      .json({ success: true, message: "Panduan ukuran berhasil ditambahkan!" });
+  } catch (error) {
+    console.error("Gagal menyimpan panduan ukuran:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Gagal menyimpan ke database." });
+  }
+});
+
+// 3. Ambil detail 1 panduan ukuran untuk diedit (GET)
+app.get("/api/size-guides/:id", async (req, res) => {
+  try {
+    const [rows] = await db.query("SELECT * FROM size_guides WHERE id = ?", [
+      req.params.id,
+    ]);
+    if (rows.length === 0) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Data tidak ditemukan!" });
+    }
+    return res.status(200).json({ success: true, data: rows[0] });
+  } catch (error) {
+    console.error("Gagal mengambil detail panduan:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server." });
+  }
+});
+
+// 4. Simpan perubahan edit panduan ukuran (PUT)
+app.put("/api/size-guides/:id", async (req, res) => {
+  const { name, content, image_url } = req.body;
+
+  if (!name) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Nama panduan wajib diisi!" });
+  }
+
+  try {
+    await db.query(
+      "UPDATE size_guides SET name = ?, content = ?, image_url = ? WHERE id = ?",
+      [name, content || null, image_url || null, req.params.id],
+    );
+    return res
+      .status(200)
+      .json({ success: true, message: "Panduan ukuran berhasil diperbarui!" });
+  } catch (error) {
+    console.error("Gagal mengupdate panduan ukuran:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Gagal memperbarui data." });
+  }
+});
+
+// 5. Hapus panduan ukuran permanen (DELETE)
+app.delete("/api/size-guides/:id", async (req, res) => {
+  try {
+    // Berkat relasi ON DELETE SET NULL yang kita buat di MySQL,
+    // jika panduan ini dihapus, produk yang memakainya tidak akan error (hanya menjadi NULL)
+    await db.query("DELETE FROM size_guides WHERE id = ?", [req.params.id]);
+    return res
+      .status(200)
+      .json({ success: true, message: "Panduan ukuran berhasil dihapus!" });
+  } catch (error) {
+    console.error("Gagal menghapus panduan ukuran:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Terjadi kesalahan server saat menghapus.",
+    });
+  }
+});
+
+// =======================================================================
+// ENDPOINT: KATEGORI PRODUK (PRODUCT CATEGORIES)
+// =======================================================================
+
+// 1. Ambil Semua Kategori
+app.get("/api/categories", async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      "SELECT * FROM product_categories ORDER BY created_at DESC",
+    );
+    return res.status(200).json({ success: true, data: rows });
+  } catch (error) {
+    console.error("Gagal mengambil kategori:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server." });
+  }
+});
+
+// 2. Tambah Kategori Baru
+app.post("/api/categories", async (req, res) => {
+  const { name, description } = req.body;
+  if (!name)
+    return res
+      .status(400)
+      .json({ success: false, message: "Nama kategori wajib diisi!" });
+
+  // Membuat slug otomatis (contoh: "Kemeja Pria" -> "kemeja-pria")
+  const slug = name
+    .toLowerCase()
+    .replace(/ /g, "-")
+    .replace(/[^\w-]+/g, "");
+
+  try {
+    await db.query(
+      "INSERT INTO product_categories (name, slug, description) VALUES (?, ?, ?)",
+      [name, slug, description || null],
+    );
+    return res
+      .status(201)
+      .json({ success: true, message: "Kategori berhasil ditambahkan!" });
+  } catch (error) {
+    console.error("Gagal menyimpan kategori:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Gagal menyimpan ke database." });
+  }
+});
+
+// 3. Edit Kategori
+app.put("/api/categories/:id", async (req, res) => {
+  const { name, description } = req.body;
+  if (!name)
+    return res
+      .status(400)
+      .json({ success: false, message: "Nama kategori wajib diisi!" });
+
+  const slug = name
+    .toLowerCase()
+    .replace(/ /g, "-")
+    .replace(/[^\w-]+/g, "");
+
+  try {
+    await db.query(
+      "UPDATE product_categories SET name = ?, slug = ?, description = ? WHERE id = ?",
+      [name, slug, description || null, req.params.id],
+    );
+    return res
+      .status(200)
+      .json({ success: true, message: "Kategori berhasil diperbarui!" });
+  } catch (error) {
+    console.error("Gagal mengupdate kategori:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Gagal memperbarui data." });
+  }
+});
+
+// 4. Hapus Kategori
+app.delete("/api/categories/:id", async (req, res) => {
+  try {
+    await db.query("DELETE FROM product_categories WHERE id = ?", [
+      req.params.id,
+    ]);
+    return res
+      .status(200)
+      .json({ success: true, message: "Kategori berhasil dihapus!" });
+  } catch (error) {
+    console.error("Gagal menghapus kategori:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Terjadi kesalahan server saat menghapus.",
+    });
+  }
+});
+
+// =======================================================================
+// ENDPOINT: TAG & LABEL PRODUK (PRODUCT TAGS)
+// =======================================================================
+
+// 1. Ambil Semua Tag
+app.get("/api/tags", async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      "SELECT * FROM product_tags ORDER BY created_at DESC",
+    );
+    return res.status(200).json({ success: true, data: rows });
+  } catch (error) {
+    console.error("Gagal mengambil tag:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server." });
+  }
+});
+
+// 2. Tambah Tag Baru
+app.post("/api/tags", async (req, res) => {
+  const { name } = req.body;
+  if (!name)
+    return res
+      .status(400)
+      .json({ success: false, message: "Nama tag wajib diisi!" });
+
+  try {
+    await db.query("INSERT INTO product_tags (name) VALUES (?)", [name]);
+    return res
+      .status(201)
+      .json({ success: true, message: "Tag berhasil ditambahkan!" });
+  } catch (error) {
+    // Tangkap error jika nama tag duplikat (UNIQUE constraint)
+    if (error.code === "ER_DUP_ENTRY") {
+      return res
+        .status(400)
+        .json({ success: false, message: "Tag ini sudah ada di database!" });
+    }
+    console.error("Gagal menyimpan tag:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Gagal menyimpan ke database." });
+  }
+});
+
+// 3. Edit Tag
+app.put("/api/tags/:id", async (req, res) => {
+  const { name } = req.body;
+  if (!name)
+    return res
+      .status(400)
+      .json({ success: false, message: "Nama tag wajib diisi!" });
+
+  try {
+    await db.query("UPDATE product_tags SET name = ? WHERE id = ?", [
+      name,
+      req.params.id,
+    ]);
+    return res
+      .status(200)
+      .json({ success: true, message: "Tag berhasil diperbarui!" });
+  } catch (error) {
+    console.error("Gagal mengupdate tag:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Gagal memperbarui data." });
+  }
+});
+
+// 4. Hapus Tag
+app.delete("/api/tags/:id", async (req, res) => {
+  try {
+    await db.query("DELETE FROM product_tags WHERE id = ?", [req.params.id]);
+    return res
+      .status(200)
+      .json({ success: true, message: "Tag berhasil dihapus!" });
+  } catch (error) {
+    console.error("Gagal menghapus tag:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Terjadi kesalahan server saat menghapus.",
+    });
+  }
+});
+
+// =======================================================================
+// ENDPOINT: MANAJEMEN PELANGGAN (CUSTOMERS)
+// =======================================================================
+
+// 1. Ambil Daftar Pelanggan (Paging & Search)
+app.get("/api/customers", async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 15;
+    const search = req.query.search || "";
+    const offset = (page - 1) * limit;
+
+    let queryCount = "SELECT COUNT(*) as total FROM users";
+    // Sengaja tidak melakukan SELECT password demi keamanan data (Security Best Practice)
+    let queryData =
+      "SELECT id, fullname, email, phone, status, created_at FROM users";
+    const queryParams = [];
+
+    // Logika Pencarian Pintar (Cari berdasarkan nama ATAU email)
+    if (search) {
+      queryCount += " WHERE fullname LIKE ? OR email LIKE ?";
+      queryData += " WHERE fullname LIKE ? OR email LIKE ?";
+      queryParams.push(`%${search}%`, `%${search}%`);
+    }
+
+    queryData += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
+
+    const [countResult] = await db.query(
+      queryCount,
+      search ? [queryParams[0], queryParams[1]] : [],
+    );
+    const totalItems = countResult[0].total;
+    const totalPages = Math.ceil(totalItems / limit);
+
+    // limit & offset wajib bentuk integer saat dikirim ke db.query
+    queryParams.push(limit, offset);
+    const [rows] = await db.query(queryData, queryParams);
+
+    return res.status(200).json({
+      success: true,
+      message: "Data pelanggan berhasil dimuat",
+      data: rows,
+      pagination: { totalItems, totalPages, currentPage: page, limit },
+    });
+  } catch (error) {
+    console.error("Gagal mengambil daftar pelanggan:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server." });
+  }
+});
+
+// 2. Ambil Profil Detail Pelanggan + Buku Alamat
+app.get("/api/customers/:id", async (req, res) => {
+  try {
+    // Ambil data profil dasar
+    const [users] = await db.query(
+      "SELECT id, fullname, email, phone, status, created_at FROM users WHERE id = ?",
+      [req.params.id],
+    );
+
+    if (users.length === 0) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Pelanggan tidak ditemukan" });
+    }
+
+    // Ambil buku alamat (Urutkan yang utama/primary di paling atas)
+    const [addresses] = await db.query(
+      "SELECT * FROM user_addresses WHERE user_id = ? ORDER BY is_primary DESC, created_at DESC",
+      [req.params.id],
+    );
+
+    // *Catatan: Kelak saat Modul Pesanan (Orders) sudah dibuat,
+    // kita akan menambahkan query ke tabel orders di sini untuk menampilkan riwayat belanja mereka.
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        ...users[0],
+        addresses,
+      },
+    });
+  } catch (error) {
+    console.error("Gagal mengambil detail pelanggan:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server." });
+  }
+});
+
+// 3. Ubah Status Akun Pelanggan (Blokir / Buka Blokir)
+app.put("/api/customers/:id/status", async (req, res) => {
+  try {
+    const { status } = req.body; // Akan berisi 'active' atau 'suspended'
+
+    // Validasi input keamanan
+    if (!["active", "suspended"].includes(status)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Status tidak valid." });
+    }
+
+    await db.query("UPDATE users SET status = ? WHERE id = ?", [
+      status,
+      req.params.id,
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      message: `Akun pelanggan berhasil ${status === "active" ? "diaktifkan" : "diblokir"}.`,
+    });
+  } catch (error) {
+    console.error("Gagal ubah status pelanggan:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Gagal memproses permintaan." });
   }
 });
 
