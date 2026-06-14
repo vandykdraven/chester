@@ -1073,6 +1073,371 @@ app.put("/api/customers/:id/status", async (req, res) => {
 });
 
 // =======================================================================
+// ENDPOINT: MANAJEMEN PESANAN (ORDERS & LOGISTIK KIRIMINAJA)
+// =======================================================================
+
+// 1. Ambil Daftar Pesanan untuk Dashboard Admin (Paging, Search, & Filter Status)
+app.get("/api/orders", async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const search = req.query.search || "";
+    const statusFilter = req.query.status || ""; // 'pending', 'paid', 'shipping', etc.
+    const offset = (page - 1) * limit;
+
+    let queryCount =
+      "SELECT COUNT(*) as total FROM orders o JOIN users u ON o.user_id = u.id";
+    let queryData = `
+      SELECT o.id, o.invoice_number, o.total_amount, o.status, o.courier_name, o.airway_bill, o.created_at, u.fullname 
+      FROM orders o 
+      JOIN users u ON o.user_id = u.id
+    `;
+
+    const queryParams = [];
+    let whereClauses = [];
+
+    // Filter berdasarkan Pencarian (No. Invoice atau Nama Pelanggan)
+    if (search) {
+      whereClauses.push("(o.invoice_number LIKE ? OR u.fullname LIKE ?)");
+      queryParams.push(`%${search}%`, `%${search}%`);
+    }
+
+    // Filter berdasarkan Tab Status (Cepat)
+    if (statusFilter) {
+      whereClauses.push("o.status = ?");
+      queryParams.push(statusFilter);
+    }
+
+    // Satukan klausa WHERE jika ada
+    if (whereClauses.length > 0) {
+      const whereSQL = " WHERE " + whereClauses.join(" AND ");
+      queryCount += whereSQL;
+      queryData += whereSQL;
+    }
+
+    queryData += " ORDER BY o.created_at DESC LIMIT ? OFFSET ?";
+
+    // Ambil total item untuk paginasi
+    const [countResult] = await db.query(
+      queryCount,
+      queryParams.slice(0, whereClauses.length * 2 || whereClauses.length),
+    );
+    const totalItems = countResult[0].total;
+    const totalPages = Math.ceil(totalItems / limit);
+
+    // Masukkan limit & offset (Wajib Integer)
+    queryParams.push(limit, offset);
+    const [rows] = await db.query(queryData, queryParams);
+
+    return res.status(200).json({
+      success: true,
+      data: rows,
+      pagination: { totalItems, totalPages, currentPage: page, limit },
+    });
+  } catch (error) {
+    console.error("Gagal mengambil daftar pesanan:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server." });
+  }
+});
+
+// 2. Ambil Rincian Detail Pesanan (Keranjang Belanja + Alamat + Info KiriminAja)
+app.get("/api/orders/:id", async (req, res) => {
+  try {
+    // Ambil data transaksi induk & info pelanggan
+    const [orders] = await db.query(
+      `
+      SELECT o.*, u.fullname as customer_name, u.email as customer_email 
+      FROM orders o 
+      JOIN users u ON o.user_id = u.id 
+      WHERE o.id = ?
+    `,
+      [req.params.id],
+    );
+
+    if (orders.length === 0) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Pesanan tidak ditemukan." });
+    }
+
+    // Ambil barang-barang produk yang dibeli di dalam pesanan ini
+    const [items] = await db.query(
+      `
+      SELECT oi.*, p.sku as product_sku 
+      FROM order_items oi
+      LEFT JOIN products p ON oi.product_id = p.id
+      WHERE oi.order_id = ?
+    `,
+      [req.params.id],
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        ...orders[0],
+        items: items,
+      },
+    });
+  } catch (error) {
+    console.error("Gagal mengambil rincian pesanan:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server." });
+  }
+});
+
+// 3. Manual Override Status / Input Resi Jaga-jaga (Sebelum KiriminAja otomatisasi penuh jalan)
+app.put("/api/orders/:id/status", async (req, res) => {
+  try {
+    const { status, airway_bill } = req.body;
+    const allowedStatus = [
+      "pending",
+      "paid",
+      "shipping",
+      "completed",
+      "cancelled",
+    ];
+
+    if (!allowedStatus.includes(status)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Status pesanan tidak valid." });
+    }
+
+    let queryUpdate = "UPDATE orders SET status = ?";
+    const params = [status];
+
+    // Jika admin memasukkan nomor resi secara manual (opsional fallback)
+    if (airway_bill) {
+      queryUpdate += ", airway_bill = ?";
+      params.push(airway_bill);
+    }
+
+    queryUpdate += " WHERE id = ?";
+    params.push(req.params.id);
+
+    await db.query(queryUpdate, params);
+
+    return res.status(200).json({
+      success: true,
+      message: `Status pesanan berhasil diubah menjadi ${status}.`,
+    });
+  } catch (error) {
+    console.error("Gagal mengubah status pesanan:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Gagal memproses permintaan." });
+  }
+});
+
+// =======================================================================
+// ENDPOINT: PENGATURAN TOKO & INTEGRASI (SETTINGS)
+// =======================================================================
+
+// 1. Ambil Semua Pengaturan
+app.get("/api/settings", async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      "SELECT setting_key, setting_value FROM settings",
+    );
+
+    // Ubah format Array [{key: 'shop_name', value: 'Chester'}]
+    // Menjadi Object { shop_name: 'Chester' } agar mudah dipakai di React
+    const settingsObject = {};
+    rows.forEach((row) => {
+      settingsObject[row.setting_key] = row.setting_value;
+    });
+
+    return res.status(200).json({ success: true, data: settingsObject });
+  } catch (error) {
+    console.error("Gagal mengambil pengaturan:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server." });
+  }
+});
+
+// 2. Simpan/Update Pengaturan Massal
+app.put("/api/settings", async (req, res) => {
+  try {
+    const settingsData = req.body; // Contoh: { shop_name: "Chester Baru", kiriminaja_api_key: "abc" }
+
+    // Loop melalui setiap key di object dan update database
+    for (const [key, value] of Object.entries(settingsData)) {
+      await db.query(
+        "INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?",
+        [key, value, value],
+      );
+    }
+
+    return res
+      .status(200)
+      .json({ success: true, message: "Pengaturan berhasil disimpan." });
+  } catch (error) {
+    console.error("Gagal menyimpan pengaturan:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Gagal menyimpan pengaturan." });
+  }
+});
+
+// =======================================================================
+// ENDPOINT INTERNAL: MANAJEMEN STAF / ADMIN & PROFIL
+// =======================================================================
+
+// 1. Ambil Semua Daftar Admin Asli dari Database
+app.get("/api/admins", async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      "SELECT id, fullname, email, role, created_at FROM admins ORDER BY id DESC",
+    );
+    return res.status(200).json({ success: true, data: rows });
+  } catch (error) {
+    console.error("Gagal mengambil daftar admin:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server." });
+  }
+});
+
+// 2. Tambah Akun Admin Baru (Pendaftaran Staf)
+app.post("/api/admins", async (req, res) => {
+  try {
+    const { fullname, email, password, role } = req.body;
+
+    if (!fullname || !email || !password) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Semua kolom wajib diisi." });
+    }
+
+    // Cek apakah email sudah dipakai oleh admin/staf lain
+    const [existing] = await db.query("SELECT id FROM admins WHERE email = ?", [
+      email,
+    ]);
+    if (existing.length > 0) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Email sudah terdaftar sebagai admin.",
+        });
+    }
+
+    // Amankan password dengan enkripsi bcrypt sebelum disimpan
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Masukkan ke database
+    await db.query(
+      "INSERT INTO admins (fullname, email, password, role) VALUES (?, ?, ?, ?)",
+      [fullname, email, hashedPassword, role || "Editor"],
+    );
+
+    return res
+      .status(201)
+      .json({ success: true, message: "Akun admin baru berhasil dibuat!" });
+  } catch (error) {
+    console.error("Gagal menambah admin baru:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Gagal menyimpan data staf baru." });
+  }
+});
+
+// 3. Hapus Akun Admin / Staf
+app.delete("/api/admins/:id", async (req, res) => {
+  try {
+    const adminId = req.params.id;
+
+    // FITUR KEAMANAN KRUSIAL: Jangan ijinkan menghapus Superadmin Utama (ID 1)
+    // Agar kamu tidak terkunci keluar sistem secara tidak sengaja!
+    if (parseInt(adminId) === 1) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Admin Utama (Superadmin) tidak boleh dihapus!",
+        });
+    }
+
+    await db.query("DELETE FROM admins WHERE id = ?", [adminId]);
+    return res
+      .status(200)
+      .json({
+        success: true,
+        message: "Akun staf berhasil dihapus dari sistem.",
+      });
+  } catch (error) {
+    console.error("Gagal menghapus admin:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Gagal menghapus staf." });
+  }
+});
+
+// 4. Perbarui Profil & Password Admin yang Sedang Login
+app.put("/api/admins/profile", async (req, res) => {
+  try {
+    const { id, fullname, currentPassword, newPassword } = req.body;
+
+    if (!id || !fullname) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Data ID dan Nama wajib diisi." });
+    }
+
+    // Ambil password lama di DB untuk dicocokkan
+    const [admin] = await db.query("SELECT password FROM admins WHERE id = ?", [
+      id,
+    ]);
+    if (admin.length === 0) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Akun tidak ditemukan." });
+    }
+
+    let queryUpdate = "UPDATE admins SET fullname = ?";
+    const params = [fullname];
+
+    // Logika jika admin berniat mengganti passwordnya
+    if (currentPassword && newPassword) {
+      const isMatch = await bcrypt.compare(currentPassword, admin[0].password);
+      if (!isMatch) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message: "Kata sandi lama yang Anda masukkan salah!",
+          });
+      }
+
+      // Hash password barunya jika password lama cocok
+      const hashedNewPassword = await bcrypt.hash(newPassword, 10);
+      queryUpdate += ", password = ?";
+      params.push(hashedNewPassword);
+    }
+
+    queryUpdate += " WHERE id = ?";
+    params.push(id);
+
+    await db.query(queryUpdate, params);
+    return res
+      .status(200)
+      .json({ success: true, message: "Profil Anda berhasil diperbarui." });
+  } catch (error) {
+    console.error("Gagal memperbarui profil admin:", error);
+    return res
+      .status(500)
+      .json({
+        success: false,
+        message: "Terjadi kesalahan server saat memperbarui profil.",
+      });
+  }
+});
+
+// =======================================================================
 // ROUTE AUTHENTICATION YANG SUDAH ADA SEBELUMNYA
 // =======================================================================
 app.post("/api/admin/login", async (req, res) => {

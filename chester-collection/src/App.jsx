@@ -22,6 +22,10 @@ import GalleryList from "./pages/admin/GalleryList";
 import SizeGuideList from "./pages/admin/SizeGuideList";
 import SizeGuideForm from "./pages/admin/SizeGuideForm";
 import ProductCategory from "./pages/admin/ProductCategory";
+import CustomerList from "./pages/admin/CustomerList";
+import OrderList from "./pages/admin/OrderList";
+import OrderDetail from "./pages/admin/OrderDetail";
+import Settings from "./pages/admin/Settings";
 
 // Import Penjaga Rute
 import AdminGuard from "./components/AdminGuard";
@@ -340,6 +344,10 @@ export default function App() {
             <Route path="products" element={<ProductList />} />
             <Route path="products/add" element={<ProductAdd />} />
             <Route path="product-tags" element={<ProductTag />} />
+            <Route path="customers" element={<CustomerList />} />
+            <Route path="orders" element={<OrderList />} />
+            <Route path="orders/:id" element={<OrderDetail />} />
+            <Route path="settings" element={<Settings />} />
             <Route path="product-categories" element={<ProductCategory />} />
             <Route path="products/edit/:id" element={<ProductEdit />} />
             <Route path="products/gallery" element={<GalleryList />} />
