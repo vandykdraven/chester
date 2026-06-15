@@ -84,6 +84,7 @@ app.post("/api/products", cpUpload, async (req, res) => {
       category,
       size_guide_id, // Kolom panduan ukuran baru
       description,
+      video_url,
       price,
       original_price,
       stock,
@@ -116,12 +117,13 @@ app.post("/api/products", cpUpload, async (req, res) => {
           name, category_id, size_guide_id, description, status, price, original_price, 
           stock, weight, sku, has_variant, variant_types_json, 
           seo_title, seo_description, seo_keywords
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )`,
         [
           name,
           category || null,
           size_guide_id || null, // Disimpan ke MySQL
           description || null,
+          video_url || null,
           status || "available",
           hasVariant ? 0 : price || 0,
           hasVariant ? 0 : original_price || 0,
@@ -374,6 +376,7 @@ app.put(
       category_id,
       size_guide_id,
       description,
+      video_url,
       status,
       price,
       original_price,
@@ -397,7 +400,7 @@ app.put(
       // 1. Update data induk produk
       await connection.query(
         `UPDATE products SET 
-          name = ?, category_id = ?, size_guide_id = ?, description = ?, status = ?, 
+          name = ?, category_id = ?, size_guide_id = ?, description = ?, video_url = ?, status = ?, 
           price = ?, original_price = ?, stock = ?, weight = ?, sku = ?, 
           has_variant = ?, variant_types_json = ?, seo_title = ?, seo_description = ?, seo_keywords = ?
         WHERE id = ?`,
@@ -406,6 +409,7 @@ app.put(
           category_id || null,
           size_guide_id || null,
           description,
+          video_url || null,
           status,
           has_variant ? 0 : price,
           has_variant ? 0 : original_price,
@@ -1043,7 +1047,58 @@ app.get("/api/customers/:id", async (req, res) => {
   }
 });
 
-// 3. Ubah Status Akun Pelanggan (Blokir / Buka Blokir)
+// 3. Ambil Detail Pelanggan (Profil, Alamat, & Riwayat Pesanan)
+app.get("/api/customers/:id", async (req, res) => {
+  try {
+    const customerId = req.params.id;
+
+    // 1. Ambil data dasar pelanggan
+    const [users] = await db.query(
+      "SELECT id, fullname, email, phone, status, created_at FROM users WHERE id = ?",
+      [customerId],
+    );
+
+    if (users.length === 0) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Pelanggan tidak ditemukan." });
+    }
+
+    // 2. Ambil Daftar Alamat Pelanggan
+    const [addresses] = await db.query(
+      "SELECT * FROM user_addresses WHERE user_id = ? ORDER BY is_primary DESC",
+      [customerId],
+    );
+
+    // 3. Ambil Riwayat Pesanan
+    const [orders] = await db.query(
+      "SELECT id, invoice_number, total_amount, status, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC",
+      [customerId],
+    );
+
+    const totalSpent = orders
+      .filter((o) => ["completed", "shipping", "paid"].includes(o.status))
+      .reduce((sum, o) => sum + parseFloat(o.total_amount), 0);
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        ...users[0],
+        addresses: addresses, // <-- Data alamat ditambahkan
+        total_orders: orders.length,
+        total_spent: totalSpent,
+        order_history: orders,
+      },
+    });
+  } catch (error) {
+    console.error("Gagal mengambil detail pelanggan:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server." });
+  }
+});
+
+// 4. Ubah Status Akun Pelanggan (Blokir / Buka Blokir)
 app.put("/api/customers/:id/status", async (req, res) => {
   try {
     const { status } = req.body; // Akan berisi 'active' atau 'suspended'
@@ -1318,12 +1373,10 @@ app.post("/api/admins", async (req, res) => {
       email,
     ]);
     if (existing.length > 0) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Email sudah terdaftar sebagai admin.",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Email sudah terdaftar sebagai admin.",
+      });
     }
 
     // Amankan password dengan enkripsi bcrypt sebelum disimpan
@@ -1354,21 +1407,17 @@ app.delete("/api/admins/:id", async (req, res) => {
     // FITUR KEAMANAN KRUSIAL: Jangan ijinkan menghapus Superadmin Utama (ID 1)
     // Agar kamu tidak terkunci keluar sistem secara tidak sengaja!
     if (parseInt(adminId) === 1) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Admin Utama (Superadmin) tidak boleh dihapus!",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Admin Utama (Superadmin) tidak boleh dihapus!",
+      });
     }
 
     await db.query("DELETE FROM admins WHERE id = ?", [adminId]);
-    return res
-      .status(200)
-      .json({
-        success: true,
-        message: "Akun staf berhasil dihapus dari sistem.",
-      });
+    return res.status(200).json({
+      success: true,
+      message: "Akun staf berhasil dihapus dari sistem.",
+    });
   } catch (error) {
     console.error("Gagal menghapus admin:", error);
     return res
@@ -1405,12 +1454,10 @@ app.put("/api/admins/profile", async (req, res) => {
     if (currentPassword && newPassword) {
       const isMatch = await bcrypt.compare(currentPassword, admin[0].password);
       if (!isMatch) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: "Kata sandi lama yang Anda masukkan salah!",
-          });
+        return res.status(400).json({
+          success: false,
+          message: "Kata sandi lama yang Anda masukkan salah!",
+        });
       }
 
       // Hash password barunya jika password lama cocok
@@ -1428,12 +1475,10 @@ app.put("/api/admins/profile", async (req, res) => {
       .json({ success: true, message: "Profil Anda berhasil diperbarui." });
   } catch (error) {
     console.error("Gagal memperbarui profil admin:", error);
-    return res
-      .status(500)
-      .json({
-        success: false,
-        message: "Terjadi kesalahan server saat memperbarui profil.",
-      });
+    return res.status(500).json({
+      success: false,
+      message: "Terjadi kesalahan server saat memperbarui profil.",
+    });
   }
 });
 
@@ -1479,8 +1524,302 @@ app.post("/api/admin/login", async (req, res) => {
   }
 });
 
+// =======================================================================
+// ENDPOINT: MANAJEMEN VOUCHER & DISKON
+// =======================================================================
+
+// 1. Ambil Semua Daftar Voucher (Untuk Admin)
+app.get("/api/vouchers", async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      "SELECT * FROM vouchers ORDER BY created_at DESC",
+    );
+    return res.status(200).json({ success: true, data: rows });
+  } catch (error) {
+    console.error("Gagal mengambil daftar voucher:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server." });
+  }
+});
+
+// 2. Buat Voucher Baru
+app.post("/api/vouchers", async (req, res) => {
+  try {
+    const {
+      code,
+      name,
+      discount_type,
+      discount_value,
+      max_discount,
+      min_purchase,
+      target_buyer,
+      is_claimable,
+      is_auto_apply,
+      is_active,
+      quota,
+      start_date,
+      end_date,
+    } = req.body;
+
+    // Validasi kode unik
+    const [existing] = await db.query(
+      "SELECT id FROM vouchers WHERE code = ?",
+      [code],
+    );
+    if (existing.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Kode voucher ini sudah digunakan, silakan buat kode lain.",
+      });
+    }
+
+    const query = `
+      INSERT INTO vouchers (
+        code, name, discount_type, discount_value, max_discount, 
+        min_purchase, target_buyer, is_claimable, is_auto_apply, 
+        is_active, quota, start_date, end_date
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+
+    const values = [
+      code.toUpperCase(),
+      name,
+      discount_type,
+      discount_value,
+      max_discount || 0,
+      min_purchase || 0,
+      target_buyer || "all",
+      is_claimable || false,
+      is_auto_apply || false,
+      is_active !== undefined ? is_active : true,
+      quota || 0,
+      start_date,
+      end_date,
+    ];
+
+    await db.query(query, values);
+
+    return res
+      .status(201)
+      .json({ success: true, message: "Voucher baru berhasil ditambahkan!" });
+  } catch (error) {
+    console.error("Gagal menambah voucher:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Gagal menyimpan data voucher." });
+  }
+});
+
+// 3. Ubah Status Aktif/Nonaktif Voucher (Quick Toggle)
+app.put("/api/vouchers/:id/status", async (req, res) => {
+  try {
+    const { is_active } = req.body;
+    await db.query("UPDATE vouchers SET is_active = ? WHERE id = ?", [
+      is_active,
+      req.params.id,
+    ]);
+    return res
+      .status(200)
+      .json({ success: true, message: "Status voucher berhasil diperbarui." });
+  } catch (error) {
+    console.error("Gagal mengubah status voucher:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Gagal memproses permintaan." });
+  }
+});
+
+// 4. Update/Edit Voucher Keseluruhan
+app.put("/api/vouchers/:id", async (req, res) => {
+  try {
+    const {
+      name,
+      discount_type,
+      discount_value,
+      max_discount,
+      min_purchase,
+      target_buyer,
+      is_claimable,
+      is_auto_apply,
+      quota,
+      start_date,
+      end_date,
+    } = req.body;
+
+    const query = `
+      UPDATE vouchers SET 
+        name = ?, discount_type = ?, discount_value = ?, max_discount = ?, 
+        min_purchase = ?, target_buyer = ?, is_claimable = ?, is_auto_apply = ?, 
+        quota = ?, start_date = ?, end_date = ?
+      WHERE id = ?
+    `;
+
+    const values = [
+      name,
+      discount_type,
+      discount_value,
+      max_discount || 0,
+      min_purchase || 0,
+      target_buyer || "all",
+      is_claimable || false,
+      is_auto_apply || false,
+      quota || 0,
+      start_date,
+      end_date,
+      req.params.id,
+    ];
+
+    await db.query(query, values);
+    return res
+      .status(200)
+      .json({ success: true, message: "Voucher berhasil diperbarui!" });
+  } catch (error) {
+    console.error("Gagal memperbarui voucher:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Gagal memperbarui voucher." });
+  }
+});
+
+// 5. Hapus Voucher
+app.delete("/api/vouchers/:id", async (req, res) => {
+  try {
+    await db.query("DELETE FROM vouchers WHERE id = ?", [req.params.id]);
+    return res
+      .status(200)
+      .json({ success: true, message: "Voucher berhasil dihapus." });
+  } catch (error) {
+    console.error("Gagal menghapus voucher:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Gagal menghapus voucher." });
+  }
+});
+
 // Menyalakan Mesin Server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Server Backend berjalan di http://localhost:${PORT}`);
+});
+
+// =======================================================================
+// ENDPOINT: OTENTIKASI PELANGGAN (STOREFRONT AUTH)
+// =======================================================================
+
+// 1. PENDAFTARAN AKUN BARU (REGISTER)
+app.post("/api/auth/register", async (req, res) => {
+  try {
+    const { fullname, email, phone, password } = req.body;
+
+    if (!fullname || !email || !password) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Nama, Email, dan Password wajib diisi!",
+        });
+    }
+
+    // Cek apakah email sudah terdaftar
+    const [existing] = await db.query("SELECT id FROM users WHERE email = ?", [
+      email,
+    ]);
+    if (existing.length > 0) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Email ini sudah terdaftar. Silakan login.",
+        });
+    }
+
+    // Hash password demi keamanan
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Simpan pembeli baru ke database
+    await db.query(
+      "INSERT INTO users (fullname, email, phone, password, status) VALUES (?, ?, ?, ?, 'active')",
+      [fullname, email, phone || null, hashedPassword],
+    );
+
+    return res
+      .status(201)
+      .json({
+        success: true,
+        message: "Pendaftaran akun berhasil! Silakan login.",
+      });
+  } catch (error) {
+    console.error("Error saat register pembeli:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Gagal mendaftarkan akun." });
+  }
+});
+
+// 2. MASUK AKUN (LOGIN)
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Email dan Password wajib diisi!" });
+    }
+
+    // Cari user di database
+    const [users] = await db.query("SELECT * FROM users WHERE email = ?", [
+      email,
+    ]);
+    if (users.length === 0) {
+      return res
+        .status(401)
+        .json({ success: false, message: "Email atau kata sandi salah!" });
+    }
+
+    const user = users[0];
+
+    // Cek apakah akun diblokir admin
+    if (user.status !== "active") {
+      return res
+        .status(403)
+        .json({
+          success: false,
+          message: "Akun Anda ditangguhkan. Silakan hubungi Customer Service.",
+        });
+    }
+
+    // Cocokkan password bcrypt
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res
+        .status(401)
+        .json({ success: false, message: "Email atau kata sandi salah!" });
+    }
+
+    // Buat token JWT (Gunakan secret key yang sama dengan admin atau sesuaikan)
+    const token = jwt.sign(
+      { id: user.id, email: user.email, role: "customer" },
+      process.env.JWT_SECRET || "chester_secret_key_123",
+      { expiresIn: "7d" }, // Token berlaku 7 hari
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Login berhasil!",
+      token,
+      user: {
+        id: user.id,
+        fullname: user.fullname,
+        email: user.email,
+        phone: user.phone,
+      },
+    });
+  } catch (error) {
+    console.error("Error saat login pembeli:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan pada server." });
+  }
 });

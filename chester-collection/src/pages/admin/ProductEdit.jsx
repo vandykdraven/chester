@@ -53,6 +53,7 @@ export default function ProductEdit() {
     category_id: "",
     size_guide_id: "",
     description: "",
+    video_url: "",
     price: "",
     original_price: "",
     stock: "",
@@ -115,6 +116,7 @@ export default function ProductEdit() {
             category_id: p.category_id || "",
             size_guide_id: p.size_guide_id || "",
             description: p.description || "",
+            video_url: p.video_url || "",
             price: p.price || "",
             original_price: p.original_price || "",
             stock: p.stock || "",
@@ -589,6 +591,29 @@ export default function ProductEdit() {
                   ref={editorRef}
                   className="bg-white min-h-[200px] border rounded-lg"
                 ></div>
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  URL Video Produk (Opsional)
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <span className="text-gray-400 font-bold text-sm">🔗</span>
+                  </div>
+                  <input
+                    type="url"
+                    name="video_url"
+                    value={formData.video_url}
+                    onChange={handleChange}
+                    placeholder="Contoh: https://youtube.com/watch?v=... atau TikTok/IG Reels"
+                    className="w-full border border-gray-300 pl-10 pr-4 py-2.5 rounded-lg focus:outline-none focus:border-chester-pink transition bg-white"
+                  />
+                </div>
+                <p className="text-[10px] text-gray-500 mt-1.5 font-medium leading-relaxed">
+                  Sematan link video YouTube, TikTok, atau Instagram untuk
+                  menghemat ruang penyimpanan server. Video akan diputar
+                  langsung di halaman produk.
+                </p>
               </div>
             </div>
           </div>

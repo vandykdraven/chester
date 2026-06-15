@@ -126,3 +126,7 @@ CREATE TABLE IF NOT EXISTS `product_wholesales` (
   `wholesale_price` DECIMAL(10,2) NOT NULL,
   FOREIGN KEY (`product_id`) REFERENCES `products`(`id`) ON DELETE CASCADE
 );
+
+ALTER TABLE `users` 
+ADD COLUMN `reset_password_token` VARCHAR(255) NULL AFTER `status`,
+ADD COLUMN `reset_password_expires` DATETIME NULL AFTER `reset_password_token`;
