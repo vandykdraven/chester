@@ -1,5 +1,7 @@
 const express = require("express");
+const axios = require("axios");
 const mysql = require("mysql2");
+const crypto = require("crypto");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
@@ -1697,6 +1699,55 @@ app.delete("/api/vouchers/:id", async (req, res) => {
   }
 });
 
+// =======================================================================
+// ENDPOINT: PROFIL PELANGGAN (STOREFRONT)
+// =======================================================================
+
+// Memperbarui Profil Pelanggan (Nama, HP, dan Upload Foto)
+// Kita menggunakan 'upload.single' karena pelanggan mengirim 1 file foto
+app.put("/api/users/:id", upload.single("avatar"), async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const { fullname, phone } = req.body;
+    let avatarUrl = null;
+
+    // 1. Cek apakah pengguna mengunggah file foto baru
+    if (req.file) {
+      // Jika ada, buatkan jalur URL untuk disimpan ke database
+      avatarUrl = `/uploads/profiles/${req.file.filename}`;
+    }
+
+    // 2. Siapkan perintah SQL untuk memperbarui data
+    let query = "UPDATE users SET fullname = ?, phone = ?";
+    let values = [fullname, phone || null];
+
+    // Jika ada foto baru yang diunggah, tambahkan ke perintah SQL
+    if (avatarUrl) {
+      query += ", avatar = ?";
+      values.push(avatarUrl);
+    }
+
+    // Lengkapi perintah SQL dengan ID pengguna
+    query += " WHERE id = ?";
+    values.push(userId);
+
+    // 3. Eksekusi perintah ke database
+    await db.query(query, values);
+
+    return res.status(200).json({
+      success: true,
+      message: "Profil berhasil diperbarui!",
+      avatar: avatarUrl, // Mengembalikan URL foto agar frontend bisa langsung menampilkannya
+    });
+  } catch (error) {
+    console.error("Gagal memperbarui profil:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Terjadi kesalahan pada server saat memperbarui data.",
+    });
+  }
+});
+
 // Menyalakan Mesin Server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
@@ -1713,12 +1764,10 @@ app.post("/api/auth/register", async (req, res) => {
     const { fullname, email, phone, password } = req.body;
 
     if (!fullname || !email || !password) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Nama, Email, dan Password wajib diisi!",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Nama, Email, dan Password wajib diisi!",
+      });
     }
 
     // Cek apakah email sudah terdaftar
@@ -1726,12 +1775,10 @@ app.post("/api/auth/register", async (req, res) => {
       email,
     ]);
     if (existing.length > 0) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Email ini sudah terdaftar. Silakan login.",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Email ini sudah terdaftar. Silakan login.",
+      });
     }
 
     // Hash password demi keamanan
@@ -1743,12 +1790,10 @@ app.post("/api/auth/register", async (req, res) => {
       [fullname, email, phone || null, hashedPassword],
     );
 
-    return res
-      .status(201)
-      .json({
-        success: true,
-        message: "Pendaftaran akun berhasil! Silakan login.",
-      });
+    return res.status(201).json({
+      success: true,
+      message: "Pendaftaran akun berhasil! Silakan login.",
+    });
   } catch (error) {
     console.error("Error saat register pembeli:", error);
     return res
@@ -1782,12 +1827,10 @@ app.post("/api/auth/login", async (req, res) => {
 
     // Cek apakah akun diblokir admin
     if (user.status !== "active") {
-      return res
-        .status(403)
-        .json({
-          success: false,
-          message: "Akun Anda ditangguhkan. Silakan hubungi Customer Service.",
-        });
+      return res.status(403).json({
+        success: false,
+        message: "Akun Anda ditangguhkan. Silakan hubungi Customer Service.",
+      });
     }
 
     // Cocokkan password bcrypt
@@ -1821,5 +1864,487 @@ app.post("/api/auth/login", async (req, res) => {
     return res
       .status(500)
       .json({ success: false, message: "Terjadi kesalahan pada server." });
+  }
+});
+
+// =======================================================================
+// ENDPOINT: LUPA PASSWORD & RESET PASSWORD
+// =======================================================================
+
+// 1. Permintaan Lupa Password (Minta Link)
+app.post("/api/auth/forgot-password", async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Email wajib diisi!" });
+    }
+
+    // Cari user berdasarkan email
+    const [users] = await db.query(
+      "SELECT id, fullname FROM users WHERE email = ?",
+      [email],
+    );
+    if (users.length === 0) {
+      // Demi keamanan, kita tetap bilang sukses agar hacker tidak bisa menebak email mana yang terdaftar
+      return res.status(200).json({
+        success: true,
+        message: "Jika email terdaftar, instruksi telah dikirim.",
+      });
+    }
+
+    const user = users[0];
+
+    // Buat token rahasia acak
+    const resetToken = crypto.randomBytes(32).toString("hex");
+
+    // Hitung waktu kadaluarsa (1 jam dari sekarang)
+    const expireTime = new Date(Date.now() + 3600000);
+
+    // Simpan token dan waktu kadaluarsa ke database
+    await db.query(
+      "UPDATE users SET reset_password_token = ?, reset_password_expires = ? WHERE id = ?",
+      [resetToken, expireTime, user.id],
+    );
+
+    // Buat Link Reset (Sesuaikan dengan URL Frontend React Anda, biasanya http://localhost:5173)
+    const resetUrl = `http://localhost:5173/reset-password/${resetToken}`;
+
+    // SIMULASI EMAIL: Tampilkan di terminal backend
+    console.log(`\n=== SIMULASI EMAIL LUPA PASSWORD ===`);
+    console.log(`Kepada: ${email} (${user.fullname})`);
+    console.log(`Link Reset: ${resetUrl}`);
+    console.log(`====================================\n`);
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "Jika email terdaftar, instruksi pemulihan kata sandi telah dikirim.",
+    });
+  } catch (error) {
+    console.error("Error Lupa Password:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server." });
+  }
+});
+
+// =======================================================================
+// ENDPOINT: RAJAONGKIR, KOMERCE DELIVERY, & BUKU ALAMAT
+// =======================================================================
+
+// 1. Fungsi Pembantu: Mengatur URL dan Header agar tidak ada hardcode
+const getLogisticConfig = (type, apiKey) => {
+  // Membersihkan spasi kosong yang tidak sengaja terbawa saat copy-paste API Key
+  const cleanKey = apiKey ? apiKey.trim() : "";
+
+  if (type === "komerce") {
+    return {
+      // CATATAN: Ubah menjadi "https://api-sandbox.collaborator.komerce.id" jika Anda menggunakan API Key versi Sandbox/Uji Coba
+      baseUrl: "https://api.collaborator.komerce.id",
+      headers: { "x-api-key": cleanKey, "Content-Type": "application/json" },
+    };
+  }
+
+  if (type === "pro")
+    return {
+      baseUrl: "https://pro.rajaongkir.com/api",
+      headers: { key: cleanKey },
+    };
+  if (type === "basic")
+    return {
+      baseUrl: "https://api.rajaongkir.com/basic",
+      headers: { key: cleanKey },
+    };
+
+  // Default (Starter)
+  return {
+    baseUrl: "https://api.rajaongkir.com/starter",
+    headers: { key: cleanKey },
+  };
+};
+
+// 2. Fungsi Pembantu: Mengambil pengaturan API dari Database
+const getActiveSettings = async () => {
+  const [rows] = await db.query(
+    "SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('rajaongkir_api_key', 'rajaongkir_type')",
+  );
+  const settings = {};
+  rows.forEach((row) => {
+    settings[row.setting_key] = row.setting_value;
+  });
+  return settings;
+};
+
+// -----------------------------------------------------------------------
+// A. ENDPOINT: Cek Ongkos Kirim (Shipping Cost)
+// -----------------------------------------------------------------------
+app.post("/api/logistic/cost", async (req, res) => {
+  try {
+    const { origin, destination, weight, item_value, is_cod } = req.body;
+    const settings = await getActiveSettings();
+
+    if (!settings.rajaongkir_api_key) {
+      return res
+        .status(400)
+        .json({ success: false, message: "API Key Logistik belum diatur." });
+    }
+
+    const { baseUrl, headers } = getLogisticConfig(
+      settings.rajaongkir_type,
+      settings.rajaongkir_api_key,
+    );
+
+    if (settings.rajaongkir_type === "komerce") {
+      // Mode Komerce: Menggunakan metode GET sesuai Dokumen UAT
+      const codParam = is_cod ? "yes" : "no";
+      const komerceUrl = `${baseUrl}/tariff/api/v1/calculate?shipper_destination_id=${origin}&receiver_destination_id=${destination}&weight=${weight}&item_value=${item_value || 0}&cod=${codParam}`;
+
+      const response = await axios.get(komerceUrl, { headers, timeout: 30000 });
+      return res.status(200).json({ success: true, data: response.data.data });
+    } else {
+      // Mode RajaOngkir Standar (Starter/Basic/Pro)
+      const formData = new URLSearchParams();
+      formData.append("origin", origin);
+      formData.append("destination", destination);
+      formData.append("weight", weight);
+      formData.append("courier", "jne:sicepat:jnt");
+
+      const response = await axios.post(`${baseUrl}/cost`, formData, {
+        headers: {
+          key: settings.rajaongkir_api_key.trim(),
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        timeout: 30000,
+      });
+      return res
+        .status(200)
+        .json({ success: true, data: response.data.rajaongkir.results });
+    }
+  } catch (error) {
+    console.error("Gagal Cek Ongkir:", error.response?.data || error.message);
+    res
+      .status(500)
+      .json({ success: false, message: "Gagal menghitung ongkos kirim." });
+  }
+});
+
+// -----------------------------------------------------------------------
+// B. ENDPOINT: Buat Pesanan Pengiriman (Shipping Delivery Komerce)
+// -----------------------------------------------------------------------
+app.post("/api/logistic/order", async (req, res) => {
+  try {
+    const payloadData = req.body;
+    const settings = await getActiveSettings();
+
+    if (settings.rajaongkir_type !== "komerce") {
+      return res.status(400).json({
+        success: false,
+        message: "Fitur ini khusus untuk integrasi Komerce Delivery API.",
+      });
+    }
+
+    const { baseUrl, headers } = getLogisticConfig(
+      settings.rajaongkir_type,
+      settings.rajaongkir_api_key,
+    );
+
+    const response = await axios.post(
+      `${baseUrl}/order/api/v1/orders/store`,
+      payloadData,
+      {
+        headers,
+        timeout: 30000,
+      },
+    );
+
+    res.status(200).json({ success: true, data: response.data });
+  } catch (error) {
+    console.error(
+      "Gagal Buat Order Komerce:",
+      error.response?.data || error.message,
+    );
+    res.status(500).json({
+      success: false,
+      message: "Gagal memproses pesanan ke logistik.",
+    });
+  }
+});
+
+// -----------------------------------------------------------------------
+// C. ENDPOINT: Buat Tagihan Pembayaran (Payment Service)
+// -----------------------------------------------------------------------
+app.post("/api/payment/create", async (req, res) => {
+  try {
+    const paymentData = req.body;
+    const settings = await getActiveSettings();
+
+    if (settings.rajaongkir_type !== "komerce") {
+      return res.status(400).json({
+        success: false,
+        message: "Fitur pembayaran ini menggunakan layanan Komerce.",
+      });
+    }
+
+    const { baseUrl, headers } = getLogisticConfig(
+      settings.rajaongkir_type,
+      settings.rajaongkir_api_key,
+    );
+
+    if (!paymentData.callback_url) {
+      paymentData.callback_url = "https://domain-anda.com/api/payment/callback"; // Nanti disesuaikan
+    }
+
+    const response = await axios.post(
+      `${baseUrl}/user/api/v1/user/payment/create`,
+      paymentData,
+      {
+        headers,
+        timeout: 30000,
+      },
+    );
+
+    res.status(200).json({ success: true, data: response.data });
+  } catch (error) {
+    console.error(
+      "Gagal Buat Pembayaran:",
+      error.response?.data || error.message,
+    );
+    res
+      .status(500)
+      .json({ success: false, message: "Gagal membuat tagihan pembayaran." });
+  }
+});
+
+// -----------------------------------------------------------------------
+// D. ENDPOINT: Pencarian Destinasi Khusus Delivery API (Komerce)
+// -----------------------------------------------------------------------
+app.get("/api/logistic/search-destination", async (req, res) => {
+  try {
+    const keyword = req.query.keyword;
+    const settings = await getActiveSettings();
+
+    if (settings.rajaongkir_type !== "komerce") {
+      return res.status(400).json({
+        success: false,
+        message: "Endpoint ini khusus untuk Delivery API (Komerce).",
+      });
+    }
+
+    const { baseUrl, headers } = getLogisticConfig(
+      settings.rajaongkir_type,
+      settings.rajaongkir_api_key,
+    );
+
+    const response = await axios.get(
+      `${baseUrl}/tariff/api/v1/destination/search?keyword=${keyword}`,
+      {
+        headers,
+        timeout: 30000,
+      },
+    );
+
+    res.status(200).json({ success: true, data: response.data.data });
+  } catch (error) {
+    console.error(
+      "Gagal Cari Destinasi Komerce:",
+      error.response?.data || error.message,
+    );
+    res
+      .status(500)
+      .json({ success: false, message: "Gagal memuat area pengiriman." });
+  }
+});
+
+// -----------------------------------------------------------------------
+// E. ENDPOINT: Ambil Daftar Provinsi (Untuk Tipe Starter/Basic/Pro)
+// -----------------------------------------------------------------------
+app.get("/api/rajaongkir/provinces", async (req, res) => {
+  try {
+    const settings = await getActiveSettings();
+
+    if (!settings.rajaongkir_api_key) {
+      return res
+        .status(400)
+        .json({ success: false, message: "API Key belum diatur." });
+    }
+
+    if (settings.rajaongkir_type === "komerce") {
+      return res
+        .status(200)
+        .json({ success: true, is_komerce: true, data: [] });
+    }
+
+    const { baseUrl, headers } = getLogisticConfig(
+      settings.rajaongkir_type,
+      settings.rajaongkir_api_key,
+    );
+
+    const response = await axios.get(`${baseUrl}/province`, {
+      headers,
+      timeout: 30000,
+    });
+    res
+      .status(200)
+      .json({ success: true, data: response.data.rajaongkir.results });
+  } catch (error) {
+    // INI KODE YANG SAYA LUPA TAMBAHKAN SEBELUMNYA
+    console.error(
+      "Gagal Load Provinsi:",
+      error.response?.data || error.message,
+    );
+
+    res.status(500).json({ success: false, message: "Gagal memuat provinsi." });
+  }
+});
+
+// -----------------------------------------------------------------------
+// F. ENDPOINT: Ambil Daftar Kota (Untuk Tipe Starter/Basic/Pro)
+// -----------------------------------------------------------------------
+app.get("/api/rajaongkir/cities/:provinceId", async (req, res) => {
+  try {
+    const settings = await getActiveSettings();
+
+    if (!settings.rajaongkir_api_key) {
+      return res
+        .status(400)
+        .json({ success: false, message: "API Key belum diatur." });
+    }
+
+    const { baseUrl, headers } = getLogisticConfig(
+      settings.rajaongkir_type,
+      settings.rajaongkir_api_key,
+    );
+
+    const response = await axios.get(
+      `${baseUrl}/city?province=${req.params.provinceId}`,
+      {
+        headers,
+        timeout: 30000,
+      },
+    );
+
+    res
+      .status(200)
+      .json({ success: true, data: response.data.rajaongkir.results });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Gagal memuat kota." });
+  }
+});
+
+// -----------------------------------------------------------------------
+// G. ENDPOINT BUKU ALAMAT PENGGUNA
+// -----------------------------------------------------------------------
+
+// Ambil Semua Alamat Milik Pelanggan
+app.get("/api/users/:id/addresses", async (req, res) => {
+  try {
+    const [addresses] = await db.query(
+      "SELECT * FROM addresses WHERE user_id = ? ORDER BY is_primary DESC, id DESC",
+      [req.params.id],
+    );
+    res.status(200).json({ success: true, data: addresses });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Gagal memuat alamat." });
+  }
+});
+
+// Tambah Alamat Baru
+app.post("/api/users/:id/addresses", async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const {
+      label,
+      recipient_name,
+      phone,
+      province_id,
+      province_name,
+      city_id,
+      city_name,
+      postal_code,
+      full_address,
+    } = req.body;
+
+    const [existing] = await db.query(
+      "SELECT id FROM addresses WHERE user_id = ?",
+      [userId],
+    );
+    const isPrimary = existing.length === 0 ? 1 : 0;
+
+    await db.query(
+      `INSERT INTO addresses 
+      (user_id, label, recipient_name, phone, province_id, province_name, city_id, city_name, postal_code, full_address, is_primary) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        userId,
+        label,
+        recipient_name,
+        phone,
+        province_id,
+        province_name,
+        city_id,
+        city_name,
+        postal_code,
+        full_address,
+        isPrimary,
+      ],
+    );
+
+    res
+      .status(201)
+      .json({ success: true, message: "Alamat berhasil disimpan!" });
+  } catch (error) {
+    res
+      .status(500)
+      .json({ success: false, message: "Gagal menyimpan alamat." });
+  }
+});
+
+// Jadikan Sebagai Alamat Utama
+app.put("/api/users/:id/addresses/:addressId/primary", async (req, res) => {
+  const connection = await db.getConnection();
+  try {
+    const { id: userId, addressId } = req.params;
+    await connection.beginTransaction();
+
+    await connection.query(
+      "UPDATE addresses SET is_primary = 0 WHERE user_id = ?",
+      [userId],
+    );
+    await connection.query(
+      "UPDATE addresses SET is_primary = 1 WHERE id = ? AND user_id = ?",
+      [addressId, userId],
+    );
+
+    await connection.commit();
+    res
+      .status(200)
+      .json({ success: true, message: "Alamat utama berhasil diubah!" });
+  } catch (error) {
+    await connection.rollback();
+    res
+      .status(500)
+      .json({ success: false, message: "Gagal mengubah alamat utama." });
+  } finally {
+    connection.release();
+  }
+});
+
+// Hapus Alamat
+app.delete("/api/users/:id/addresses/:addressId", async (req, res) => {
+  try {
+    await db.query("DELETE FROM addresses WHERE id = ? AND user_id = ?", [
+      req.params.addressId,
+      req.params.id,
+    ]);
+    res
+      .status(200)
+      .json({ success: true, message: "Alamat berhasil dihapus." });
+  } catch (error) {
+    res
+      .status(500)
+      .json({ success: false, message: "Gagal menghapus alamat." });
   }
 });

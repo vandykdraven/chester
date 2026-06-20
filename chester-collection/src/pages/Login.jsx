@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import {
   Mail,
   Lock,
@@ -14,6 +14,9 @@ import logo from "../assets/logo.png"; // Memakai logo yang sama
 
 export default function Login() {
   const navigate = useNavigate();
+  const location = useLocation();
+  // Tangkap jalur sebelumnya, jika tidak ada, jadikan beranda ("/") sebagai default
+  const from = location.state?.from || "/";
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -32,7 +35,7 @@ export default function Login() {
   useEffect(() => {
     const savedToken = localStorage.getItem("customerToken");
     if (savedToken) {
-      navigate("/"); // Jika sudah diingat, langsung lempar ke beranda utama pembeli
+      navigate(from); // Jika sudah diingat, langsung lempar ke beranda utama pembeli
     }
   }, [navigate]);
 
@@ -71,7 +74,7 @@ export default function Login() {
         }
 
         setTimeout(() => {
-          navigate("/"); // Arahkan ke homepage pembeli setelah sukses
+          navigate(from); // Arahkan ke homepage pembeli setelah sukses
         }, 1500);
       }
     } catch (error) {

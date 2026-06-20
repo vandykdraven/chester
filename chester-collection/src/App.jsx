@@ -1,5 +1,13 @@
 import { useState } from "react";
-import { HashRouter as Router, Routes, Route, Link } from "react-router-dom";
+import {
+  HashRouter as Router,
+  Routes,
+  Route,
+  Link,
+  useNavigate,
+  useLocation,
+} from "react-router-dom";
+import { useEffect } from "react";
 import logo from "./assets/logo.png";
 import { Search, User, ShoppingBag, Menu, X, Trash2 } from "lucide-react";
 
@@ -7,8 +15,11 @@ import { Search, User, ShoppingBag, Menu, X, Trash2 } from "lucide-react";
 import Home from "./pages/Home";
 import Catalog from "./pages/Catalog";
 import ProductPage from "./pages/ProductPage";
+import AddressBook from "./pages/AddressBook";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
+import ForgotPassword from "./pages/ForgotPassword";
+import ProfileCustomer from "./pages/Profile";
 
 // Import Halaman Admin
 import AdminLayout from "./pages/admin/AdminLayout";
@@ -42,6 +53,40 @@ const formatRupiah = (angka) => {
 
 const Header = ({ setIsCartOpen, cartCount }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [customerName, setCustomerName] = useState(""); // State baru untuk nama
+
+  const navigate = useNavigate();
+  const location = useLocation(); // Mengambil info halaman saat ini
+
+  // Efek ini akan berjalan setiap kali pelanggan pindah halaman
+  useEffect(() => {
+    const token =
+      localStorage.getItem("customerToken") ||
+      sessionStorage.getItem("customerToken");
+    const userStr =
+      localStorage.getItem("customerUser") ||
+      sessionStorage.getItem("customerUser");
+
+    setIsLoggedIn(!!token);
+
+    if (userStr) {
+      const userObj = JSON.parse(userStr);
+      // Mengambil nama depan saja agar navbar tidak terlalu panjang
+      setCustomerName(userObj.fullname.split(" ")[0]);
+    } else {
+      setCustomerName("");
+    }
+  }, [location.pathname]); // <--- Kunci cerdasnya ada di sini!
+
+  const handleProfileClick = () => {
+    if (isLoggedIn) {
+      navigate("/profile");
+    } else {
+      // Bawa informasi "dari halaman mana" pelanggan ini berasal
+      navigate("/login", { state: { from: location.pathname } });
+    }
+  };
 
   return (
     <>
@@ -97,9 +142,19 @@ const Header = ({ setIsCartOpen, cartCount }) => {
             <button>
               <Search className="h-5 w-5 text-chester-text hover:text-chester-pink transition" />
             </button>
-            <Link to="/login" className="hover:text-chester-pink transition">
+            <button
+              onClick={handleProfileClick}
+              className="flex items-center gap-1.5 hover:text-chester-pink transition cursor-pointer"
+              title={isLoggedIn ? "Profil Saya" : "Masuk Akun"}
+            >
               <User className="h-5 w-5 text-inherit" />
-            </Link>
+              {/* Teks sapaan hanya muncul jika sudah login (disembunyikan di layar HP kecil) */}
+              {isLoggedIn && customerName && (
+                <span className="text-sm font-bold hidden sm:block">
+                  Hai, {customerName}
+                </span>
+              )}
+            </button>
             <button
               onClick={() => setIsCartOpen(true)}
               className="flex items-center gap-1 group relative"
@@ -154,13 +209,15 @@ const Header = ({ setIsCartOpen, cartCount }) => {
             >
               Diskon
             </a>
-            <Link
-              to="/login"
-              onClick={() => setIsMobileMenuOpen(false)}
-              className="text-lg font-bold text-chester-text hover:text-chester-pink mt-4 pt-4 border-t border-gray-100"
+            <button
+              onClick={() => {
+                setIsMobileMenuOpen(false);
+                handleProfileClick();
+              }}
+              className="text-lg font-bold text-left text-chester-text hover:text-chester-pink mt-4 pt-4 border-t border-gray-100 w-full"
             >
-              Akun Saya / Masuk
-            </Link>
+              {isLoggedIn ? "Profil Saya" : "Akun Saya / Masuk"}
+            </button>
           </nav>
         </div>
       </div>
@@ -379,6 +436,9 @@ export default function App() {
                   <Route path="/product/:id" element={<ProductPage />} />
                   <Route path="/login" element={<Login />} />
                   <Route path="/register" element={<Register />} />
+                  <Route path="/forgot-password" element={<ForgotPassword />} />
+                  <Route path="/profile" element={<ProfileCustomer />} />
+                  <Route path="/addresses" element={<AddressBook />} />
                 </Routes>
               </div>
 

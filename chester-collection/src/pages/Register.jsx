@@ -1,136 +1,289 @@
-import { Link } from "react-router-dom";
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import {
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  CheckCircle,
+  AlertCircle,
+  User,
+  Phone,
+  ArrowRight,
+} from "lucide-react";
+import axios from "axios";
+import logo from "../assets/logo.png"; // Menggunakan path yang sudah benar (satu titik dua)
 
 export default function Register() {
+  const navigate = useNavigate();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // State untuk melihat/menyembunyikan kata sandi
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+  // State Input Form
+  const [formData, setFormData] = useState({
+    fullname: "",
+    email: "",
+    phone: "",
+    password: "",
+    confirmPassword: "",
+  });
+
+  // State untuk Notifikasi Kustom (Custom Alert)
+  const [customAlert, setCustomAlert] = useState({
+    show: false,
+    message: "",
+    type: "success",
+  });
+
+  const showAlert = (message, type = "success") => {
+    setCustomAlert({ show: true, message, type });
+    setTimeout(
+      () => setCustomAlert({ show: false, message: "", type: "success" }),
+      3500,
+    );
+  };
+
+  const handleChange = (e) => {
+    setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+  };
+
+  const handleRegisterSubmit = async (e) => {
+    e.preventDefault();
+
+    // Validasi 1: Pastikan kata sandi dan konfirmasi sama
+    if (formData.password !== formData.confirmPassword) {
+      showAlert("Kata sandi dan Konfirmasi kata sandi tidak cocok!", "error");
+      return;
+    }
+
+    // Validasi 2: Panjang kata sandi minimal (misal 6 karakter)
+    if (formData.password.length < 6) {
+      showAlert("Kata sandi minimal harus 6 karakter.", "error");
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      // Mengirim data ke backend Node.js
+      const payload = {
+        fullname: formData.fullname,
+        email: formData.email,
+        phone: formData.phone,
+        password: formData.password,
+      };
+
+      const response = await axios.post(
+        `${import.meta.env.VITE_API_URL}/auth/register`,
+        payload,
+      );
+
+      if (response.data.success) {
+        showAlert(
+          "Pendaftaran sukses! Mengalihkan ke halaman login...",
+          "success",
+        );
+
+        // Jeda 2 detik agar pelanggan bisa membaca pesan sukses, lalu pindah ke halaman Login
+        setTimeout(() => {
+          navigate("/login");
+        }, 2000);
+      }
+    } catch (error) {
+      // Menangkap pesan error dari backend (misal: email sudah terdaftar)
+      showAlert(
+        error.response?.data?.message ||
+          "Gagal mendaftarkan akun. Silakan coba lagi.",
+        "error",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
-    <div className="bg-white min-h-screen font-lora py-12 md:py-20">
-      <div className="container mx-auto px-4 flex flex-col items-center">
-        {/* Breadcrumb */}
-        <nav className="text-xs text-gray-500 mb-10 flex gap-2 w-full max-w-md">
-          <Link to="/" className="hover:text-chester-pink transition">
-            Beranda
-          </Link>{" "}
-          /<span className="text-chester-text font-medium">Buat Akun</span>
-        </nav>
+    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 font-lora">
+      {/* ALERT NOTIFIKASI KUSTOM */}
+      {customAlert.show && (
+        <div className="fixed top-6 right-6 z-50 animate-fade-in">
+          <div
+            className={`flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-xl border text-sm font-semibold text-white ${customAlert.type === "success" ? "bg-emerald-500 border-emerald-400" : "bg-rose-500 border-rose-400"}`}
+          >
+            {customAlert.type === "success" ? (
+              <CheckCircle size={20} />
+            ) : (
+              <AlertCircle size={20} />
+            )}
+            <span>{customAlert.message}</span>
+          </div>
+        </div>
+      )}
 
-        {/* Kotak Form Register */}
-        <div className="w-full max-w-md">
-          <h1 className="text-3xl font-bold text-chester-text mb-2 text-center uppercase tracking-widest">
-            Daftar Akun
-          </h1>
-          <p className="text-sm text-gray-500 text-center mb-10">
-            Silakan isi detail di bawah ini untuk membuat akun baru.
-          </p>
+      {/* BOX FORM UTAMA */}
+      <div className="sm:mx-auto w-full max-w-md">
+        <div className="bg-white py-10 px-6 shadow-sm border border-gray-100 rounded-2xl sm:px-10">
+          {/* LOGO & HEADING */}
+          <div className="mb-8 text-center">
+            <img
+              src={logo}
+              alt="Chester Logo"
+              className="h-16 mx-auto object-contain mb-4"
+            />
+            <h2 className="text-2xl font-black text-gray-900 tracking-tight">
+              Daftar Akun Baru
+            </h2>
+            <p className="text-xs text-gray-400 mt-1">
+              Lengkapi data di bawah ini untuk menjadi pelanggan Chester.
+            </p>
+          </div>
 
-          <form className="flex flex-col gap-5">
-            {/* Nama Depan */}
-            <div className="flex flex-col gap-2">
-              <label
-                htmlFor="firstName"
-                className="text-sm font-bold text-chester-text uppercase tracking-wider"
-              >
-                Nama Depan
+          <form onSubmit={handleRegisterSubmit} className="space-y-5">
+            {/* INPUT NAMA LENGKAP */}
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">
+                Nama Lengkap *
               </label>
-              <input
-                type="text"
-                id="firstName"
-                placeholder="Contoh: Budi"
-                className="border border-gray-300 h-12 px-4 focus:outline-none focus:border-chester-pink focus:ring-1 focus:ring-chester-pink transition bg-gray-50/50"
-                required
-              />
+              <div className="relative rounded-lg shadow-sm">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                  <User size={18} />
+                </div>
+                <input
+                  type="text"
+                  name="fullname"
+                  required
+                  value={formData.fullname}
+                  onChange={handleChange}
+                  className="w-full bg-gray-50/50 border border-gray-200 pl-10 pr-4 py-3 rounded-xl focus:outline-none focus:border-chester-pink focus:bg-white text-sm transition-colors"
+                  placeholder="Nama sesuai KTP"
+                />
+              </div>
             </div>
 
-            {/* Nama Belakang */}
-            <div className="flex flex-col gap-2">
-              <label
-                htmlFor="lastName"
-                className="text-sm font-bold text-chester-text uppercase tracking-wider"
-              >
-                Nama Belakang
+            {/* INPUT EMAIL */}
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">
+                Alamat Email *
               </label>
-              <input
-                type="text"
-                id="lastName"
-                placeholder="Contoh: Santoso"
-                className="border border-gray-300 h-12 px-4 focus:outline-none focus:border-chester-pink focus:ring-1 focus:ring-chester-pink transition bg-gray-50/50"
-                required
-              />
+              <div className="relative rounded-lg shadow-sm">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                  <Mail size={18} />
+                </div>
+                <input
+                  type="email"
+                  name="email"
+                  required
+                  value={formData.email}
+                  onChange={handleChange}
+                  className="w-full bg-gray-50/50 border border-gray-200 pl-10 pr-4 py-3 rounded-xl focus:outline-none focus:border-chester-pink focus:bg-white text-sm transition-colors"
+                  placeholder="nama@email.com"
+                />
+              </div>
             </div>
 
-            {/* Email */}
-            <div className="flex flex-col gap-2">
-              <label
-                htmlFor="email"
-                className="text-sm font-bold text-chester-text uppercase tracking-wider"
-              >
-                Email
+            {/* INPUT NOMOR HP */}
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">
+                Nomor WhatsApp
               </label>
-              <input
-                type="email"
-                id="email"
-                placeholder="nama@email.com"
-                className="border border-gray-300 h-12 px-4 focus:outline-none focus:border-chester-pink focus:ring-1 focus:ring-chester-pink transition bg-gray-50/50"
-                required
-              />
+              <div className="relative rounded-lg shadow-sm">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                  <Phone size={18} />
+                </div>
+                <input
+                  type="tel"
+                  name="phone"
+                  value={formData.phone}
+                  onChange={handleChange}
+                  className="w-full bg-gray-50/50 border border-gray-200 pl-10 pr-4 py-3 rounded-xl focus:outline-none focus:border-chester-pink focus:bg-white text-sm transition-colors"
+                  placeholder="08123456789"
+                />
+              </div>
             </div>
 
-            {/* Kata Sandi */}
-            <div className="flex flex-col gap-2">
-              <label
-                htmlFor="password"
-                className="text-sm font-bold text-chester-text uppercase tracking-wider"
-              >
-                Kata Sandi
+            {/* INPUT KATA SANDI */}
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">
+                Kata Sandi *
               </label>
-              <input
-                type="password"
-                id="password"
-                placeholder="Minimal 8 karakter"
-                className="border border-gray-300 h-12 px-4 focus:outline-none focus:border-chester-pink focus:ring-1 focus:ring-chester-pink transition bg-gray-50/50"
-                required
-              />
+              <div className="relative rounded-lg shadow-sm">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                  <Lock size={18} />
+                </div>
+                <input
+                  type={showPassword ? "text" : "password"}
+                  name="password"
+                  required
+                  value={formData.password}
+                  onChange={handleChange}
+                  className="w-full bg-gray-50/50 border border-gray-200 pl-10 pr-12 py-3 rounded-xl focus:outline-none focus:border-chester-pink focus:bg-white text-sm transition-colors"
+                  placeholder="Minimal 6 karakter"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-chester-pink transition-colors cursor-pointer"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
             </div>
 
-            {/* Persetujuan Buletin / T&C (Opsional tapi bagus untuk UI) */}
-            <div className="flex items-start gap-3 mt-2">
-              <input
-                type="checkbox"
-                id="terms"
-                className="mt-1 w-4 h-4 accent-chester-pink cursor-pointer"
-                required
-              />
-              <label
-                htmlFor="terms"
-                className="text-xs text-gray-500 leading-relaxed cursor-pointer"
-              >
-                Saya menyetujui{" "}
-                <a href="#" className="underline hover:text-chester-pink">
-                  Syarat & Ketentuan
-                </a>{" "}
-                serta{" "}
-                <a href="#" className="underline hover:text-chester-pink">
-                  Kebijakan Privasi
-                </a>{" "}
-                yang berlaku.
+            {/* KONFIRMASI KATA SANDI */}
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">
+                Konfirmasi Kata Sandi *
               </label>
+              <div className="relative rounded-lg shadow-sm">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                  <Lock size={18} />
+                </div>
+                <input
+                  type={showConfirmPassword ? "text" : "password"}
+                  name="confirmPassword"
+                  required
+                  value={formData.confirmPassword}
+                  onChange={handleChange}
+                  className="w-full bg-gray-50/50 border border-gray-200 pl-10 pr-12 py-3 rounded-xl focus:outline-none focus:border-chester-pink focus:bg-white text-sm transition-colors"
+                  placeholder="Ketik ulang kata sandi"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-chester-pink transition-colors cursor-pointer"
+                >
+                  {showConfirmPassword ? (
+                    <EyeOff size={18} />
+                  ) : (
+                    <Eye size={18} />
+                  )}
+                </button>
+              </div>
             </div>
 
-            {/* Tombol Daftar */}
-            <button
-              type="submit"
-              className="w-full bg-chester-pink text-white h-14 font-bold text-sm uppercase tracking-widest hover:bg-gray-900 transition duration-300 mt-4"
-            >
-              Buat Akun Saya
-            </button>
+            {/* TOMBOL SUBMIT */}
+            <div className="pt-2">
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full flex justify-center items-center gap-2 py-3 px-4 border border-transparent rounded-xl shadow-sm text-sm font-bold text-white bg-gray-950 hover:bg-black focus:outline-none transition-colors cursor-pointer disabled:opacity-70"
+              >
+                {isSubmitting ? "Memproses..." : "Buat Akun Sekarang"}{" "}
+                <ArrowRight size={16} />
+              </button>
+            </div>
           </form>
 
-          {/* Tautan Kembali ke Login */}
-          <div className="mt-10 pt-8 border-t border-gray-100 text-center">
-            <p className="text-sm text-gray-500 mb-4">Sudah memiliki akun?</p>
+          {/* LINK KEMBALI KE LOGIN */}
+          <div className="mt-8 text-center pt-6 border-t border-gray-100 text-xs text-gray-500">
+            Sudah mempunyai akun?{" "}
             <Link
               to="/login"
-              className="text-sm font-bold text-chester-text hover:text-chester-pink uppercase tracking-widest underline transition"
+              className="font-bold text-chester-pink hover:underline"
             >
-              Masuk ke Akun Anda
+              Masuk di sini
             </Link>
           </div>
         </div>
