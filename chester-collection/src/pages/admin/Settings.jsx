@@ -25,13 +25,12 @@ export default function Settings() {
     type: "success",
   });
 
-  // 1. STATE FORM PENGATURAN UMUM
+  // 1. STATE FORM PENGATURAN UMUM (DIUBAH KE BITESHIP)
   const [formData, setFormData] = useState({
     shop_name: "",
     shop_phone: "",
     shop_address: "",
-    rajaongkir_api_key: "",
-    rajaongkir_type: "starter",
+    biteship_api_key: "", // Menggantikan rajaongkir_api_key
   });
 
   // 2. STATE MANAJEMEN STAF (ADMINS)
@@ -89,17 +88,14 @@ export default function Settings() {
   };
 
   const loadCurrentLoggedInAdmin = () => {
-    // Coba ambil data admin dari localStorage browser
     let savedAdmin = JSON.parse(localStorage.getItem("admin"));
 
-    // Jika data tidak ada, atau ID-nya terlewat/kosong, kita paksa set ke Admin Utama (ID: 1)
     if (!savedAdmin || !savedAdmin.id) {
       savedAdmin = {
         id: 1,
         fullname: "Administrator",
         email: "admin@chester.com",
       };
-      // Simpan ulang ke localStorage agar formatnya benar
       localStorage.setItem("admin", JSON.stringify(savedAdmin));
     }
 
@@ -154,7 +150,7 @@ export default function Settings() {
         showAlert(res.data.message, "success");
         setNewAdmin({ fullname: "", email: "", password: "", role: "Editor" });
         setShowAddForm(false);
-        fetchAdmins(); // Refresh tabel admin
+        fetchAdmins();
       }
     } catch (err) {
       showAlert(
@@ -193,7 +189,6 @@ export default function Settings() {
       );
       if (res.data.success) {
         showAlert(res.data.message, "success");
-        // Update data di localStorage agar nama di header ikut ganti seketika
         const currentLocal = JSON.parse(localStorage.getItem("admin")) || {};
         localStorage.setItem(
           "admin",
@@ -217,7 +212,11 @@ export default function Settings() {
     <button
       type="button"
       onClick={() => setActiveTab(id)}
-      className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold rounded-xl transition-colors ${activeTab === id ? "bg-pink-50 text-chester-pink" : "text-gray-600 hover:bg-gray-50"}`}
+      className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-semibold rounded-xl transition-colors ${
+        activeTab === id
+          ? "bg-pink-50 text-chester-pink"
+          : "text-gray-600 hover:bg-gray-50"
+      }`}
     >
       {icon} {label}
     </button>
@@ -236,7 +235,11 @@ export default function Settings() {
       {customAlert.show && (
         <div className="fixed top-6 right-6 z-50 animate-bounce">
           <div
-            className={`flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-xl border text-sm font-semibold text-white ${customAlert.type === "success" ? "bg-emerald-500 border-emerald-400" : "bg-rose-500 border-rose-400"}`}
+            className={`flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-xl border text-sm font-semibold text-white ${
+              customAlert.type === "success"
+                ? "bg-emerald-500 border-emerald-400"
+                : "bg-rose-500 border-rose-400"
+            }`}
           >
             {customAlert.type === "success" ? (
               <CheckCircle size={20} />
@@ -359,7 +362,7 @@ export default function Settings() {
             </form>
           )}
 
-          {/* TAB 2: RAJAONGKIR */}
+          {/* TAB 2: BITESHIP */}
           {activeTab === "shipping" && (
             <form
               onSubmit={handleSaveSettings}
@@ -367,46 +370,28 @@ export default function Settings() {
             >
               <div>
                 <h2 className="text-lg font-bold text-gray-800 mb-1">
-                  Integrasi RajaOngkir
+                  Integrasi Logistik Biteship
                 </h2>
                 <p className="text-xs text-gray-500">
-                  Kunci akses utama kalkulasi otomatis ongkos kirim saat pembeli
-                  checkout.
+                  Masukkan API Key dari dashboard Biteship Anda untuk
+                  mengaktifkan perhitungan ongkos kirim otomatis.
                 </p>
               </div>
-              <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
-                <label className="block text-sm font-bold text-gray-700 mb-2">
-                  Tipe Akun RajaOngkir
-                </label>
-                <select
-                  name="rajaongkir_type"
-                  value={formData.rajaongkir_type || "starter"}
-                  onChange={handleChangeSetting}
-                  className="w-full border px-4 py-2.5 rounded-lg bg-white outline-none focus:border-chester-pink"
-                >
-                  <option value="starter">
-                    Starter (Gratis - Fitur Manual)
-                  </option>
-                  <option value="basic">Basic</option>
-                  <option value="pro">Pro</option>
-                  <option value="komerce">
-                    Delivery API (Komerce / Komship Otomatis)
-                  </option>
-                </select>
-              </div>
+
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">
-                  API Key
+                  API Key Biteship
                 </label>
                 <input
                   type="password"
-                  name="rajaongkir_api_key"
-                  value={formData.rajaongkir_api_key || ""}
+                  name="biteship_api_key"
+                  value={formData.biteship_api_key || ""}
                   onChange={handleChangeSetting}
-                  placeholder="Paste API Key RajaOngkir..."
-                  className="w-full border px-4 py-2.5 rounded-lg font-mono text-sm outline-none focus:border-chester-pink"
+                  placeholder="Paste API Key Biteship Anda di sini..."
+                  className="w-full border px-4 py-2.5 rounded-lg font-mono text-sm outline-none focus:border-chester-pink bg-gray-50"
                 />
               </div>
+
               <button
                 type="submit"
                 disabled={isSaving}
@@ -548,7 +533,11 @@ export default function Settings() {
                         <td className="p-4 text-gray-600">{admin.email}</td>
                         <td className="p-4">
                           <span
-                            className={`px-2 py-0.5 rounded text-xs font-bold border ${admin.role === "Superadmin" ? "bg-purple-50 text-purple-600 border-purple-200" : "bg-blue-50 text-blue-600 border-blue-200"}`}
+                            className={`px-2 py-0.5 rounded text-xs font-bold border ${
+                              admin.role === "Superadmin"
+                                ? "bg-purple-50 text-purple-600 border-purple-200"
+                                : "bg-blue-50 text-blue-600 border-blue-200"
+                            }`}
                           >
                             {admin.role}
                           </span>

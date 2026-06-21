@@ -10,6 +10,8 @@ import {
   Plus,
   Trash2,
   Search,
+  CheckCircle,
+  AlertCircle,
 } from "lucide-react";
 import axios from "axios";
 
@@ -17,24 +19,21 @@ export default function AddressBook() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // --- STATE DATA PENGGUNA ---
   const [userData, setUserData] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState(null);
 
-  // --- STATE BUKU ALAMAT ---
   const [addresses, setAddresses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // --- STATE LOGISTIK PINTAR ---
-  const [logisticType, setLogisticType] = useState("starter"); // 'starter' atau 'komerce'
+  // --- STATE CUSTOM ALERT ---
+  const [customAlert, setCustomAlert] = useState({
+    show: false,
+    message: "",
+    type: "success",
+  });
 
-  // State untuk mode Standar (RajaOngkir)
-  const [provinces, setProvinces] = useState([]);
-  const [cities, setCities] = useState([]);
-
-  // State untuk mode Komerce (Pencarian Destinasi)
   const [searchKeyword, setSearchKeyword] = useState("");
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -44,7 +43,7 @@ export default function AddressBook() {
     label: "",
     recipient_name: "",
     phone: "",
-    province_id: "",
+    province_id: "BITESHIP",
     province_name: "",
     city_id: "",
     city_name: "",
@@ -67,7 +66,6 @@ export default function AddressBook() {
     if (storedUser.avatar) setAvatarPreview(`${BASE_URL}${storedUser.avatar}`);
 
     loadAddresses(storedUser.id);
-    checkLogisticTypeAndLoadProvinces();
   }, [navigate, BASE_URL]);
 
   const loadAddresses = async (userId) => {
@@ -83,71 +81,19 @@ export default function AddressBook() {
     }
   };
 
-  // FUNGSI PINTAR: Cek tipe logistik dari backend
-  const checkLogisticTypeAndLoadProvinces = async () => {
-    try {
-      const response = await axios.get(
-        `${import.meta.env.VITE_API_URL}/rajaongkir/provinces`,
-      );
-
-      // ALAT PELACAK: Menampilkan respons asli dari backend ke Console browser
-      console.log("Status Logistik dari Backend:", response.data);
-
-      if (response.data.is_komerce) {
-        setLogisticType("komerce");
-      } else {
-        setLogisticType("starter");
-        setProvinces(response.data.data || []);
-      }
-    } catch (error) {
-      // ALAT PELACAK: Menampilkan error jika gagal terhubung
-      console.error("Gagal terhubung ke backend logistik:", error);
-
-      // Pastikan form tidak error total jika gagal memuat
-      setLogisticType("starter");
-      setProvinces([]);
-    }
+  // --- FUNGSI PEMANGGIL CUSTOM ALERT ---
+  const showAlert = (message, type = "success") => {
+    setCustomAlert({ show: true, message, type });
+    setTimeout(
+      () => setCustomAlert({ show: false, message: "", type: "success" }),
+      4000,
+    );
   };
 
-  // --- HANDLER MODE STANDAR (RAJAONGKIR) ---
-  const handleProvinceChange = async (e) => {
-    const selectedId = e.target.value;
-    const selectedProv = provinces.find((p) => p.province_id === selectedId);
-
-    setAddressForm({
-      ...addressForm,
-      province_id: selectedProv.province_id,
-      province_name: selectedProv.province,
-      city_id: "",
-      city_name: "",
-    });
-
-    try {
-      const response = await axios.get(
-        `${import.meta.env.VITE_API_URL}/rajaongkir/cities/${selectedId}`,
-      );
-      setCities(response.data.data);
-    } catch (error) {
-      console.error("Gagal memuat kota.");
-    }
-  };
-
-  const handleCityChange = (e) => {
-    const selectedId = e.target.value;
-    const selectedCity = cities.find((c) => c.city_id === selectedId);
-    setAddressForm({
-      ...addressForm,
-      city_id: selectedCity.city_id,
-      city_name: `${selectedCity.type} ${selectedCity.city_name}`,
-    });
-  };
-
-  // --- HANDLER MODE KOMERCE (PENCARIAN DESTINASI) ---
-  const handleSearchDestination = (e) => {
+  const handleSearchArea = (e) => {
     const keyword = e.target.value;
     setSearchKeyword(keyword);
 
-    // Gunakan Debounce agar tidak spam API saat mengetik cepat
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
 
     if (keyword.length < 3) {
@@ -159,33 +105,42 @@ export default function AddressBook() {
       setIsSearching(true);
       try {
         const response = await axios.get(
-          `${import.meta.env.VITE_API_URL}/logistic/search-destination?keyword=${keyword}`,
+          `${import.meta.env.VITE_API_URL}/logistic/search-area?keyword=${keyword}`,
         );
         setSearchResults(response.data.data || []);
       } catch (error) {
-        console.error("Gagal mencari destinasi");
+        console.error("Gagal mencari area");
       } finally {
         setIsSearching(false);
       }
-    }, 800); // Tunggu 0.8 detik setelah berhenti mengetik
+    }, 800);
   };
 
-  const selectKomerceDestination = (item) => {
+  const selectArea = (item) => {
     setAddressForm({
       ...addressForm,
-      city_id: item.id, // Menyimpan ID spesifik Komerce
-      city_name: item.label, // Menyimpan label lengkap (Kecamatan, Kota, Provinsi)
-      postal_code: item.zip_code || "",
-      province_id: "komerce", // Tanda bahwa ini data Komerce
-      province_name: item.province_name || "Komerce Delivery",
+      city_id: item.id,
+      city_name: `${item.name}, ${item.administrative_division_level_2_name}`,
+      province_name: item.administrative_division_level_1_name,
+      postal_code: item.postal_code || "",
     });
-    setSearchKeyword(item.label);
-    setSearchResults([]); // Tutup dropdown pencarian
+    setSearchKeyword(
+      `${item.name}, ${item.administrative_division_level_2_name}, ${item.administrative_division_level_1_name}`,
+    );
+    setSearchResults([]);
   };
 
-  // --- HANDLER SIMPAN & HAPUS ALAMAT ---
   const handleAddressSubmit = async (e) => {
     e.preventDefault();
+
+    if (!addressForm.city_id) {
+      showAlert(
+        "Mohon klik/pilih wilayah dari daftar hasil pencarian yang muncul.",
+        "error",
+      );
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       await axios.post(
@@ -197,7 +152,7 @@ export default function AddressBook() {
         label: "",
         recipient_name: "",
         phone: "",
-        province_id: "",
+        province_id: "BITESHIP",
         province_name: "",
         city_id: "",
         city_name: "",
@@ -206,8 +161,13 @@ export default function AddressBook() {
       });
       setSearchKeyword("");
       loadAddresses(userData.id);
+
+      showAlert("Alamat baru berhasil disimpan ke buku alamat!", "success");
     } catch (error) {
-      console.error("Gagal menyimpan alamat");
+      const errorMessage =
+        error.response?.data?.message || "Gagal menyimpan alamat ke database.";
+      showAlert(errorMessage, "error");
+      console.error("Error Simpan Alamat:", error);
     } finally {
       setIsSubmitting(false);
     }
@@ -219,8 +179,9 @@ export default function AddressBook() {
         `${import.meta.env.VITE_API_URL}/users/${userData.id}/addresses/${addressId}/primary`,
       );
       loadAddresses(userData.id);
+      showAlert("Alamat utama berhasil diperbarui.", "success");
     } catch (error) {
-      console.error("Gagal mengubah alamat utama");
+      showAlert("Gagal mengubah alamat utama.", "error");
     }
   };
 
@@ -231,8 +192,9 @@ export default function AddressBook() {
           `${import.meta.env.VITE_API_URL}/users/${userData.id}/addresses/${addressId}`,
         );
         loadAddresses(userData.id);
+        showAlert("Alamat berhasil dihapus.", "success");
       } catch (error) {
-        console.error("Gagal menghapus alamat");
+        showAlert("Gagal menghapus alamat.", "error");
       }
     }
   };
@@ -246,10 +208,25 @@ export default function AddressBook() {
   if (!userData) return null;
 
   return (
-    <div className="min-h-screen bg-gray-50 py-10 font-lora">
+    <div className="min-h-screen bg-gray-50 py-10 font-lora relative">
+      {/* CUSTOM ALERTS MENGGANTIKAN WINDOW.ALERT */}
+      {customAlert.show && (
+        <div className="fixed top-6 right-6 z-50 animate-bounce">
+          <div
+            className={`flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-xl border text-sm font-semibold text-white ${customAlert.type === "success" ? "bg-emerald-500 border-emerald-400" : "bg-rose-500 border-rose-400"}`}
+          >
+            {customAlert.type === "success" ? (
+              <CheckCircle size={20} />
+            ) : (
+              <AlertCircle size={20} />
+            )}
+            <span>{customAlert.message}</span>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
-          {/* SIDEBAR */}
           <div className="md:col-span-3">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="p-6 text-center border-b border-gray-100 bg-gray-950 text-white">
@@ -312,7 +289,6 @@ export default function AddressBook() {
             </div>
           </div>
 
-          {/* KONTEN UTAMA */}
           <div className="md:col-span-9 space-y-6">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 sm:p-8">
               {showForm ? (
@@ -336,10 +312,11 @@ export default function AddressBook() {
                               label: e.target.value,
                             })
                           }
-                          className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl text-sm"
+                          className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl text-sm outline-none focus:border-chester-pink"
                           placeholder="Contoh: Rumah"
                         />
                       </div>
+
                       <div>
                         <label className="block text-xs font-bold uppercase text-gray-500 mb-2">
                           Nama Penerima
@@ -354,10 +331,11 @@ export default function AddressBook() {
                               recipient_name: e.target.value,
                             })
                           }
-                          className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl text-sm"
+                          className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl text-sm outline-none focus:border-chester-pink"
                           placeholder="Nama penerima paket"
                         />
                       </div>
+
                       <div className="md:col-span-2">
                         <label className="block text-xs font-bold uppercase text-gray-500 mb-2">
                           Nomor Telepon
@@ -372,122 +350,56 @@ export default function AddressBook() {
                               phone: e.target.value,
                             })
                           }
-                          className="w-full md:w-1/2 bg-gray-50 border border-gray-200 p-3 rounded-xl text-sm"
+                          className="w-full md:w-1/2 bg-gray-50 border border-gray-200 p-3 rounded-xl text-sm outline-none focus:border-chester-pink"
                           placeholder="Nomor aktif"
                         />
                       </div>
 
-                      {/* AREA PINTAR: RENDER INPUT BERDASARKAN TIPE LOGISTIK */}
-                      {logisticType === "komerce" ? (
-                        <div className="md:col-span-2 relative">
-                          <label className="block text-xs font-bold uppercase text-gray-500 mb-2">
-                            Kecamatan / Kode Pos (Komerce)
-                          </label>
-                          <div className="relative">
-                            <input
-                              type="text"
-                              required
-                              value={searchKeyword}
-                              onChange={handleSearchDestination}
-                              className="w-full bg-gray-50 border border-gray-200 p-3 pl-10 rounded-xl text-sm focus:border-chester-pink outline-none"
-                              placeholder="Ketik minimal 3 huruf kecamatan atau kode pos..."
-                            />
-                            <Search
-                              className="absolute left-3 top-3.5 text-gray-400"
-                              size={18}
-                            />
-                          </div>
-
-                          {/* Dropdown Hasil Pencarian */}
-                          {isSearching && (
-                            <div className="absolute z-10 w-full mt-1 bg-white border rounded-xl shadow-lg p-3 text-sm text-gray-500">
-                              Mencari...
-                            </div>
-                          )}
-                          {searchResults.length > 0 && (
-                            <ul className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-xl max-h-60 overflow-y-auto">
-                              {searchResults.map((item) => (
-                                <li
-                                  key={item.id}
-                                  onClick={() => selectKomerceDestination(item)}
-                                  className="p-3 hover:bg-pink-50 cursor-pointer border-b border-gray-50 text-sm last:border-0"
-                                >
-                                  <div className="font-bold text-gray-800">
-                                    {item.label}
-                                  </div>
-                                  <div className="text-xs text-gray-500">
-                                    Kode Pos: {item.zip_code}
-                                  </div>
-                                </li>
-                              ))}
-                            </ul>
-                          )}
-                        </div>
-                      ) : (
-                        <>
-                          <div>
-                            <label className="block text-xs font-bold uppercase text-gray-500 mb-2">
-                              Provinsi
-                            </label>
-                            <select
-                              required
-                              onChange={handleProvinceChange}
-                              value={addressForm.province_id}
-                              className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl text-sm"
-                            >
-                              <option value="">Pilih Provinsi</option>
-                              {provinces.map((prov) => (
-                                <option
-                                  key={prov.province_id}
-                                  value={prov.province_id}
-                                >
-                                  {prov.province}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                          <div>
-                            <label className="block text-xs font-bold uppercase text-gray-500 mb-2">
-                              Kota/Kabupaten
-                            </label>
-                            <select
-                              required
-                              onChange={handleCityChange}
-                              value={addressForm.city_id}
-                              disabled={cities.length === 0}
-                              className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl text-sm disabled:opacity-50"
-                            >
-                              <option value="">Pilih Kota/Kab</option>
-                              {cities.map((city) => (
-                                <option key={city.city_id} value={city.city_id}>
-                                  {city.type} {city.city_name}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        </>
-                      )}
-
-                      {logisticType !== "komerce" && (
-                        <div>
-                          <label className="block text-xs font-bold uppercase text-gray-500 mb-2">
-                            Kode Pos
-                          </label>
+                      <div className="md:col-span-2 relative">
+                        <label className="block text-xs font-bold uppercase text-gray-500 mb-2">
+                          Kecamatan / Wilayah Pengiriman
+                        </label>
+                        <div className="relative">
                           <input
                             type="text"
                             required
-                            value={addressForm.postal_code}
-                            onChange={(e) =>
-                              setAddressForm({
-                                ...addressForm,
-                                postal_code: e.target.value,
-                              })
-                            }
-                            className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl text-sm"
-                            placeholder="Contoh: 57123"
+                            value={searchKeyword}
+                            onChange={handleSearchArea}
+                            className="w-full bg-gray-50 border border-gray-200 p-3 pl-10 rounded-xl text-sm focus:border-chester-pink outline-none"
+                            placeholder="Ketik minimal 3 huruf nama kecamatan atau wilayah Anda..."
+                          />
+                          <Search
+                            className="absolute left-3 top-3.5 text-gray-400"
+                            size={18}
                           />
                         </div>
-                      )}
+
+                        {isSearching && (
+                          <div className="absolute z-10 w-full mt-1 bg-white border rounded-xl shadow-lg p-3 text-sm text-gray-500">
+                            Mencari wilayah...
+                          </div>
+                        )}
+                        {searchResults.length > 0 && (
+                          <ul className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-xl max-h-60 overflow-y-auto">
+                            {searchResults.map((item, index) => (
+                              <li
+                                key={`${item.id}-${index}`}
+                                onClick={() => selectArea(item)}
+                                className="p-3 hover:bg-pink-50 cursor-pointer border-b border-gray-50 text-sm last:border-0"
+                              >
+                                <div className="font-bold text-gray-800">
+                                  {item.name}
+                                </div>
+                                <div className="text-xs text-gray-500">
+                                  {item.administrative_division_level_2_name},{" "}
+                                  {item.administrative_division_level_1_name}{" "}
+                                  {item.postal_code && `- ${item.postal_code}`}
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
                     </div>
 
                     <div>
@@ -505,7 +417,7 @@ export default function AddressBook() {
                           })
                         }
                         className="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl text-sm outline-none focus:border-chester-pink"
-                        placeholder="Detail alamat lengkap..."
+                        placeholder="Tuliskan nama jalan, nomor rumah, RT/RW, dan patokan..."
                       ></textarea>
                     </div>
 
@@ -579,10 +491,7 @@ export default function AddressBook() {
                             <p className="text-sm text-gray-500 leading-relaxed">
                               {addr.full_address}
                               <br />
-                              {addr.city_name}
-                              {addr.province_name !== "Komerce Delivery"
-                                ? `, ${addr.province_name}`
-                                : ""}{" "}
+                              {addr.city_name}, {addr.province_name}{" "}
                               {addr.postal_code}
                             </p>
                           </div>

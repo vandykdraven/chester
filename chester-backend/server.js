@@ -31,20 +31,27 @@ const db = mysql
   .promise();
 
 // =======================================================================
-// CONFIGURATION MULTER (UNGGAH GAMBAR PRODUK)
+// CONFIGURATION MULTER (UNGGAH GAMBAR PRODUK & PROFIL)
 // =======================================================================
-// Memastikan folder 'uploads/products' tersedia di server
 const uploadDir = "./uploads/products";
 if (!fs.existsSync(uploadDir)) {
   fs.mkdirSync(uploadDir, { recursive: true });
 }
 
+const profileDir = "./uploads/profiles";
+if (!fs.existsSync(profileDir)) {
+  fs.mkdirSync(profileDir, { recursive: true });
+}
+
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, uploadDir);
+    if (file.fieldname === "avatar") {
+      cb(null, profileDir);
+    } else {
+      cb(null, uploadDir);
+    }
   },
   filename: function (req, file, cb) {
-    // Menamai file: produk-timestamp-acak.ekstensi
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
     cb(
       null,
@@ -53,7 +60,6 @@ const storage = multer.diskStorage({
   },
 });
 
-// Filter jenis file (Hanya mengizinkan gambar)
 const fileFilter = (req, file, cb) => {
   if (file.mimetype.startsWith("image/")) {
     cb(null, true);
@@ -68,23 +74,21 @@ const upload = multer({
   limits: { fileSize: 7 * 1024 * 1024 }, // Maksimal 7MB per file
 });
 
-// Menyiapkan slot unggahan gambar: 1 Gambar Utama (primaryImage), 4 Gambar Pendukung (supportingImages)
 const cpUpload = upload.fields([
   { name: "primaryImage", maxCount: 1 },
   { name: "supportingImages", maxCount: 4 },
 ]);
 
 // =======================================================================
-// ENDPOINT: TAMBAH PRODUK BARU + DUAL MEDIA SOURCE (POST /api/products)
+// ENDPOINT: MANAJEMEN PRODUK (PRODUCTS)
 // =======================================================================
 app.post("/api/products", cpUpload, async (req, res) => {
   try {
     const productData = JSON.parse(req.body.data);
-
     const {
       name,
       category,
-      size_guide_id, // Kolom panduan ukuran baru
+      size_guide_id,
       description,
       video_url,
       price,
@@ -100,30 +104,24 @@ app.post("/api/products", cpUpload, async (req, res) => {
       seo_title,
       seo_description,
       seo_keywords,
-      imagesConfig, // Menerima konfigurasi sumber media tiap slot [slot0, slot1, slot2, slot3, slot4]
+      imagesConfig,
     } = productData;
 
-    if (!name) {
+    if (!name)
       return res
         .status(400)
         .json({ success: false, message: "Nama produk wajib diisi!" });
-    }
 
     const connection = await db.getConnection();
     await connection.beginTransaction();
 
     try {
-      // 1. Simpan Data Induk Produk ke tabel `products` (Termasuk size_guide_id)
       const [productResult] = await connection.query(
-        `INSERT INTO products (
-          name, category_id, size_guide_id, description, status, price, original_price, 
-          stock, weight, sku, has_variant, variant_types_json, 
-          seo_title, seo_description, seo_keywords
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )`,
+        `INSERT INTO products (name, category_id, size_guide_id, description, video_url, status, price, original_price, stock, weight, sku, has_variant, variant_types_json, seo_title, seo_description, seo_keywords) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           name,
           category || null,
-          size_guide_id || null, // Disimpan ke MySQL
+          size_guide_id || null,
           description || null,
           video_url || null,
           status || "available",
@@ -141,18 +139,16 @@ app.post("/api/products", cpUpload, async (req, res) => {
       );
 
       const productId = productResult.insertId;
-
-      // 2. LOGIKA BARU: PROSES PEMILIHAN GAMBAR CAMPURAN (PC / SERVER)
       const imgCfg = imagesConfig || [];
 
-      // --- A. Proses Slot 0 (Foto Utama) ---
       if (imgCfg[0]) {
         if (imgCfg[0].type === "pc" && req.files["primaryImage"]) {
-          const primaryFile = req.files["primaryImage"][0];
-          const primaryUrl = `/uploads/products/${primaryFile.filename}`;
           await connection.query(
             `INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 1)`,
-            [productId, primaryUrl],
+            [
+              productId,
+              `/uploads/products/${req.files["primaryImage"][0].filename}`,
+            ],
           );
         } else if (imgCfg[0].type === "server" && imgCfg[0].path) {
           await connection.query(
@@ -162,7 +158,6 @@ app.post("/api/products", cpUpload, async (req, res) => {
         }
       }
 
-      // --- B. Proses Slot 1-4 (Foto Pendukung) ---
       let pcUploadIndex = 0;
       for (let i = 1; i <= 4; i++) {
         const slotConfig = imgCfg[i];
@@ -172,11 +167,12 @@ app.post("/api/products", cpUpload, async (req, res) => {
             req.files["supportingImages"] &&
             req.files["supportingImages"][pcUploadIndex]
           ) {
-            const file = req.files["supportingImages"][pcUploadIndex];
-            const supportingUrl = `/uploads/products/${file.filename}`;
             await connection.query(
               `INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 0)`,
-              [productId, supportingUrl],
+              [
+                productId,
+                `/uploads/products/${req.files["supportingImages"][pcUploadIndex].filename}`,
+              ],
             );
             pcUploadIndex++;
           } else if (slotConfig.type === "server" && slotConfig.path) {
@@ -188,12 +184,10 @@ app.post("/api/products", cpUpload, async (req, res) => {
         }
       }
 
-      // 3. Simpan Data Variasi ke tabel `product_variants`
       if (hasVariant && variantMatrix && variantMatrix.length > 0) {
         for (const variant of variantMatrix) {
           await connection.query(
-            `INSERT INTO product_variants (product_id, variant_key, price, original_price, stock, weight, sku) 
-             VALUES (?, ?, ?, ?, ?, ?, ? )`,
+            `INSERT INTO product_variants (product_id, variant_key, price, original_price, stock, weight, sku) VALUES (?, ?, ?, ?, ?, ?, ?)`,
             [
               productId,
               variant.key,
@@ -207,12 +201,11 @@ app.post("/api/products", cpUpload, async (req, res) => {
         }
       }
 
-      // 4. Simpan Data Harga Grosir ke tabel `product_wholesales`
       if (wholesales && wholesales.length > 0) {
         for (const ws of wholesales) {
           if (ws.minQty && ws.price) {
             await connection.query(
-              `INSERT INTO product_wholesales (product_id, min_qty, wholesale_price) VALUES (?, ?, ? )`,
+              `INSERT INTO product_wholesales (product_id, min_qty, wholesale_price) VALUES (?, ?, ?)`,
               [productId, ws.minQty, ws.price],
             );
           }
@@ -221,10 +214,9 @@ app.post("/api/products", cpUpload, async (req, res) => {
 
       await connection.commit();
       connection.release();
-
       return res.status(201).json({
         success: true,
-        message: "Produk tingkat mahir berhasil disimpan ke database!",
+        message: "Produk berhasil disimpan!",
         productId: productId,
       });
     } catch (dbError) {
@@ -233,80 +225,51 @@ app.post("/api/products", cpUpload, async (req, res) => {
       throw dbError;
     }
   } catch (error) {
-    console.error("Error pada server saat menyimpan produk:", error);
+    console.error("Error menyimpan produk:", error);
     return res.status(500).json({
       success: false,
-      message: "Gagal menyimpan produk ke server internal.",
+      message: "Gagal menyimpan produk.",
       error: error.message,
     });
   }
 });
 
-// =======================================================================
-// ENDPOINT: AMBUL SEMUA PRODUK (GET /api/products)
-// =======================================================================
 app.get("/api/products", async (req, res) => {
   try {
     const [rows] = await db.query(`
-      SELECT 
-        p.id, 
-        p.name, 
-        p.category_id, 
-        p.price, 
-        p.stock, 
-        p.status, 
-        p.has_variant, 
-        p.sku,
-        p.created_at,
-        pi.image_url AS primary_image,
-        MIN(pv.price) AS min_v_price,
-        MAX(pv.price) AS max_v_price,
-        SUM(pv.stock) AS total_v_stock
+      SELECT p.id, p.name, p.category_id, p.price, p.stock, p.status, p.has_variant, p.sku, p.created_at, pi.image_url AS primary_image, MIN(pv.price) AS min_v_price, MAX(pv.price) AS max_v_price, SUM(pv.stock) AS total_v_stock
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id AND pi.is_primary = 1
       LEFT JOIN product_variants pv ON p.id = pv.product_id
-      GROUP BY p.id, pi.image_url
-      ORDER BY p.created_at DESC
+      GROUP BY p.id, pi.image_url ORDER BY p.created_at DESC
     `);
-
     return res.status(200).json({
       success: true,
       message: "Berhasil mengambil daftar produk",
       data: rows,
     });
   } catch (error) {
-    console.error("Gagal mengambil data produk:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Terjadi kesalahan server saat mengambil data produk.",
-    });
+    return res
+      .status(500)
+      .json({ success: false, message: "Gagal mengambil data produk." });
   }
 });
 
-// =======================================================================
-// ENDPOINT: HAPUS PRODUK (REVISI: TANPA HAPUS FILE GAMBAR FISIK)
-// =======================================================================
 app.delete("/api/products/:id", async (req, res) => {
-  const productId = req.params.id;
-
   try {
     const [result] = await db.query("DELETE FROM products WHERE id = ?", [
-      productId,
+      req.params.id,
     ]);
-
-    if (result.affectedRows === 0) {
+    if (result.affectedRows === 0)
       return res
         .status(404)
         .json({ success: false, message: "Produk tidak ditemukan!" });
-    }
-
     return res.json({
       success: true,
       message:
         "Data produk berhasil dihapus, file gambar tetap tersimpan di Galeri Server!",
     });
   } catch (error) {
-    console.error("Gagal menghapus produk:", error);
     return res.status(500).json({
       success: false,
       message: "Terjadi kesalahan server saat menghapus produk.",
@@ -314,50 +277,38 @@ app.delete("/api/products/:id", async (req, res) => {
   }
 });
 
-// =======================================================================
-// ENDPOINT: AMBIL DETAIL 1 PRODUK UNTUK DI-EDIT (GET /api/products/:id)
-// =======================================================================
 app.get("/api/products/:id", async (req, res) => {
-  const productId = req.params.id;
   try {
     const [products] = await db.query("SELECT * FROM products WHERE id = ?", [
-      productId,
+      req.params.id,
     ]);
-    if (products.length === 0) {
+    if (products.length === 0)
       return res
         .status(404)
         .json({ success: false, message: "Produk tidak ditemukan!" });
-    }
-    const product = products[0];
-
     const [images] = await db.query(
       "SELECT id, image_url, is_primary FROM product_images WHERE product_id = ?",
-      [productId],
+      [req.params.id],
     );
     const [variants] = await db.query(
       "SELECT * FROM product_variants WHERE product_id = ?",
-      [productId],
+      [req.params.id],
     );
     const [wholesales] = await db.query(
       "SELECT * FROM product_wholesales WHERE product_id = ?",
-      [productId],
+      [req.params.id],
     );
-
     return res.status(200).json({
       success: true,
-      data: { ...product, images, variants, wholesales },
+      data: { ...products[0], images, variants, wholesales },
     });
   } catch (error) {
-    console.error("Gagal mengambil detail produk:", error);
     return res
       .status(500)
       .json({ success: false, message: "Terjadi kesalahan server." });
   }
 });
 
-// =======================================================================
-// ENDPOINT: SIMPAN PERUBAHAN EDIT PRODUK + DUAL MEDIA (PUT /api/products/:id)
-// =======================================================================
 app.put(
   "/api/products/:id",
   upload.fields([
@@ -365,14 +316,11 @@ app.put(
     { name: "supportingImages", maxCount: 4 },
   ]),
   async (req, res) => {
-    const productId = req.params.id;
-
-    if (!req.body.data) {
+    if (!req.body.data)
       return res
         .status(400)
         .json({ success: false, message: "Data produk tidak ditemukan." });
-    }
-
+    const productId = req.params.id;
     const {
       name,
       category_id,
@@ -392,20 +340,14 @@ app.put(
       seo_title,
       seo_description,
       seo_keywords,
-      imagesConfig, // Menerima susunan gambar baru (PC, Server, atau format lama)
+      imagesConfig,
     } = JSON.parse(req.body.data);
 
     const connection = await db.getConnection();
     try {
       await connection.beginTransaction();
-
-      // 1. Update data induk produk
       await connection.query(
-        `UPDATE products SET 
-          name = ?, category_id = ?, size_guide_id = ?, description = ?, video_url = ?, status = ?, 
-          price = ?, original_price = ?, stock = ?, weight = ?, sku = ?, 
-          has_variant = ?, variant_types_json = ?, seo_title = ?, seo_description = ?, seo_keywords = ?
-        WHERE id = ?`,
+        `UPDATE products SET name = ?, category_id = ?, size_guide_id = ?, description = ?, video_url = ?, status = ?, price = ?, original_price = ?, stock = ?, weight = ?, sku = ?, has_variant = ?, variant_types_json = ?, seo_title = ?, seo_description = ?, seo_keywords = ? WHERE id = ?`,
         [
           name,
           category_id || null,
@@ -427,23 +369,20 @@ app.put(
         ],
       );
 
-      // 2. Update data Grosir
       await connection.query(
         "DELETE FROM product_wholesales WHERE product_id = ?",
         [productId],
       );
       if (wholesales && wholesales.length > 0) {
         for (const ws of wholesales) {
-          if (ws.minQty && ws.price) {
+          if (ws.minQty && ws.price)
             await connection.query(
               "INSERT INTO product_wholesales (product_id, min_qty, wholesale_price) VALUES (?, ?, ?)",
               [productId, ws.minQty, ws.price],
             );
-          }
         }
       }
 
-      // 3. Update data Variasi
       await connection.query(
         "DELETE FROM product_variants WHERE product_id = ?",
         [productId],
@@ -451,8 +390,7 @@ app.put(
       if (has_variant && variantMatrix && variantMatrix.length > 0) {
         for (const row of variantMatrix) {
           await connection.query(
-            `INSERT INTO product_variants (product_id, variant_key, price, original_price, stock, weight, sku) 
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO product_variants (product_id, variant_key, price, original_price, stock, weight, sku) VALUES (?, ?, ?, ?, ?, ?, ?)`,
             [
               productId,
               row.key || row.variant_key || row.combination?.join("-"),
@@ -466,21 +404,19 @@ app.put(
         }
       }
 
-      // 4. LOGIKA PEMROSESAN GAMBAR (DUAL-PATH & PERTAHANKAN GAMBAR LAMA)
       await connection.query(
         "DELETE FROM product_images WHERE product_id = ?",
         [productId],
       );
-
       const imgCfg = imagesConfig || [];
-
-      // --- A. Proses Foto Utama (Slot 0) ---
       if (imgCfg[0]) {
         if (imgCfg[0].type === "pc" && req.files["primaryImage"]) {
-          const primaryUrl = `/uploads/products/${req.files["primaryImage"][0].filename}`;
           await connection.query(
             "INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 1)",
-            [productId, primaryUrl],
+            [
+              productId,
+              `/uploads/products/${req.files["primaryImage"][0].filename}`,
+            ],
           );
         } else if (
           (imgCfg[0].type === "server" || imgCfg[0].type === "existing") &&
@@ -493,7 +429,6 @@ app.put(
         }
       }
 
-      // --- B. Proses Foto Pendukung (Slot 1-4) ---
       let pcUploadIndex = 0;
       for (let i = 1; i <= 4; i++) {
         const slotConfig = imgCfg[i];
@@ -503,10 +438,12 @@ app.put(
             req.files["supportingImages"] &&
             req.files["supportingImages"][pcUploadIndex]
           ) {
-            const supportingUrl = `/uploads/products/${req.files["supportingImages"][pcUploadIndex].filename}`;
             await connection.query(
               "INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 0)",
-              [productId, supportingUrl],
+              [
+                productId,
+                `/uploads/products/${req.files["supportingImages"][pcUploadIndex].filename}`,
+              ],
             );
             pcUploadIndex++;
           } else if (
@@ -528,7 +465,6 @@ app.put(
       });
     } catch (error) {
       await connection.rollback();
-      console.error("Gagal mengupdate produk:", error);
       return res.status(500).json({
         success: false,
         message: "Gagal memperbarui data pada server.",
@@ -540,40 +476,33 @@ app.put(
 );
 
 // =======================================================================
-// ENDPOINT GALERI: UPLOAD GAMBAR BARU KE GALERI (POST /api/gallery/upload)
+// ENDPOINT: MEDIA GALERI (GALLERY)
 // =======================================================================
 app.post(
   "/api/gallery/upload",
   upload.single("galleryFile"),
   async (req, res) => {
     try {
-      if (!req.file) {
+      if (!req.file)
         return res
           .status(400)
           .json({ success: false, message: "Tidak ada file yang diunggah." });
-      }
-
       const filePath = `/uploads/products/${req.file.filename}`;
-      const filename = req.file.originalname;
-      const fileSize = req.file.size;
-
       const [result] = await db.query(
         "INSERT INTO gallery_media (filename, file_path, file_size) VALUES (?, ?, ?)",
-        [filename, filePath, fileSize],
+        [req.file.originalname, filePath, req.file.size],
       );
-
       return res.status(201).json({
         success: true,
-        message: "Gambar berhasil ditambahkan ke galeri server!",
+        message: "Gambar berhasil ditambahkan!",
         data: {
           id: result.insertId,
-          filename,
+          filename: req.file.originalname,
           file_path: filePath,
-          file_size: fileSize,
+          file_size: req.file.size,
         },
       });
     } catch (error) {
-      console.error("Gagal mengunggah ke galeri:", error);
       return res
         .status(500)
         .json({ success: false, message: "Gagal memproses unggahan gambar." });
@@ -581,9 +510,6 @@ app.post(
   },
 );
 
-// =======================================================================
-// ENDPOINT GALERI: AMBIL MEDIA DENGAN PAGING & PENCARIAN (GET /api/gallery)
-// =======================================================================
 app.get("/api/gallery", async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -596,21 +522,15 @@ app.get("/api/gallery", async (req, res) => {
     const queryParams = [];
 
     if (search) {
-      const searchPattern = `%${search}%`;
       queryCount += " WHERE filename LIKE ?";
       queryData += " WHERE filename LIKE ?";
-      queryParams.push(searchPattern);
+      queryParams.push(`%${search}%`);
     }
-
     queryData += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
-
     const [countResult] = await db.query(
       queryCount,
       search ? [queryParams[0]] : [],
     );
-    const totalItems = countResult[0].total;
-    const totalPages = Math.ceil(totalItems / limit);
-
     queryParams.push(limit, offset);
     const [rows] = await db.query(queryData, queryParams);
 
@@ -619,48 +539,37 @@ app.get("/api/gallery", async (req, res) => {
       message: "Daftar galeri berhasil dimuat",
       data: rows,
       pagination: {
-        totalItems,
-        totalPages,
+        totalItems: countResult[0].total,
+        totalPages: Math.ceil(countResult[0].total / limit),
         currentPage: page,
         limit,
       },
     });
   } catch (error) {
-    console.error("Gagal mengambil data galeri:", error);
     return res
       .status(500)
       .json({ success: false, message: "Terjadi kesalahan server." });
   }
 });
 
-// =======================================================================
-// ENDPOINT GALERI: HAPUS MEDIA PERMANEN DARI GALERI
-// =======================================================================
 app.delete("/api/gallery/:id", async (req, res) => {
-  const mediaId = req.params.id;
   try {
     const [rows] = await db.query(
       "SELECT file_path FROM gallery_media WHERE id = ?",
-      [mediaId],
+      [req.params.id],
     );
-    if (rows.length === 0) {
+    if (rows.length === 0)
       return res
         .status(404)
         .json({ success: false, message: "Media tidak ditemukan." });
-    }
-    const media = rows[0];
-    await db.query("DELETE FROM gallery_media WHERE id = ?", [mediaId]);
-
-    const filePath = path.join(__dirname, media.file_path);
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
+    await db.query("DELETE FROM gallery_media WHERE id = ?", [req.params.id]);
+    const filePath = path.join(__dirname, rows[0].file_path);
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     return res.json({
       success: true,
       message: "Gambar berhasil dihapus dari server!",
     });
   } catch (error) {
-    console.error("Gagal menghapus media galeri:", error);
     return res
       .status(500)
       .json({ success: false, message: "Terjadi kesalahan server." });
@@ -668,10 +577,8 @@ app.delete("/api/gallery/:id", async (req, res) => {
 });
 
 // =======================================================================
-// ENDPOINT PANDUAN UKURAN (SIZE GUIDES)
+// ENDPOINT: PANDUAN UKURAN (SIZE GUIDES)
 // =======================================================================
-
-// 1. Ambil semua daftar panduan ukuran (GET)
 app.get("/api/size-guides", async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -679,23 +586,18 @@ app.get("/api/size-guides", async (req, res) => {
     );
     return res.status(200).json({ success: true, data: rows });
   } catch (error) {
-    console.error("Gagal mengambil panduan ukuran:", error);
     return res
       .status(500)
       .json({ success: false, message: "Terjadi kesalahan server." });
   }
 });
 
-// 2. Tambah panduan ukuran baru (POST)
 app.post("/api/size-guides", async (req, res) => {
   const { name, content, image_url } = req.body;
-
-  if (!name) {
+  if (!name)
     return res
       .status(400)
       .json({ success: false, message: "Nama panduan wajib diisi!" });
-  }
-
   try {
     await db.query(
       "INSERT INTO size_guides (name, content, image_url) VALUES (?, ?, ?)",
@@ -705,43 +607,35 @@ app.post("/api/size-guides", async (req, res) => {
       .status(201)
       .json({ success: true, message: "Panduan ukuran berhasil ditambahkan!" });
   } catch (error) {
-    console.error("Gagal menyimpan panduan ukuran:", error);
     return res
       .status(500)
       .json({ success: false, message: "Gagal menyimpan ke database." });
   }
 });
 
-// 3. Ambil detail 1 panduan ukuran untuk diedit (GET)
 app.get("/api/size-guides/:id", async (req, res) => {
   try {
     const [rows] = await db.query("SELECT * FROM size_guides WHERE id = ?", [
       req.params.id,
     ]);
-    if (rows.length === 0) {
+    if (rows.length === 0)
       return res
         .status(404)
         .json({ success: false, message: "Data tidak ditemukan!" });
-    }
     return res.status(200).json({ success: true, data: rows[0] });
   } catch (error) {
-    console.error("Gagal mengambil detail panduan:", error);
     return res
       .status(500)
       .json({ success: false, message: "Terjadi kesalahan server." });
   }
 });
 
-// 4. Simpan perubahan edit panduan ukuran (PUT)
 app.put("/api/size-guides/:id", async (req, res) => {
   const { name, content, image_url } = req.body;
-
-  if (!name) {
+  if (!name)
     return res
       .status(400)
       .json({ success: false, message: "Nama panduan wajib diisi!" });
-  }
-
   try {
     await db.query(
       "UPDATE size_guides SET name = ?, content = ?, image_url = ? WHERE id = ?",
@@ -751,24 +645,19 @@ app.put("/api/size-guides/:id", async (req, res) => {
       .status(200)
       .json({ success: true, message: "Panduan ukuran berhasil diperbarui!" });
   } catch (error) {
-    console.error("Gagal mengupdate panduan ukuran:", error);
     return res
       .status(500)
       .json({ success: false, message: "Gagal memperbarui data." });
   }
 });
 
-// 5. Hapus panduan ukuran permanen (DELETE)
 app.delete("/api/size-guides/:id", async (req, res) => {
   try {
-    // Berkat relasi ON DELETE SET NULL yang kita buat di MySQL,
-    // jika panduan ini dihapus, produk yang memakainya tidak akan error (hanya menjadi NULL)
     await db.query("DELETE FROM size_guides WHERE id = ?", [req.params.id]);
     return res
       .status(200)
       .json({ success: true, message: "Panduan ukuran berhasil dihapus!" });
   } catch (error) {
-    console.error("Gagal menghapus panduan ukuran:", error);
     return res.status(500).json({
       success: false,
       message: "Terjadi kesalahan server saat menghapus.",
@@ -777,10 +666,8 @@ app.delete("/api/size-guides/:id", async (req, res) => {
 });
 
 // =======================================================================
-// ENDPOINT: KATEGORI PRODUK (PRODUCT CATEGORIES)
+// ENDPOINT: KATEGORI PRODUK (CATEGORIES)
 // =======================================================================
-
-// 1. Ambil Semua Kategori
 app.get("/api/categories", async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -788,27 +675,22 @@ app.get("/api/categories", async (req, res) => {
     );
     return res.status(200).json({ success: true, data: rows });
   } catch (error) {
-    console.error("Gagal mengambil kategori:", error);
     return res
       .status(500)
       .json({ success: false, message: "Terjadi kesalahan server." });
   }
 });
 
-// 2. Tambah Kategori Baru
 app.post("/api/categories", async (req, res) => {
   const { name, description } = req.body;
   if (!name)
     return res
       .status(400)
       .json({ success: false, message: "Nama kategori wajib diisi!" });
-
-  // Membuat slug otomatis (contoh: "Kemeja Pria" -> "kemeja-pria")
   const slug = name
     .toLowerCase()
     .replace(/ /g, "-")
     .replace(/[^\w-]+/g, "");
-
   try {
     await db.query(
       "INSERT INTO product_categories (name, slug, description) VALUES (?, ?, ?)",
@@ -818,26 +700,22 @@ app.post("/api/categories", async (req, res) => {
       .status(201)
       .json({ success: true, message: "Kategori berhasil ditambahkan!" });
   } catch (error) {
-    console.error("Gagal menyimpan kategori:", error);
     return res
       .status(500)
       .json({ success: false, message: "Gagal menyimpan ke database." });
   }
 });
 
-// 3. Edit Kategori
 app.put("/api/categories/:id", async (req, res) => {
   const { name, description } = req.body;
   if (!name)
     return res
       .status(400)
       .json({ success: false, message: "Nama kategori wajib diisi!" });
-
   const slug = name
     .toLowerCase()
     .replace(/ /g, "-")
     .replace(/[^\w-]+/g, "");
-
   try {
     await db.query(
       "UPDATE product_categories SET name = ?, slug = ?, description = ? WHERE id = ?",
@@ -847,14 +725,12 @@ app.put("/api/categories/:id", async (req, res) => {
       .status(200)
       .json({ success: true, message: "Kategori berhasil diperbarui!" });
   } catch (error) {
-    console.error("Gagal mengupdate kategori:", error);
     return res
       .status(500)
       .json({ success: false, message: "Gagal memperbarui data." });
   }
 });
 
-// 4. Hapus Kategori
 app.delete("/api/categories/:id", async (req, res) => {
   try {
     await db.query("DELETE FROM product_categories WHERE id = ?", [
@@ -864,19 +740,15 @@ app.delete("/api/categories/:id", async (req, res) => {
       .status(200)
       .json({ success: true, message: "Kategori berhasil dihapus!" });
   } catch (error) {
-    console.error("Gagal menghapus kategori:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Terjadi kesalahan server saat menghapus.",
-    });
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server." });
   }
 });
 
 // =======================================================================
-// ENDPOINT: TAG & LABEL PRODUK (PRODUCT TAGS)
+// ENDPOINT: LABELS / TAG PRODUK (TAGS)
 // =======================================================================
-
-// 1. Ambil Semua Tag
 app.get("/api/tags", async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -884,48 +756,40 @@ app.get("/api/tags", async (req, res) => {
     );
     return res.status(200).json({ success: true, data: rows });
   } catch (error) {
-    console.error("Gagal mengambil tag:", error);
     return res
       .status(500)
       .json({ success: false, message: "Terjadi kesalahan server." });
   }
 });
 
-// 2. Tambah Tag Baru
 app.post("/api/tags", async (req, res) => {
   const { name } = req.body;
   if (!name)
     return res
       .status(400)
       .json({ success: false, message: "Nama tag wajib diisi!" });
-
   try {
     await db.query("INSERT INTO product_tags (name) VALUES (?)", [name]);
     return res
       .status(201)
       .json({ success: true, message: "Tag berhasil ditambahkan!" });
   } catch (error) {
-    // Tangkap error jika nama tag duplikat (UNIQUE constraint)
-    if (error.code === "ER_DUP_ENTRY") {
+    if (error.code === "ER_DUP_ENTRY")
       return res
         .status(400)
-        .json({ success: false, message: "Tag ini sudah ada di database!" });
-    }
-    console.error("Gagal menyimpan tag:", error);
+        .json({ success: false, message: "Tag ini sudah ada!" });
     return res
       .status(500)
       .json({ success: false, message: "Gagal menyimpan ke database." });
   }
 });
 
-// 3. Edit Tag
 app.put("/api/tags/:id", async (req, res) => {
   const { name } = req.body;
   if (!name)
     return res
       .status(400)
       .json({ success: false, message: "Nama tag wajib diisi!" });
-
   try {
     await db.query("UPDATE product_tags SET name = ? WHERE id = ?", [
       name,
@@ -935,14 +799,12 @@ app.put("/api/tags/:id", async (req, res) => {
       .status(200)
       .json({ success: true, message: "Tag berhasil diperbarui!" });
   } catch (error) {
-    console.error("Gagal mengupdate tag:", error);
     return res
       .status(500)
       .json({ success: false, message: "Gagal memperbarui data." });
   }
 });
 
-// 4. Hapus Tag
 app.delete("/api/tags/:id", async (req, res) => {
   try {
     await db.query("DELETE FROM product_tags WHERE id = ?", [req.params.id]);
@@ -950,19 +812,15 @@ app.delete("/api/tags/:id", async (req, res) => {
       .status(200)
       .json({ success: true, message: "Tag berhasil dihapus!" });
   } catch (error) {
-    console.error("Gagal menghapus tag:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Terjadi kesalahan server saat menghapus.",
-    });
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server." });
   }
 });
 
 // =======================================================================
 // ENDPOINT: MANAJEMEN PELANGGAN (CUSTOMERS)
 // =======================================================================
-
-// 1. Ambil Daftar Pelanggan (Paging & Search)
 app.get("/api/customers", async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -971,12 +829,10 @@ app.get("/api/customers", async (req, res) => {
     const offset = (page - 1) * limit;
 
     let queryCount = "SELECT COUNT(*) as total FROM users";
-    // Sengaja tidak melakukan SELECT password demi keamanan data (Security Best Practice)
     let queryData =
       "SELECT id, fullname, email, phone, status, created_at FROM users";
     const queryParams = [];
 
-    // Logika Pencarian Pintar (Cari berdasarkan nama ATAU email)
     if (search) {
       queryCount += " WHERE fullname LIKE ? OR email LIKE ?";
       queryData += " WHERE fullname LIKE ? OR email LIKE ?";
@@ -984,95 +840,47 @@ app.get("/api/customers", async (req, res) => {
     }
 
     queryData += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
-
     const [countResult] = await db.query(
       queryCount,
       search ? [queryParams[0], queryParams[1]] : [],
     );
-    const totalItems = countResult[0].total;
-    const totalPages = Math.ceil(totalItems / limit);
-
-    // limit & offset wajib bentuk integer saat dikirim ke db.query
     queryParams.push(limit, offset);
     const [rows] = await db.query(queryData, queryParams);
 
     return res.status(200).json({
       success: true,
-      message: "Data pelanggan berhasil dimuat",
       data: rows,
-      pagination: { totalItems, totalPages, currentPage: page, limit },
-    });
-  } catch (error) {
-    console.error("Gagal mengambil daftar pelanggan:", error);
-    return res
-      .status(500)
-      .json({ success: false, message: "Terjadi kesalahan server." });
-  }
-});
-
-// 2. Ambil Profil Detail Pelanggan + Buku Alamat
-app.get("/api/customers/:id", async (req, res) => {
-  try {
-    // Ambil data profil dasar
-    const [users] = await db.query(
-      "SELECT id, fullname, email, phone, status, created_at FROM users WHERE id = ?",
-      [req.params.id],
-    );
-
-    if (users.length === 0) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Pelanggan tidak ditemukan" });
-    }
-
-    // Ambil buku alamat (Urutkan yang utama/primary di paling atas)
-    const [addresses] = await db.query(
-      "SELECT * FROM user_addresses WHERE user_id = ? ORDER BY is_primary DESC, created_at DESC",
-      [req.params.id],
-    );
-
-    // *Catatan: Kelak saat Modul Pesanan (Orders) sudah dibuat,
-    // kita akan menambahkan query ke tabel orders di sini untuk menampilkan riwayat belanja mereka.
-
-    return res.status(200).json({
-      success: true,
-      data: {
-        ...users[0],
-        addresses,
+      pagination: {
+        totalItems: countResult[0].total,
+        totalPages: Math.ceil(countResult[0].total / limit),
+        currentPage: page,
+        limit,
       },
     });
   } catch (error) {
-    console.error("Gagal mengambil detail pelanggan:", error);
     return res
       .status(500)
       .json({ success: false, message: "Terjadi kesalahan server." });
   }
 });
 
-// 3. Ambil Detail Pelanggan (Profil, Alamat, & Riwayat Pesanan)
+// Konsolidasi Rincian Pelanggan (Profil, Alamat Akurat, & Riwayat Pesanan)
 app.get("/api/customers/:id", async (req, res) => {
   try {
     const customerId = req.params.id;
-
-    // 1. Ambil data dasar pelanggan
     const [users] = await db.query(
       "SELECT id, fullname, email, phone, status, created_at FROM users WHERE id = ?",
       [customerId],
     );
-
-    if (users.length === 0) {
+    if (users.length === 0)
       return res
         .status(404)
         .json({ success: false, message: "Pelanggan tidak ditemukan." });
-    }
 
-    // 2. Ambil Daftar Alamat Pelanggan
     const [addresses] = await db.query(
-      "SELECT * FROM user_addresses WHERE user_id = ? ORDER BY is_primary DESC",
+      "SELECT * FROM addresses WHERE user_id = ? ORDER BY is_primary DESC",
       [customerId],
     );
-
-    // 3. Ambil Riwayat Pesanan
     const [orders] = await db.query(
       "SELECT id, invoice_number, total_amount, status, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC",
       [customerId],
@@ -1086,43 +894,35 @@ app.get("/api/customers/:id", async (req, res) => {
       success: true,
       data: {
         ...users[0],
-        addresses: addresses, // <-- Data alamat ditambahkan
+        addresses: addresses,
         total_orders: orders.length,
         total_spent: totalSpent,
         order_history: orders,
       },
     });
   } catch (error) {
-    console.error("Gagal mengambil detail pelanggan:", error);
     return res
       .status(500)
       .json({ success: false, message: "Terjadi kesalahan server." });
   }
 });
 
-// 4. Ubah Status Akun Pelanggan (Blokir / Buka Blokir)
 app.put("/api/customers/:id/status", async (req, res) => {
   try {
-    const { status } = req.body; // Akan berisi 'active' atau 'suspended'
-
-    // Validasi input keamanan
-    if (!["active", "suspended"].includes(status)) {
+    const { status } = req.body;
+    if (!["active", "suspended"].includes(status))
       return res
         .status(400)
         .json({ success: false, message: "Status tidak valid." });
-    }
-
     await db.query("UPDATE users SET status = ? WHERE id = ?", [
       status,
       req.params.id,
     ]);
-
     return res.status(200).json({
       success: true,
       message: `Akun pelanggan berhasil ${status === "active" ? "diaktifkan" : "diblokir"}.`,
     });
   } catch (error) {
-    console.error("Gagal ubah status pelanggan:", error);
     return res
       .status(500)
       .json({ success: false, message: "Gagal memproses permintaan." });
@@ -1130,42 +930,32 @@ app.put("/api/customers/:id/status", async (req, res) => {
 });
 
 // =======================================================================
-// ENDPOINT: MANAJEMEN PESANAN (ORDERS & LOGISTIK KIRIMINAJA)
+// ENDPOINT: MANAJEMEN PESANAN (ORDERS)
 // =======================================================================
-
-// 1. Ambil Daftar Pesanan untuk Dashboard Admin (Paging, Search, & Filter Status)
 app.get("/api/orders", async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const search = req.query.search || "";
-    const statusFilter = req.query.status || ""; // 'pending', 'paid', 'shipping', etc.
+    const statusFilter = req.query.status || "";
     const offset = (page - 1) * limit;
 
     let queryCount =
       "SELECT COUNT(*) as total FROM orders o JOIN users u ON o.user_id = u.id";
-    let queryData = `
-      SELECT o.id, o.invoice_number, o.total_amount, o.status, o.courier_name, o.airway_bill, o.created_at, u.fullname 
-      FROM orders o 
-      JOIN users u ON o.user_id = u.id
-    `;
+    let queryData =
+      "SELECT o.id, o.invoice_number, o.total_amount, o.status, o.courier_name, o.airway_bill, o.created_at, u.fullname FROM orders o JOIN users u ON o.user_id = u.id";
 
     const queryParams = [];
     let whereClauses = [];
 
-    // Filter berdasarkan Pencarian (No. Invoice atau Nama Pelanggan)
     if (search) {
       whereClauses.push("(o.invoice_number LIKE ? OR u.fullname LIKE ?)");
       queryParams.push(`%${search}%`, `%${search}%`);
     }
-
-    // Filter berdasarkan Tab Status (Cepat)
     if (statusFilter) {
       whereClauses.push("o.status = ?");
       queryParams.push(statusFilter);
     }
-
-    // Satukan klausa WHERE jika ada
     if (whereClauses.length > 0) {
       const whereSQL = " WHERE " + whereClauses.join(" AND ");
       queryCount += whereSQL;
@@ -1173,79 +963,54 @@ app.get("/api/orders", async (req, res) => {
     }
 
     queryData += " ORDER BY o.created_at DESC LIMIT ? OFFSET ?";
-
-    // Ambil total item untuk paginasi
     const [countResult] = await db.query(
       queryCount,
-      queryParams.slice(0, whereClauses.length * 2 || whereClauses.length),
+      queryParams.slice(0, queryParams.length),
     );
-    const totalItems = countResult[0].total;
-    const totalPages = Math.ceil(totalItems / limit);
-
-    // Masukkan limit & offset (Wajib Integer)
     queryParams.push(limit, offset);
     const [rows] = await db.query(queryData, queryParams);
 
     return res.status(200).json({
       success: true,
       data: rows,
-      pagination: { totalItems, totalPages, currentPage: page, limit },
-    });
-  } catch (error) {
-    console.error("Gagal mengambil daftar pesanan:", error);
-    return res
-      .status(500)
-      .json({ success: false, message: "Terjadi kesalahan server." });
-  }
-});
-
-// 2. Ambil Rincian Detail Pesanan (Keranjang Belanja + Alamat + Info KiriminAja)
-app.get("/api/orders/:id", async (req, res) => {
-  try {
-    // Ambil data transaksi induk & info pelanggan
-    const [orders] = await db.query(
-      `
-      SELECT o.*, u.fullname as customer_name, u.email as customer_email 
-      FROM orders o 
-      JOIN users u ON o.user_id = u.id 
-      WHERE o.id = ?
-    `,
-      [req.params.id],
-    );
-
-    if (orders.length === 0) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Pesanan tidak ditemukan." });
-    }
-
-    // Ambil barang-barang produk yang dibeli di dalam pesanan ini
-    const [items] = await db.query(
-      `
-      SELECT oi.*, p.sku as product_sku 
-      FROM order_items oi
-      LEFT JOIN products p ON oi.product_id = p.id
-      WHERE oi.order_id = ?
-    `,
-      [req.params.id],
-    );
-
-    return res.status(200).json({
-      success: true,
-      data: {
-        ...orders[0],
-        items: items,
+      pagination: {
+        totalItems: countResult[0].total,
+        totalPages: Math.ceil(countResult[0].total / limit),
+        currentPage: page,
+        limit,
       },
     });
   } catch (error) {
-    console.error("Gagal mengambil rincian pesanan:", error);
     return res
       .status(500)
       .json({ success: false, message: "Terjadi kesalahan server." });
   }
 });
 
-// 3. Manual Override Status / Input Resi Jaga-jaga (Sebelum KiriminAja otomatisasi penuh jalan)
+app.get("/api/orders/:id", async (req, res) => {
+  try {
+    const [orders] = await db.query(
+      "SELECT o.*, u.fullname as customer_name, u.email as customer_email FROM orders o JOIN users u ON o.user_id = u.id WHERE o.id = ?",
+      [req.params.id],
+    );
+    if (orders.length === 0)
+      return res
+        .status(404)
+        .json({ success: false, message: "Pesanan tidak ditemukan." });
+    const [items] = await db.query(
+      "SELECT oi.*, p.sku as product_sku FROM order_items oi LEFT JOIN products p ON oi.product_id = p.id WHERE oi.order_id = ?",
+      [req.params.id],
+    );
+    return res
+      .status(200)
+      .json({ success: true, data: { ...orders[0], items } });
+  } catch (error) {
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server." });
+  }
+});
+
 app.put("/api/orders/:id/status", async (req, res) => {
   try {
     const { status, airway_bill } = req.body;
@@ -1256,33 +1021,26 @@ app.put("/api/orders/:id/status", async (req, res) => {
       "completed",
       "cancelled",
     ];
-
-    if (!allowedStatus.includes(status)) {
+    if (!allowedStatus.includes(status))
       return res
         .status(400)
         .json({ success: false, message: "Status pesanan tidak valid." });
-    }
 
     let queryUpdate = "UPDATE orders SET status = ?";
     const params = [status];
-
-    // Jika admin memasukkan nomor resi secara manual (opsional fallback)
     if (airway_bill) {
       queryUpdate += ", airway_bill = ?";
       params.push(airway_bill);
     }
-
     queryUpdate += " WHERE id = ?";
     params.push(req.params.id);
 
     await db.query(queryUpdate, params);
-
     return res.status(200).json({
       success: true,
       message: `Status pesanan berhasil diubah menjadi ${status}.`,
     });
   } catch (error) {
-    console.error("Gagal mengubah status pesanan:", error);
     return res
       .status(500)
       .json({ success: false, message: "Gagal memproses permintaan." });
@@ -1290,50 +1048,38 @@ app.put("/api/orders/:id/status", async (req, res) => {
 });
 
 // =======================================================================
-// ENDPOINT: PENGATURAN TOKO & INTEGRASI (SETTINGS)
+// ENDPOINT: PENGATURAN TOKO MASSAL (SETTINGS)
 // =======================================================================
-
-// 1. Ambil Semua Pengaturan
 app.get("/api/settings", async (req, res) => {
   try {
     const [rows] = await db.query(
       "SELECT setting_key, setting_value FROM settings",
     );
-
-    // Ubah format Array [{key: 'shop_name', value: 'Chester'}]
-    // Menjadi Object { shop_name: 'Chester' } agar mudah dipakai di React
     const settingsObject = {};
     rows.forEach((row) => {
       settingsObject[row.setting_key] = row.setting_value;
     });
-
     return res.status(200).json({ success: true, data: settingsObject });
   } catch (error) {
-    console.error("Gagal mengambil pengaturan:", error);
     return res
       .status(500)
       .json({ success: false, message: "Terjadi kesalahan server." });
   }
 });
 
-// 2. Simpan/Update Pengaturan Massal
 app.put("/api/settings", async (req, res) => {
   try {
-    const settingsData = req.body; // Contoh: { shop_name: "Chester Baru", kiriminaja_api_key: "abc" }
-
-    // Loop melalui setiap key di object dan update database
+    const settingsData = req.body;
     for (const [key, value] of Object.entries(settingsData)) {
       await db.query(
         "INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?",
         [key, value, value],
       );
     }
-
     return res
       .status(200)
       .json({ success: true, message: "Pengaturan berhasil disimpan." });
   } catch (error) {
-    console.error("Gagal menyimpan pengaturan:", error);
     return res
       .status(500)
       .json({ success: false, message: "Gagal menyimpan pengaturan." });
@@ -1341,10 +1087,8 @@ app.put("/api/settings", async (req, res) => {
 });
 
 // =======================================================================
-// ENDPOINT INTERNAL: MANAJEMEN STAF / ADMIN & PROFIL
+// ENDPOINT: STAF & TIM PANEL (ADMINS)
 // =======================================================================
-
-// 1. Ambil Semua Daftar Admin Asli dari Database
 app.get("/api/admins", async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -1352,161 +1096,123 @@ app.get("/api/admins", async (req, res) => {
     );
     return res.status(200).json({ success: true, data: rows });
   } catch (error) {
-    console.error("Gagal mengambil daftar admin:", error);
     return res
       .status(500)
       .json({ success: false, message: "Terjadi kesalahan server." });
   }
 });
 
-// 2. Tambah Akun Admin Baru (Pendaftaran Staf)
 app.post("/api/admins", async (req, res) => {
   try {
     const { fullname, email, password, role } = req.body;
-
-    if (!fullname || !email || !password) {
+    if (!fullname || !email || !password)
       return res
         .status(400)
         .json({ success: false, message: "Semua kolom wajib diisi." });
-    }
 
-    // Cek apakah email sudah dipakai oleh admin/staf lain
     const [existing] = await db.query("SELECT id FROM admins WHERE email = ?", [
       email,
     ]);
-    if (existing.length > 0) {
+    if (existing.length > 0)
       return res.status(400).json({
         success: false,
         message: "Email sudah terdaftar sebagai admin.",
       });
-    }
 
-    // Amankan password dengan enkripsi bcrypt sebelum disimpan
     const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Masukkan ke database
     await db.query(
       "INSERT INTO admins (fullname, email, password, role) VALUES (?, ?, ?, ?)",
       [fullname, email, hashedPassword, role || "Editor"],
     );
-
     return res
       .status(201)
       .json({ success: true, message: "Akun admin baru berhasil dibuat!" });
   } catch (error) {
-    console.error("Gagal menambah admin baru:", error);
     return res
       .status(500)
       .json({ success: false, message: "Gagal menyimpan data staf baru." });
   }
 });
 
-// 3. Hapus Akun Admin / Staf
 app.delete("/api/admins/:id", async (req, res) => {
   try {
-    const adminId = req.params.id;
-
-    // FITUR KEAMANAN KRUSIAL: Jangan ijinkan menghapus Superadmin Utama (ID 1)
-    // Agar kamu tidak terkunci keluar sistem secara tidak sengaja!
-    if (parseInt(adminId) === 1) {
+    if (parseInt(req.params.id) === 1)
       return res.status(400).json({
         success: false,
         message: "Admin Utama (Superadmin) tidak boleh dihapus!",
       });
-    }
-
-    await db.query("DELETE FROM admins WHERE id = ?", [adminId]);
+    await db.query("DELETE FROM admins WHERE id = ?", [req.params.id]);
     return res.status(200).json({
       success: true,
       message: "Akun staf berhasil dihapus dari sistem.",
     });
   } catch (error) {
-    console.error("Gagal menghapus admin:", error);
     return res
       .status(500)
       .json({ success: false, message: "Gagal menghapus staf." });
   }
 });
 
-// 4. Perbarui Profil & Password Admin yang Sedang Login
 app.put("/api/admins/profile", async (req, res) => {
   try {
     const { id, fullname, currentPassword, newPassword } = req.body;
-
-    if (!id || !fullname) {
+    if (!id || !fullname)
       return res
         .status(400)
         .json({ success: false, message: "Data ID dan Nama wajib diisi." });
-    }
 
-    // Ambil password lama di DB untuk dicocokkan
     const [admin] = await db.query("SELECT password FROM admins WHERE id = ?", [
       id,
     ]);
-    if (admin.length === 0) {
+    if (admin.length === 0)
       return res
         .status(404)
         .json({ success: false, message: "Akun tidak ditemukan." });
-    }
 
     let queryUpdate = "UPDATE admins SET fullname = ?";
     const params = [fullname];
 
-    // Logika jika admin berniat mengganti passwordnya
     if (currentPassword && newPassword) {
       const isMatch = await bcrypt.compare(currentPassword, admin[0].password);
-      if (!isMatch) {
+      if (!isMatch)
         return res.status(400).json({
           success: false,
           message: "Kata sandi lama yang Anda masukkan salah!",
         });
-      }
-
-      // Hash password barunya jika password lama cocok
       const hashedNewPassword = await bcrypt.hash(newPassword, 10);
       queryUpdate += ", password = ?";
       params.push(hashedNewPassword);
     }
-
     queryUpdate += " WHERE id = ?";
     params.push(id);
-
     await db.query(queryUpdate, params);
     return res
       .status(200)
       .json({ success: true, message: "Profil Anda berhasil diperbarui." });
   } catch (error) {
-    console.error("Gagal memperbarui profil admin:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Terjadi kesalahan server saat memperbarui profil.",
-    });
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server." });
   }
 });
 
-// =======================================================================
-// ROUTE AUTHENTICATION YANG SUDAH ADA SEBELUMNYA
-// =======================================================================
 app.post("/api/admin/login", async (req, res) => {
   const { email, password } = req.body;
   try {
     const [rows] = await db.query("SELECT * FROM admins WHERE email = ?", [
       email,
     ]);
-    if (rows.length === 0) {
+    if (rows.length === 0)
       return res
         .status(401)
         .json({ success: false, message: "Email tidak terdaftar!" });
-    }
-    const admin = rows[0];
-    const isMatch = await bcrypt.compare(password, admin.password);
-    if (!isMatch) {
+    const isMatch = await bcrypt.compare(password, rows[0].password);
+    if (!isMatch)
       return res
         .status(401)
         .json({ success: false, message: "Kata sandi salah!" });
-    }
     const token = jwt.sign(
-      { id: admin.id, role: admin.role },
+      { id: rows[0].id, role: rows[0].role },
       process.env.JWT_SECRET || "chester_secret_key_123",
       { expiresIn: "1d" },
     );
@@ -1515,10 +1221,10 @@ app.post("/api/admin/login", async (req, res) => {
       message: "Login Berhasil!",
       token,
       admin: {
-        id: admin.id,
-        fullname: admin.fullname,
-        email: admin.email,
-        role: admin.role,
+        id: rows[0].id,
+        fullname: rows[0].fullname,
+        email: rows[0].email,
+        role: rows[0].role,
       },
     });
   } catch (err) {
@@ -1527,10 +1233,8 @@ app.post("/api/admin/login", async (req, res) => {
 });
 
 // =======================================================================
-// ENDPOINT: MANAJEMEN VOUCHER & DISKON
+// ENDPOINT: MANAJEMEN VOUCHER (VOUCHERS)
 // =======================================================================
-
-// 1. Ambil Semua Daftar Voucher (Untuk Admin)
 app.get("/api/vouchers", async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -1538,14 +1242,12 @@ app.get("/api/vouchers", async (req, res) => {
     );
     return res.status(200).json({ success: true, data: rows });
   } catch (error) {
-    console.error("Gagal mengambil daftar voucher:", error);
     return res
       .status(500)
       .json({ success: false, message: "Terjadi kesalahan server." });
   }
 });
 
-// 2. Buat Voucher Baru
 app.post("/api/vouchers", async (req, res) => {
   try {
     const {
@@ -1563,76 +1265,59 @@ app.post("/api/vouchers", async (req, res) => {
       start_date,
       end_date,
     } = req.body;
-
-    // Validasi kode unik
     const [existing] = await db.query(
       "SELECT id FROM vouchers WHERE code = ?",
       [code],
     );
-    if (existing.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Kode voucher ini sudah digunakan, silakan buat kode lain.",
-      });
-    }
+    if (existing.length > 0)
+      return res
+        .status(400)
+        .json({ success: false, message: "Kode voucher ini sudah digunakan." });
 
-    const query = `
-      INSERT INTO vouchers (
-        code, name, discount_type, discount_value, max_discount, 
-        min_purchase, target_buyer, is_claimable, is_auto_apply, 
-        is_active, quota, start_date, end_date
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-
-    const values = [
-      code.toUpperCase(),
-      name,
-      discount_type,
-      discount_value,
-      max_discount || 0,
-      min_purchase || 0,
-      target_buyer || "all",
-      is_claimable || false,
-      is_auto_apply || false,
-      is_active !== undefined ? is_active : true,
-      quota || 0,
-      start_date,
-      end_date,
-    ];
-
-    await db.query(query, values);
-
+    await db.query(
+      `INSERT INTO vouchers (code, name, discount_type, discount_value, max_discount, min_purchase, target_buyer, is_claimable, is_auto_apply, is_active, quota, start_date, end_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        code.toUpperCase(),
+        name,
+        discount_type,
+        discount_value,
+        max_discount || 0,
+        min_purchase || 0,
+        target_buyer || "all",
+        is_claimable || false,
+        is_auto_apply || false,
+        is_active !== undefined ? is_active : true,
+        quota || 0,
+        start_date,
+        end_date,
+      ],
+    );
     return res
       .status(201)
       .json({ success: true, message: "Voucher baru berhasil ditambahkan!" });
   } catch (error) {
-    console.error("Gagal menambah voucher:", error);
     return res
       .status(500)
       .json({ success: false, message: "Gagal menyimpan data voucher." });
   }
 });
 
-// 3. Ubah Status Aktif/Nonaktif Voucher (Quick Toggle)
 app.put("/api/vouchers/:id/status", async (req, res) => {
   try {
-    const { is_active } = req.body;
     await db.query("UPDATE vouchers SET is_active = ? WHERE id = ?", [
-      is_active,
+      req.body.is_active,
       req.params.id,
     ]);
     return res
       .status(200)
       .json({ success: true, message: "Status voucher berhasil diperbarui." });
   } catch (error) {
-    console.error("Gagal mengubah status voucher:", error);
     return res
       .status(500)
       .json({ success: false, message: "Gagal memproses permintaan." });
   }
 });
 
-// 4. Update/Edit Voucher Keseluruhan
 app.put("/api/vouchers/:id", async (req, res) => {
   try {
     const {
@@ -1648,43 +1333,33 @@ app.put("/api/vouchers/:id", async (req, res) => {
       start_date,
       end_date,
     } = req.body;
-
-    const query = `
-      UPDATE vouchers SET 
-        name = ?, discount_type = ?, discount_value = ?, max_discount = ?, 
-        min_purchase = ?, target_buyer = ?, is_claimable = ?, is_auto_apply = ?, 
-        quota = ?, start_date = ?, end_date = ?
-      WHERE id = ?
-    `;
-
-    const values = [
-      name,
-      discount_type,
-      discount_value,
-      max_discount || 0,
-      min_purchase || 0,
-      target_buyer || "all",
-      is_claimable || false,
-      is_auto_apply || false,
-      quota || 0,
-      start_date,
-      end_date,
-      req.params.id,
-    ];
-
-    await db.query(query, values);
+    await db.query(
+      `UPDATE vouchers SET name = ?, discount_type = ?, discount_value = ?, max_discount = ?, min_purchase = ?, target_buyer = ?, is_claimable = ?, is_auto_apply = ?, quota = ?, start_date = ?, end_date = ? WHERE id = ?`,
+      [
+        name,
+        discount_type,
+        discount_value,
+        max_discount || 0,
+        min_purchase || 0,
+        target_buyer || "all",
+        is_claimable || false,
+        is_auto_apply || false,
+        quota || 0,
+        start_date,
+        end_date,
+        req.params.id,
+      ],
+    );
     return res
       .status(200)
       .json({ success: true, message: "Voucher berhasil diperbarui!" });
   } catch (error) {
-    console.error("Gagal memperbarui voucher:", error);
     return res
       .status(500)
       .json({ success: false, message: "Gagal memperbarui voucher." });
   }
 });
 
-// 5. Hapus Voucher
 app.delete("/api/vouchers/:id", async (req, res) => {
   try {
     await db.query("DELETE FROM vouchers WHERE id = ?", [req.params.id]);
@@ -1692,7 +1367,6 @@ app.delete("/api/vouchers/:id", async (req, res) => {
       .status(200)
       .json({ success: true, message: "Voucher berhasil dihapus." });
   } catch (error) {
-    console.error("Gagal menghapus voucher:", error);
     return res
       .status(500)
       .json({ success: false, message: "Gagal menghapus voucher." });
@@ -1700,231 +1374,293 @@ app.delete("/api/vouchers/:id", async (req, res) => {
 });
 
 // =======================================================================
-// ENDPOINT: PROFIL PELANGGAN (STOREFRONT)
+// ENDPOINT: VOUCHER UNTUK STOREFRONT (PELANGGAN)
 // =======================================================================
 
-// Memperbarui Profil Pelanggan (Nama, HP, dan Upload Foto)
-// Kita menggunakan 'upload.single' karena pelanggan mengirim 1 file foto
-app.put("/api/users/:id", upload.single("avatar"), async (req, res) => {
+// 1. Ambil Data Voucher Spesifik untuk User (Digunakan di Halaman Promo & Produk)
+app.get("/api/vouchers/storefront/:userId", async (req, res) => {
   try {
-    const userId = req.params.id;
-    const { fullname, phone } = req.body;
-    let avatarUrl = null;
+    const userId = req.params.userId;
 
-    // 1. Cek apakah pengguna mengunggah file foto baru
-    if (req.file) {
-      // Jika ada, buatkan jalur URL untuk disimpan ke database
-      avatarUrl = `/uploads/profiles/${req.file.filename}`;
+    // A. Ambil semua voucher aktif dan masa berlakunya masih ada
+    const [allVouchers] = await db.query(
+      "SELECT * FROM vouchers WHERE is_active = 1 AND end_date >= NOW()",
+    );
+
+    // B. Ambil ID voucher yang sudah diklaim oleh user ini (dan belum dipakai)
+    const [claimed] = await db.query(
+      "SELECT voucher_id FROM user_vouchers WHERE user_id = ? AND is_used = FALSE",
+      [userId],
+    );
+    const claimedIds = claimed.map((c) => c.voucher_id);
+
+    // C. Cek apakah user adalah "Pelanggan Baru" (Belum pernah belanja sukses)
+    const [orders] = await db.query(
+      "SELECT COUNT(id) as total_orders FROM orders WHERE user_id = ? AND status IN ('paid', 'shipping', 'completed')",
+      [userId],
+    );
+    const isNewCustomer = orders[0].total_orders === 0;
+
+    const availablePromos = [];
+    const myVouchers = [];
+
+    // Pisahkan voucher ke dalam 2 kategori
+    for (const v of allVouchers) {
+      // Lewati (skip) voucher jika targetnya pelanggan baru tapi user ini pelanggan lama
+      if (v.target_buyer === "new_customer" && !isNewCustomer) continue;
+
+      const hasClaimed = claimedIds.includes(v.id);
+
+      // Kategori 1: Voucher Auto-Apply (Otomatis masuk ke "Voucher Saya")
+      if (v.is_auto_apply) {
+        myVouchers.push(v);
+      }
+      // Kategori 2: Voucher yang harus diklaim
+      else if (v.is_claimable) {
+        if (hasClaimed) {
+          myVouchers.push(v); // Sudah diklaim, pindah ke "Voucher Saya"
+        } else {
+          // Belum diklaim, hitung sisa kuota sebelum masuk ke "Promo Tersedia"
+          const [usage] = await db.query(
+            "SELECT COUNT(*) as total_claimed FROM user_vouchers WHERE voucher_id = ?",
+            [v.id],
+          );
+          const totalClaimed = usage[0].total_claimed;
+
+          if (v.quota === 0 || totalClaimed < v.quota) {
+            // Kita sisipkan info sisa kuota untuk bikin pembeli FOMO (Cepat-cepat klaim)
+            availablePromos.push({
+              ...v,
+              sisa_kuota: v.quota === 0 ? "Banyak" : v.quota - totalClaimed,
+            });
+          }
+        }
+      }
     }
 
-    // 2. Siapkan perintah SQL untuk memperbarui data
+    return res.status(200).json({
+      success: true,
+      data: {
+        available_promos: availablePromos, // Untuk Tab 1 (Buru Klaim) & Halaman Produk
+        my_vouchers: myVouchers, // Untuk Tab 2 (Siap Pakai) & Checkout
+      },
+    });
+  } catch (error) {
+    console.error("Gagal memuat voucher storefront:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server." });
+  }
+});
+
+// 2. Eksekusi Klaim Voucher oleh Pengguna
+app.post("/api/vouchers/claim", async (req, res) => {
+  try {
+    const { user_id, voucher_id } = req.body;
+
+    if (!user_id || !voucher_id) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Data tidak valid." });
+    }
+
+    // A. Cek apakah sudah pernah klaim
+    const [existing] = await db.query(
+      "SELECT id FROM user_vouchers WHERE user_id = ? AND voucher_id = ?",
+      [user_id, voucher_id],
+    );
+
+    if (existing.length > 0) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Anda sudah mengklaim voucher ini." });
+    }
+
+    // B. Cek kuota akhir sebelum klaim dieksekusi (mencegah bentrok berebut kuota)
+    const [voucher] = await db.query(
+      "SELECT quota FROM vouchers WHERE id = ?",
+      [voucher_id],
+    );
+
+    if (voucher[0].quota > 0) {
+      const [usage] = await db.query(
+        "SELECT COUNT(*) as total_claimed FROM user_vouchers WHERE voucher_id = ?",
+        [voucher_id],
+      );
+      if (usage[0].total_claimed >= voucher[0].quota) {
+        return res
+          .status(400)
+          .json({
+            success: false,
+            message: "Maaf, kuota voucher ini sudah habis.",
+          });
+      }
+    }
+
+    // C. Simpan data klaim
+    await db.query(
+      "INSERT INTO user_vouchers (user_id, voucher_id) VALUES (?, ?)",
+      [user_id, voucher_id],
+    );
+
+    return res
+      .status(201)
+      .json({
+        success: true,
+        message: "Voucher berhasil diklaim dan siap digunakan!",
+      });
+  } catch (error) {
+    console.error("Gagal klaim voucher:", error);
+    return res
+      .status(500)
+      .json({
+        success: false,
+        message: "Terjadi kesalahan server saat mengklaim.",
+      });
+  }
+});
+
+// =======================================================================
+// ENDPOINT: LAYANAN AUTHENTICATION PELANGGAN & PROFIL STOREFRONT
+// =======================================================================
+app.put("/api/users/:id", upload.single("avatar"), async (req, res) => {
+  try {
+    const { fullname, phone } = req.body;
+    let avatarUrl = req.file ? `/uploads/profiles/${req.file.filename}` : null;
     let query = "UPDATE users SET fullname = ?, phone = ?";
     let values = [fullname, phone || null];
-
-    // Jika ada foto baru yang diunggah, tambahkan ke perintah SQL
     if (avatarUrl) {
       query += ", avatar = ?";
       values.push(avatarUrl);
     }
-
-    // Lengkapi perintah SQL dengan ID pengguna
     query += " WHERE id = ?";
-    values.push(userId);
-
-    // 3. Eksekusi perintah ke database
+    values.push(req.params.id);
     await db.query(query, values);
-
     return res.status(200).json({
       success: true,
       message: "Profil berhasil diperbarui!",
-      avatar: avatarUrl, // Mengembalikan URL foto agar frontend bisa langsung menampilkannya
+      avatar: avatarUrl,
     });
   } catch (error) {
-    console.error("Gagal memperbarui profil:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Terjadi kesalahan pada server saat memperbarui data.",
-    });
+    return res
+      .status(500)
+      .json({ success: false, message: "Gagal memperbarui data profil." });
   }
 });
 
-// Menyalakan Mesin Server
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server Backend berjalan di http://localhost:${PORT}`);
-});
-
-// =======================================================================
-// ENDPOINT: OTENTIKASI PELANGGAN (STOREFRONT AUTH)
-// =======================================================================
-
-// 1. PENDAFTARAN AKUN BARU (REGISTER)
 app.post("/api/auth/register", async (req, res) => {
   try {
     const { fullname, email, phone, password } = req.body;
-
-    if (!fullname || !email || !password) {
+    if (!fullname || !email || !password)
       return res.status(400).json({
         success: false,
         message: "Nama, Email, dan Password wajib diisi!",
       });
-    }
-
-    // Cek apakah email sudah terdaftar
     const [existing] = await db.query("SELECT id FROM users WHERE email = ?", [
       email,
     ]);
-    if (existing.length > 0) {
+    if (existing.length > 0)
       return res.status(400).json({
         success: false,
         message: "Email ini sudah terdaftar. Silakan login.",
       });
-    }
-
-    // Hash password demi keamanan
     const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Simpan pembeli baru ke database
     await db.query(
       "INSERT INTO users (fullname, email, phone, password, status) VALUES (?, ?, ?, ?, 'active')",
       [fullname, email, phone || null, hashedPassword],
     );
-
     return res.status(201).json({
       success: true,
       message: "Pendaftaran akun berhasil! Silakan login.",
     });
   } catch (error) {
-    console.error("Error saat register pembeli:", error);
     return res
       .status(500)
       .json({ success: false, message: "Gagal mendaftarkan akun." });
   }
 });
 
-// 2. MASUK AKUN (LOGIN)
 app.post("/api/auth/login", async (req, res) => {
   try {
     const { email, password } = req.body;
-
-    if (!email || !password) {
+    if (!email || !password)
       return res
         .status(400)
         .json({ success: false, message: "Email dan Password wajib diisi!" });
-    }
-
-    // Cari user di database
     const [users] = await db.query("SELECT * FROM users WHERE email = ?", [
       email,
     ]);
-    if (users.length === 0) {
+    if (users.length === 0)
       return res
         .status(401)
         .json({ success: false, message: "Email atau kata sandi salah!" });
-    }
-
-    const user = users[0];
-
-    // Cek apakah akun diblokir admin
-    if (user.status !== "active") {
+    if (users[0].status !== "active")
       return res.status(403).json({
         success: false,
         message: "Akun Anda ditangguhkan. Silakan hubungi Customer Service.",
       });
-    }
-
-    // Cocokkan password bcrypt
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
+    const isMatch = await bcrypt.compare(password, users[0].password);
+    if (!isMatch)
       return res
         .status(401)
         .json({ success: false, message: "Email atau kata sandi salah!" });
-    }
-
-    // Buat token JWT (Gunakan secret key yang sama dengan admin atau sesuaikan)
     const token = jwt.sign(
-      { id: user.id, email: user.email, role: "customer" },
+      { id: users[0].id, email: users[0].email, role: "customer" },
       process.env.JWT_SECRET || "chester_secret_key_123",
-      { expiresIn: "7d" }, // Token berlaku 7 hari
+      { expiresIn: "7d" },
     );
-
     return res.status(200).json({
       success: true,
       message: "Login berhasil!",
       token,
       user: {
-        id: user.id,
-        fullname: user.fullname,
-        email: user.email,
-        phone: user.phone,
+        id: users[0].id,
+        fullname: users[0].fullname,
+        email: users[0].email,
+        phone: users[0].phone,
       },
     });
   } catch (error) {
-    console.error("Error saat login pembeli:", error);
     return res
       .status(500)
       .json({ success: false, message: "Terjadi kesalahan pada server." });
   }
 });
 
-// =======================================================================
-// ENDPOINT: LUPA PASSWORD & RESET PASSWORD
-// =======================================================================
-
-// 1. Permintaan Lupa Password (Minta Link)
 app.post("/api/auth/forgot-password", async (req, res) => {
   try {
     const { email } = req.body;
-
-    if (!email) {
+    if (!email)
       return res
         .status(400)
         .json({ success: false, message: "Email wajib diisi!" });
-    }
-
-    // Cari user berdasarkan email
     const [users] = await db.query(
       "SELECT id, fullname FROM users WHERE email = ?",
       [email],
     );
-    if (users.length === 0) {
-      // Demi keamanan, kita tetap bilang sukses agar hacker tidak bisa menebak email mana yang terdaftar
+    if (users.length === 0)
       return res.status(200).json({
         success: true,
         message: "Jika email terdaftar, instruksi telah dikirim.",
       });
-    }
 
-    const user = users[0];
-
-    // Buat token rahasia acak
     const resetToken = crypto.randomBytes(32).toString("hex");
-
-    // Hitung waktu kadaluarsa (1 jam dari sekarang)
     const expireTime = new Date(Date.now() + 3600000);
-
-    // Simpan token dan waktu kadaluarsa ke database
     await db.query(
       "UPDATE users SET reset_password_token = ?, reset_password_expires = ? WHERE id = ?",
-      [resetToken, expireTime, user.id],
+      [resetToken, expireTime, users[0].id],
     );
-
-    // Buat Link Reset (Sesuaikan dengan URL Frontend React Anda, biasanya http://localhost:5173)
     const resetUrl = `http://localhost:5173/reset-password/${resetToken}`;
 
-    // SIMULASI EMAIL: Tampilkan di terminal backend
-    console.log(`\n=== SIMULASI EMAIL LUPA PASSWORD ===`);
-    console.log(`Kepada: ${email} (${user.fullname})`);
-    console.log(`Link Reset: ${resetUrl}`);
-    console.log(`====================================\n`);
-
+    console.log(
+      `\n=== SIMULASI EMAIL LUPA PASSWORD ===\nKepada: ${email}\nLink Reset: ${resetUrl}\n====================================\n`,
+    );
     return res.status(200).json({
       success: true,
       message:
         "Jika email terdaftar, instruksi pemulihan kata sandi telah dikirim.",
     });
   } catch (error) {
-    console.error("Error Lupa Password:", error);
     return res
       .status(500)
       .json({ success: false, message: "Terjadi kesalahan server." });
@@ -1932,313 +1668,80 @@ app.post("/api/auth/forgot-password", async (req, res) => {
 });
 
 // =======================================================================
-// ENDPOINT: RAJAONGKIR, KOMERCE DELIVERY, & BUKU ALAMAT
+// ENDPOINT: INTEGRASI BITESHIP & BUKU ALAMAT PINTAR (FIXED)
 // =======================================================================
-
-// 1. Fungsi Pembantu: Mengatur URL dan Header agar tidak ada hardcode
-const getLogisticConfig = (type, apiKey) => {
-  // Membersihkan spasi kosong yang tidak sengaja terbawa saat copy-paste API Key
-  const cleanKey = apiKey ? apiKey.trim() : "";
-
-  if (type === "komerce") {
-    return {
-      // CATATAN: Ubah menjadi "https://api-sandbox.collaborator.komerce.id" jika Anda menggunakan API Key versi Sandbox/Uji Coba
-      baseUrl: "https://api.collaborator.komerce.id",
-      headers: { "x-api-key": cleanKey, "Content-Type": "application/json" },
-    };
-  }
-
-  if (type === "pro")
-    return {
-      baseUrl: "https://pro.rajaongkir.com/api",
-      headers: { key: cleanKey },
-    };
-  if (type === "basic")
-    return {
-      baseUrl: "https://api.rajaongkir.com/basic",
-      headers: { key: cleanKey },
-    };
-
-  // Default (Starter)
+const getBiteshipConfig = async () => {
+  const [rows] = await db.query(
+    "SELECT setting_value FROM settings WHERE setting_key = 'biteship_api_key'",
+  );
+  const apiKey =
+    rows.length > 0 && rows[0].setting_value
+      ? rows[0].setting_value.trim()
+      : "";
   return {
-    baseUrl: "https://api.rajaongkir.com/starter",
-    headers: { key: cleanKey },
+    baseURL: "https://api.biteship.com/v1",
+    headers: { Authorization: apiKey, "Content-Type": "application/json" },
   };
 };
 
-// 2. Fungsi Pembantu: Mengambil pengaturan API dari Database
-const getActiveSettings = async () => {
-  const [rows] = await db.query(
-    "SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('rajaongkir_api_key', 'rajaongkir_type')",
-  );
-  const settings = {};
-  rows.forEach((row) => {
-    settings[row.setting_key] = row.setting_value;
-  });
-  return settings;
-};
-
-// -----------------------------------------------------------------------
-// A. ENDPOINT: Cek Ongkos Kirim (Shipping Cost)
-// -----------------------------------------------------------------------
-app.post("/api/logistic/cost", async (req, res) => {
+app.get("/api/logistic/search-area", async (req, res) => {
   try {
-    const { origin, destination, weight, item_value, is_cod } = req.body;
-    const settings = await getActiveSettings();
-
-    if (!settings.rajaongkir_api_key) {
+    const { keyword } = req.query;
+    if (!keyword || keyword.length < 3)
       return res
         .status(400)
-        .json({ success: false, message: "API Key Logistik belum diatur." });
-    }
+        .json({ success: false, message: "Ketik minimal 3 huruf." });
 
-    const { baseUrl, headers } = getLogisticConfig(
-      settings.rajaongkir_type,
-      settings.rajaongkir_api_key,
-    );
-
-    if (settings.rajaongkir_type === "komerce") {
-      // Mode Komerce: Menggunakan metode GET sesuai Dokumen UAT
-      const codParam = is_cod ? "yes" : "no";
-      const komerceUrl = `${baseUrl}/tariff/api/v1/calculate?shipper_destination_id=${origin}&receiver_destination_id=${destination}&weight=${weight}&item_value=${item_value || 0}&cod=${codParam}`;
-
-      const response = await axios.get(komerceUrl, { headers, timeout: 30000 });
-      return res.status(200).json({ success: true, data: response.data.data });
-    } else {
-      // Mode RajaOngkir Standar (Starter/Basic/Pro)
-      const formData = new URLSearchParams();
-      formData.append("origin", origin);
-      formData.append("destination", destination);
-      formData.append("weight", weight);
-      formData.append("courier", "jne:sicepat:jnt");
-
-      const response = await axios.post(`${baseUrl}/cost`, formData, {
-        headers: {
-          key: settings.rajaongkir_api_key.trim(),
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-        timeout: 30000,
-      });
-      return res
-        .status(200)
-        .json({ success: true, data: response.data.rajaongkir.results });
-    }
-  } catch (error) {
-    console.error("Gagal Cek Ongkir:", error.response?.data || error.message);
-    res
-      .status(500)
-      .json({ success: false, message: "Gagal menghitung ongkos kirim." });
-  }
-});
-
-// -----------------------------------------------------------------------
-// B. ENDPOINT: Buat Pesanan Pengiriman (Shipping Delivery Komerce)
-// -----------------------------------------------------------------------
-app.post("/api/logistic/order", async (req, res) => {
-  try {
-    const payloadData = req.body;
-    const settings = await getActiveSettings();
-
-    if (settings.rajaongkir_type !== "komerce") {
+    const config = await getBiteshipConfig();
+    if (!config.headers.Authorization)
       return res.status(400).json({
         success: false,
-        message: "Fitur ini khusus untuk integrasi Komerce Delivery API.",
+        message: "API Key Biteship belum diatur di Admin.",
       });
-    }
 
-    const { baseUrl, headers } = getLogisticConfig(
-      settings.rajaongkir_type,
-      settings.rajaongkir_api_key,
+    const response = await axios.get(
+      `${config.baseURL}/maps/areas?countries=ID&input=${keyword}`,
+      { headers: config.headers, timeout: 30000 },
     );
-
-    const response = await axios.post(
-      `${baseUrl}/order/api/v1/orders/store`,
-      payloadData,
-      {
-        headers,
-        timeout: 30000,
-      },
-    );
-
-    res.status(200).json({ success: true, data: response.data });
+    res.status(200).json({ success: true, data: response.data.areas });
   } catch (error) {
-    console.error(
-      "Gagal Buat Order Komerce:",
-      error.response?.data || error.message,
-    );
-    res.status(500).json({
+    res.status(error.response?.status || 500).json({
       success: false,
-      message: "Gagal memproses pesanan ke logistik.",
+      message: error.response?.data?.error || "Gagal memuat area pengiriman.",
     });
   }
 });
 
-// -----------------------------------------------------------------------
-// C. ENDPOINT: Buat Tagihan Pembayaran (Payment Service)
-// -----------------------------------------------------------------------
-app.post("/api/payment/create", async (req, res) => {
+app.post("/api/logistic/rates", async (req, res) => {
   try {
-    const paymentData = req.body;
-    const settings = await getActiveSettings();
+    const { origin_area_id, destination_area_id, weight, couriers } = req.body;
+    const config = await getBiteshipConfig();
+    if (!config.headers.Authorization)
+      return res
+        .status(400)
+        .json({ success: false, message: "API Key Biteship belum diatur." });
 
-    if (settings.rajaongkir_type !== "komerce") {
-      return res.status(400).json({
-        success: false,
-        message: "Fitur pembayaran ini menggunakan layanan Komerce.",
-      });
-    }
-
-    const { baseUrl, headers } = getLogisticConfig(
-      settings.rajaongkir_type,
-      settings.rajaongkir_api_key,
-    );
-
-    if (!paymentData.callback_url) {
-      paymentData.callback_url = "https://domain-anda.com/api/payment/callback"; // Nanti disesuaikan
-    }
+    const payload = {
+      origin_area_id,
+      destination_area_id,
+      couriers: couriers || "jne,sicepat,jnt",
+      items: [{ name: "Pesanan Baju", value: 50000, weight, quantity: 1 }],
+    };
 
     const response = await axios.post(
-      `${baseUrl}/user/api/v1/user/payment/create`,
-      paymentData,
-      {
-        headers,
-        timeout: 30000,
-      },
+      `${config.baseURL}/rates/couriers`,
+      payload,
+      { headers: config.headers, timeout: 30000 },
     );
-
-    res.status(200).json({ success: true, data: response.data });
+    res.status(200).json({ success: true, data: response.data.pricing });
   } catch (error) {
-    console.error(
-      "Gagal Buat Pembayaran:",
-      error.response?.data || error.message,
-    );
-    res
-      .status(500)
-      .json({ success: false, message: "Gagal membuat tagihan pembayaran." });
-  }
-});
-
-// -----------------------------------------------------------------------
-// D. ENDPOINT: Pencarian Destinasi Khusus Delivery API (Komerce)
-// -----------------------------------------------------------------------
-app.get("/api/logistic/search-destination", async (req, res) => {
-  try {
-    const keyword = req.query.keyword;
-    const settings = await getActiveSettings();
-
-    if (settings.rajaongkir_type !== "komerce") {
-      return res.status(400).json({
-        success: false,
-        message: "Endpoint ini khusus untuk Delivery API (Komerce).",
-      });
-    }
-
-    const { baseUrl, headers } = getLogisticConfig(
-      settings.rajaongkir_type,
-      settings.rajaongkir_api_key,
-    );
-
-    const response = await axios.get(
-      `${baseUrl}/tariff/api/v1/destination/search?keyword=${keyword}`,
-      {
-        headers,
-        timeout: 30000,
-      },
-    );
-
-    res.status(200).json({ success: true, data: response.data.data });
-  } catch (error) {
-    console.error(
-      "Gagal Cari Destinasi Komerce:",
-      error.response?.data || error.message,
-    );
-    res
-      .status(500)
-      .json({ success: false, message: "Gagal memuat area pengiriman." });
-  }
-});
-
-// -----------------------------------------------------------------------
-// E. ENDPOINT: Ambil Daftar Provinsi (Untuk Tipe Starter/Basic/Pro)
-// -----------------------------------------------------------------------
-app.get("/api/rajaongkir/provinces", async (req, res) => {
-  try {
-    const settings = await getActiveSettings();
-
-    if (!settings.rajaongkir_api_key) {
-      return res
-        .status(400)
-        .json({ success: false, message: "API Key belum diatur." });
-    }
-
-    if (settings.rajaongkir_type === "komerce") {
-      return res
-        .status(200)
-        .json({ success: true, is_komerce: true, data: [] });
-    }
-
-    const { baseUrl, headers } = getLogisticConfig(
-      settings.rajaongkir_type,
-      settings.rajaongkir_api_key,
-    );
-
-    const response = await axios.get(`${baseUrl}/province`, {
-      headers,
-      timeout: 30000,
+    res.status(error.response?.status || 500).json({
+      success: false,
+      message: error.response?.data?.error || "Gagal menghitung tarif.",
     });
-    res
-      .status(200)
-      .json({ success: true, data: response.data.rajaongkir.results });
-  } catch (error) {
-    // INI KODE YANG SAYA LUPA TAMBAHKAN SEBELUMNYA
-    console.error(
-      "Gagal Load Provinsi:",
-      error.response?.data || error.message,
-    );
-
-    res.status(500).json({ success: false, message: "Gagal memuat provinsi." });
   }
 });
 
-// -----------------------------------------------------------------------
-// F. ENDPOINT: Ambil Daftar Kota (Untuk Tipe Starter/Basic/Pro)
-// -----------------------------------------------------------------------
-app.get("/api/rajaongkir/cities/:provinceId", async (req, res) => {
-  try {
-    const settings = await getActiveSettings();
-
-    if (!settings.rajaongkir_api_key) {
-      return res
-        .status(400)
-        .json({ success: false, message: "API Key belum diatur." });
-    }
-
-    const { baseUrl, headers } = getLogisticConfig(
-      settings.rajaongkir_type,
-      settings.rajaongkir_api_key,
-    );
-
-    const response = await axios.get(
-      `${baseUrl}/city?province=${req.params.provinceId}`,
-      {
-        headers,
-        timeout: 30000,
-      },
-    );
-
-    res
-      .status(200)
-      .json({ success: true, data: response.data.rajaongkir.results });
-  } catch (error) {
-    res.status(500).json({ success: false, message: "Gagal memuat kota." });
-  }
-});
-
-// -----------------------------------------------------------------------
-// G. ENDPOINT BUKU ALAMAT PENGGUNA
-// -----------------------------------------------------------------------
-
-// Ambil Semua Alamat Milik Pelanggan
 app.get("/api/users/:id/addresses", async (req, res) => {
   try {
     const [addresses] = await db.query(
@@ -2251,7 +1754,6 @@ app.get("/api/users/:id/addresses", async (req, res) => {
   }
 });
 
-// Tambah Alamat Baru
 app.post("/api/users/:id/addresses", async (req, res) => {
   try {
     const userId = req.params.id;
@@ -2266,7 +1768,6 @@ app.post("/api/users/:id/addresses", async (req, res) => {
       postal_code,
       full_address,
     } = req.body;
-
     const [existing] = await db.query(
       "SELECT id FROM addresses WHERE user_id = ?",
       [userId],
@@ -2274,9 +1775,7 @@ app.post("/api/users/:id/addresses", async (req, res) => {
     const isPrimary = existing.length === 0 ? 1 : 0;
 
     await db.query(
-      `INSERT INTO addresses 
-      (user_id, label, recipient_name, phone, province_id, province_name, city_id, city_name, postal_code, full_address, is_primary) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO addresses (user_id, label, recipient_name, phone, province_id, province_name, city_id, city_name, postal_code, full_address, is_primary) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         userId,
         label,
@@ -2291,7 +1790,6 @@ app.post("/api/users/:id/addresses", async (req, res) => {
         isPrimary,
       ],
     );
-
     res
       .status(201)
       .json({ success: true, message: "Alamat berhasil disimpan!" });
@@ -2302,22 +1800,18 @@ app.post("/api/users/:id/addresses", async (req, res) => {
   }
 });
 
-// Jadikan Sebagai Alamat Utama
 app.put("/api/users/:id/addresses/:addressId/primary", async (req, res) => {
   const connection = await db.getConnection();
   try {
-    const { id: userId, addressId } = req.params;
     await connection.beginTransaction();
-
     await connection.query(
       "UPDATE addresses SET is_primary = 0 WHERE user_id = ?",
-      [userId],
+      [req.params.id],
     );
     await connection.query(
       "UPDATE addresses SET is_primary = 1 WHERE id = ? AND user_id = ?",
-      [addressId, userId],
+      [req.params.addressId, req.params.id],
     );
-
     await connection.commit();
     res
       .status(200)
@@ -2332,19 +1826,64 @@ app.put("/api/users/:id/addresses/:addressId/primary", async (req, res) => {
   }
 });
 
-// Hapus Alamat
 app.delete("/api/users/:id/addresses/:addressId", async (req, res) => {
   try {
     await db.query("DELETE FROM addresses WHERE id = ? AND user_id = ?", [
       req.params.addressId,
       req.params.id,
     ]);
-    res
-      .status(200)
-      .json({ success: true, message: "Alamat berhasil dihapus." });
+    res.status(200).json({ success: true, message: "Alamat dihapus." });
   } catch (error) {
     res
       .status(500)
       .json({ success: false, message: "Gagal menghapus alamat." });
   }
+});
+
+// =======================================================================
+// ENDPOINT: ULASAN / REVIEW PRODUK (NEW FEATURE)
+// =======================================================================
+app.post("/api/reviews", async (req, res) => {
+  try {
+    const { order_id, product_id, user_id, rating, comment } = req.body;
+    if (!order_id || !product_id || !user_id || !rating) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Data ulasan tidak lengkap!" });
+    }
+
+    const [existing] = await db.query(
+      "SELECT id FROM product_reviews WHERE order_id = ? AND product_id = ? AND user_id = ?",
+      [order_id, product_id, user_id],
+    );
+    if (existing.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Anda sudah memberikan ulasan untuk produk ini.",
+      });
+    }
+
+    await db.query(
+      "INSERT INTO product_reviews (order_id, product_id, user_id, rating, comment) VALUES (?, ?, ?, ?, ?)",
+      [order_id, product_id, user_id, rating, comment || null],
+    );
+    return res.status(201).json({
+      success: true,
+      message: "Terima kasih! Ulasan Anda berhasil disimpan.",
+    });
+  } catch (error) {
+    console.error("Gagal menyimpan ulasan:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Terjadi kesalahan server saat menyimpan ulasan.",
+    });
+  }
+});
+
+// =======================================================================
+// MENYALAKAN MESIN SERVER (WAJIB DI PALING BAWAH FILE)
+// =======================================================================
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`🚀 Server Backend berjalan di http://localhost:\${PORT}`);
 });

@@ -20,6 +20,8 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import ForgotPassword from "./pages/ForgotPassword";
 import ProfileCustomer from "./pages/Profile";
+import Orders from "./pages/Orders";
+import Vouchers from "./pages/Vouchers";
 
 // Import Halaman Admin
 import AdminLayout from "./pages/admin/AdminLayout";
@@ -434,6 +436,8 @@ export default function App() {
                   <Route path="/" element={<Home />} />
                   <Route path="/products" element={<Catalog />} />
                   <Route path="/product/:id" element={<ProductPage />} />
+                  <Route path="/orders" element={<Orders />} />
+                  <Route path="/vouchers" element={<Vouchers />} />
                   <Route path="/login" element={<Login />} />
                   <Route path="/register" element={<Register />} />
                   <Route path="/forgot-password" element={<ForgotPassword />} />
