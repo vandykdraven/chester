@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1:3306
--- Waktu pembuatan: 12 Jun 2026 pada 18.00
+-- Waktu pembuatan: 22 Jun 2026 pada 19.11
 -- Versi server: 8.0.31
 -- Versi PHP: 8.0.26
 
@@ -21,97 +21,38 @@ SET time_zone = "+00:00";
 -- Database: `chester`
 --
 
---
--- Dumping data untuk tabel `admins`
---
-
-INSERT INTO `admins` (`id`, `fullname`, `email`, `password`, `role`, `created_at`) VALUES
-(1, 'Administrator', 'admin@chester.com', '$2b$10$N/yT.A6Z43o2G8.Y78c2eONfEOMz5oQ.9XQ8Dk/9b.mXz/T8/Y67G', 'Superadmin', '2026-06-10 17:54:27');
+-- --------------------------------------------------------
 
 --
--- Dumping data untuk tabel `gallery_media`
+-- Struktur dari tabel `settings`
 --
 
-INSERT INTO `gallery_media` (`id`, `filename`, `file_path`, `file_size`, `created_at`) VALUES
-(1, 'primaryImage-1781195493486-57694264.webp', '/uploads/products/primaryImage-1781195493486-57694264.webp', 0, '2026-06-11 19:46:27'),
-(2, 'supportingImages-1781195493501-740473428.webp', '/uploads/products/supportingImages-1781195493501-740473428.webp', 0, '2026-06-11 19:46:27'),
-(3, 'supportingImages-1781195493508-312651382.webp', '/uploads/products/supportingImages-1781195493508-312651382.webp', 0, '2026-06-11 19:46:27'),
-(4, 'supportingImages-1781195493534-636064209.webp', '/uploads/products/supportingImages-1781195493534-636064209.webp', 0, '2026-06-11 19:46:27'),
-(5, 'primaryImage-1781122060302-747500951.webp', '/uploads/products/primaryImage-1781122060302-747500951.webp', 0, '2026-06-11 19:46:27'),
-(6, 'supportingImages-1781122060307-489401236.webp', '/uploads/products/supportingImages-1781122060307-489401236.webp', 0, '2026-06-11 19:46:27'),
-(7, 'supportingImages-1781122060453-886140123.webp', '/uploads/products/supportingImages-1781122060453-886140123.webp', 0, '2026-06-11 19:46:27'),
-(8, 'supportingImages-1781122060477-994582937.webp', '/uploads/products/supportingImages-1781122060477-994582937.webp', 0, '2026-06-11 19:46:27'),
-(11, 'Size Chart.webp', '/uploads/products/galleryFile-1781270305476-573668088.webp', 19122, '2026-06-12 13:18:25');
+DROP TABLE IF EXISTS `settings`;
+CREATE TABLE IF NOT EXISTS `settings` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `setting_key` varchar(100) NOT NULL,
+  `setting_value` text,
+  `description` varchar(255) DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `setting_key` (`setting_key`)
+) ENGINE=InnoDB AUTO_INCREMENT=228 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 --
--- Dumping data untuk tabel `migrations`
+-- Dumping data untuk tabel `settings`
 --
 
-INSERT INTO `migrations` (`id`, `name`, `run_on`) VALUES
-(1, '/20260605003848-create-table-admins', '2026-06-11 00:40:41'),
-(2, '/20260605003849-create-table-users', '2026-06-11 00:40:41'),
-(3, '/20260605003902-create-table-products', '2026-06-11 00:40:41'),
-(4, '/20260610172623-create-product-system', '2026-06-11 00:40:41');
-
---
--- Dumping data untuk tabel `products`
---
-
-INSERT INTO `products` (`id`, `name`, `category_id`, `size_guide_id`, `description`, `status`, `price`, `original_price`, `stock`, `weight`, `sku`, `has_variant`, `variant_types_json`, `seo_title`, `seo_description`, `seo_keywords`, `created_at`, `updated_at`) VALUES
-(1, 'Celia Stripe Shirt', '1', 1, '<p>Celia Shirt - Premium Cotton Material</p><p><br></p><p> The CELIA Shirt is made from premium cotton that is soft, lightweight, and exceptionally comfortable for everyday wear. This breathable cotton fabric absorbs moisture well, feels cool on the skin, and has a smooth, neat drape. Perfect for anyone seeking maximum comfort without sacrificing style.</p><p><br></p><p>Size Chart</p><p>Bust: 120 cm</p><p>Upper Arm: 50 cm</p><p>Length: 68 cm</p><p>Sleeve Length: 51 cm</p><p><br></p><p>Perfect For</p><p>Designed as a versatile everyday top, the CELIA Shirt is suitable for many occasions, including:</p><p><br></p><p>Comfortable and effortless daily outfits</p><p>Work or meetings, thanks to its clean and polished look</p><p>Hangouts, casual strolls, or brunch</p><p>Semi-formal events such as gatherings or office occasions</p><p>Traveling, as the material is lightweight and keeps you cool</p><p>With its modern oversized cut and premium material, the CELIA Shirt is the perfect choice if you\'re looking for a breathable, simple, and elegant women’s top.</p><p><br></p><p>[KINDLY READ THIS POINT]</p><p><br></p><p>Orders paid before 14.00 WIB will be shipped on the same day.</p><p>Product colors may vary slightly due to lighting and device settings.</p><p>1000% Guaranteed! Claims are valid with an unboxing video.</p><p>Fast shipping every 12.00–15.00 WIB.</p><p>Size exchange is available within 24 hours after the package is received.</p><p>Size tolerance of 1–3 cm for each product.</p><p>[CUSTOMER SERVICE]</p><p>For any questions, concerns, or product issues, please contact our Customer Service via chat (online 09.00–16.00 WIB).</p><p><br></p><p>With love,</p><p><br></p><p>Ody teams</p>', 'available', '259000.00', '229510.00', 90, 200, 'CEL-SHR-AL', 0, NULL, 'Celia Shirt - Premium Cotton Material', 'The CELIA Shirt is made from premium cotton that is soft, lightweight, and exceptionally comfortable for everyday wear. This breathable cotton fabric absorbs moisture well, feels cool on the skin, and has a smooth, neat drape. Perfect for anyone seeking m', 'chester', '2026-06-10 20:07:40', '2026-06-12 14:54:43'),
-(2, 'Daisy Bloom Cardigan', '9', 1, '<p>DAISY BLOOM CARDIGAN </p><p><br></p><p>– MATERAL PREMIUM KNIT</p><p><br></p><p><br></p><p><br></p><p>SIZE CHART</p><p><br></p><p>Bust : 100 cm</p><p>Length : 52 cm</p><p>Sleeve length : 55 cm</p><p><br></p><p><br></p><p>[KINDLY READ THIS POINTS]</p><p><br></p><p>Paid before 15.00 WIB for same day shio ping</p><p>There might be a bit different color consider the angle/ lighting/ tone of each device</p><p>1000% GUARANTEED! Claim with unboxing video only</p><p>Instant shipment process on 12.00-16.00 WIB</p><p>Size changing are allowed within 1x24 hours after receiving package</p><p>Size difference tolerance estimated in 1-3 cm for each product</p><p><br></p><p><br></p><p>[CUSTOMER SERVICE]</p><p><br></p><p>If there’s any obstacle or complain about our products kindly contact us on chat [online 09.00-17.00]</p><p>INSTANT delivery can only processed [Monday until Saturday, 09.00 - 15.00 WIB]</p><p><br></p><p><br></p><p>With love,</p><p><br></p><p>Ody teams</p>', 'available', '0.00', '0.00', 0, 0, '', 1, '[{\"name\":\"Warna\",\"options\":[\"Brown\",\"Pink\"]}]', 'DAISY BLOOM CARDIGAN', 'PREMIUM KNIT', 'cardigan, casual', '2026-06-11 16:31:33', '2026-06-12 14:54:52');
-
---
--- Dumping data untuk tabel `product_categories`
---
-
-INSERT INTO `product_categories` (`id`, `name`, `slug`, `description`, `created_at`) VALUES
-(1, 'Shirt', 'shirt', NULL, '2026-06-12 14:51:55'),
-(2, 'Summer Collection', 'summer-collection', NULL, '2026-06-12 14:52:10'),
-(3, 'Weekend Deals', 'weekend-deals', NULL, '2026-06-12 14:52:26'),
-(4, 'Polki', 'polki', NULL, '2026-06-12 14:52:54'),
-(5, 'Petal Sweater', 'petal-sweater', NULL, '2026-06-12 14:53:06'),
-(6, 'Blouse', 'blouse', NULL, '2026-06-12 14:53:14'),
-(7, 'Knitwear', 'knitwear', NULL, '2026-06-12 14:53:24'),
-(8, 'Pants & Skirts', 'pants--skirts', NULL, '2026-06-12 14:53:39'),
-(9, 'Tops', 'tops', NULL, '2026-06-12 14:53:47');
-
---
--- Dumping data untuk tabel `product_images`
---
-
-INSERT INTO `product_images` (`id`, `product_id`, `image_url`, `is_primary`, `created_at`) VALUES
-(24, 1, '/uploads/products/primaryImage-1781122060302-747500951.webp', 1, '2026-06-12 14:54:43'),
-(25, 1, '/uploads/products/supportingImages-1781122060307-489401236.webp', 0, '2026-06-12 14:54:43'),
-(26, 1, '/uploads/products/supportingImages-1781122060453-886140123.webp', 0, '2026-06-12 14:54:43'),
-(27, 1, '/uploads/products/supportingImages-1781122060477-994582937.webp', 0, '2026-06-12 14:54:43'),
-(33, 2, '/uploads/products/primaryImage-1781195493486-57694264.webp', 1, '2026-06-12 16:57:41'),
-(34, 2, '/uploads/products/supportingImages-1781195493501-740473428.webp', 0, '2026-06-12 16:57:41'),
-(35, 2, '/uploads/products/supportingImages-1781195493508-312651382.webp', 0, '2026-06-12 16:57:41'),
-(36, 2, '/uploads/products/supportingImages-1781195493534-636064209.webp', 0, '2026-06-12 16:57:41');
-
---
--- Dumping data untuk tabel `product_tags`
---
-
-INSERT INTO `product_tags` (`id`, `name`, `created_at`) VALUES
-(1, 'Shirts', '2026-06-12 15:22:25'),
-(2, 'Blouse', '2026-06-12 15:22:32');
-
---
--- Dumping data untuk tabel `product_variants`
---
-
-INSERT INTO `product_variants` (`id`, `product_id`, `variant_key`, `price`, `original_price`, `stock`, `weight`, `sku`, `created_at`) VALUES
-(9, 2, 'Brown', '399000.00', '349890.00', 50, 200, NULL, '2026-06-12 16:57:41'),
-(10, 2, 'Pink', '399000.00', '259000.00', 50, 200, NULL, '2026-06-12 16:57:41');
-
---
--- Dumping data untuk tabel `size_guides`
---
-
-INSERT INTO `size_guides` (`id`, `name`, `image_url`, `content`, `created_at`) VALUES
-(1, 'Panduan Ukuran', '/uploads/products/galleryFile-1781270305476-573668088.webp', NULL, '2026-06-12 13:18:28');
+INSERT INTO `settings` (`id`, `setting_key`, `setting_value`, `description`, `updated_at`) VALUES
+(1, 'shop_name', 'Chester Collection', 'Nama toko yang tampil di web', '2026-06-14 02:06:54'),
+(2, 'shop_phone', '08123456789011', 'Nomor WhatsApp Admin / CS', '2026-06-14 13:02:59'),
+(3, 'shop_address', 'Jalan Dr. Rajiman 443, Bumi, Laweyan, Surakarta', 'Alamat toko offline / titik jemput kurir', '2026-06-19 15:34:42'),
+(4, 'kiriminaja_api_key', '', 'API Key dari Dashboard KiriminAja', '2026-06-14 02:06:54'),
+(5, 'kiriminaja_is_production', '0', 'Set ke 1 jika sudah live, 0 untuk Sandbox/Testing', '2026-06-14 02:06:54'),
+(9, 'rajaongkir_api_key', '9e9ca6f6b12283184b73454885595ea8', NULL, '2026-06-19 23:06:49'),
+(10, 'rajaongkir_type', 'starter', NULL, '2026-06-21 12:31:42'),
+(188, 'biteship_api_key', 'biteship_test.eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJuYW1lIjoiQ2hlc3RlciIsInVzZXJJZCI6IjZhMmUzOTgwNTcyN2E5YWJhNmQxZTAwNyIsImlhdCI6MTc4MjA1MTQ4Nn0.ZigZfP4XagbxCGTWDjaDqd-qn9zI1kS245F3I4HNIBQ', NULL, '2026-06-21 14:18:19'),
+(205, 'active_couriers', 'jne,jnt,sicepat,pos,ninja,anteraja,tiki,lion,wahana,sap,paxel,idx', NULL, '2026-06-22 18:28:27'),
+(210, 'store_postal_code', '57148', NULL, '2026-06-22 18:33:49');
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;
