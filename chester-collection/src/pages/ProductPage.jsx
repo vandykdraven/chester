@@ -1,231 +1,591 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Plus, Minus, Share2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useState, useEffect } from "react";
+import { Link, useParams, useNavigate } from "react-router-dom";
+import {
+  Plus,
+  Minus,
+  Share2,
+  ChevronLeft,
+  ChevronRight,
+  Heart,
+  CheckCircle,
+  AlertCircle,
+} from "lucide-react";
+import axios from "axios";
 
 const formatRupiah = (angka) => {
-  return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(angka);
+  return new Intl.NumberFormat("id-ID", {
+    style: "currency",
+    currency: "IDR",
+    minimumFractionDigits: 0,
+  }).format(angka);
 };
 
-const dummyProduct = {
-  name: 'Classic Rose Sweater',
-  price: 499000,
-  images: [
-    'https://images.unsplash.com/photo-1503342217505-b0a15ec3261c?q=80&w=1200&auto=format&fit=crop',
-    'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?q=80&w=1200&auto=format&fit=crop',
-    'https://images.unsplash.com/photo-1550639525-c97d455acf70?q=80&w=1200&auto=format&fit=crop',
-    'https://images.unsplash.com/photo-1584273143981-41c073dfe8f8?q=80&w=1200&auto=format&fit=crop'
-  ],
-  colors: ['Rose Pink', 'Oatmeal', 'Navy'],
-  sizes: ['S', 'M', 'L', 'XL'],
-  description: 'Sweater rajut berdesain klasik dengan potongan longgar yang nyaman. Terbuat dari campuran katun dan wol premium untuk menjaga Anda tetap hangat tanpa terasa berat. Pilihan tepat untuk gaya kasual sehari-hari.',
-  materials: '50% Cotton, 30% Acrylic, 20% Wool.\nCuci mesin dengan air dingin putaran lembut. Jangan gunakan pemutih.',
-  shipping: 'Gratis pengiriman untuk pesanan di atas Rp 500.000.\nEstimasi pengiriman 2-3 hari kerja untuk area Jabodetabek.'
+// Fungsi Cerdas untuk Mengubah Link YouTube Biasa menjadi Link Embed Autoplay
+const getYouTubeEmbedUrl = (url) => {
+  if (!url) return null;
+  const ytRegex =
+    /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i;
+  const match = url.match(ytRegex);
+  if (match && match[1]) {
+    return `https://www.youtube.com/embed/${match[1]}?autoplay=1&mute=1&loop=1&playlist=${match[1]}`;
+  }
+  return url;
 };
-
-const relatedProducts = [
-  { id: 2, image: 'https://images.unsplash.com/photo-1550639525-c97d455acf70?w=600', name: 'Kaos Motif Putih', price: 150000, stockStatus: 'low' },
-  { id: 3, image: 'https://images.unsplash.com/photo-1591369822096-ffd140ec948f?w=600', name: 'Celana Pendek Denim', price: 325000, originalPrice: 400000, stockStatus: 'available' },
-  { id: 5, image: 'https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=600', name: 'Kemeja Katun Klasik', price: 250000, stockStatus: 'available' },
-  { id: 7, image: 'https://images.unsplash.com/photo-1572804013309-59a88b7e92f1?w=600', name: 'Blazer Kerja Wanita', price: 550000, originalPrice: 750000, stockStatus: 'sold' },
-];
 
 export default function ProductPage() {
-  const [selectedColor, setSelectedColor] = useState(dummyProduct.colors[0]);
-  const [selectedSize, setSelectedSize] = useState('M');
+  const { id } = useParams();
+  const navigate = useNavigate();
+
+  const [product, setProduct] = useState(null);
+  const [relatedProducts, setRelatedProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const [selectedVariant, setSelectedVariant] = useState(null);
   const [quantity, setQuantity] = useState(1);
-  
+
   const [currentImgIndex, setCurrentImgIndex] = useState(0);
-  const [zoomStyle, setZoomStyle] = useState({ transformOrigin: 'center', transform: 'scale(1)' });
+  const [zoomStyle, setZoomStyle] = useState({
+    transformOrigin: "center",
+    transform: "scale(1)",
+  });
+
+  const [isWishlisted, setIsWishlisted] = useState(false);
+  const [customAlert, setCustomAlert] = useState({
+    show: false,
+    message: "",
+    type: "success",
+  });
+
+  const BASE_URL = import.meta.env.VITE_API_URL.replace("/api", "");
+  const customerUser = JSON.parse(
+    localStorage.getItem("customerUser") ||
+      sessionStorage.getItem("customerUser"),
+  );
+
+  useEffect(() => {
+    fetchProductDetails();
+    if (customerUser) {
+      checkWishlistStatus();
+    }
+  }, [id]);
+
+  const showAlert = (message, type = "success") => {
+    setCustomAlert({ show: true, message, type });
+    setTimeout(
+      () => setCustomAlert({ show: false, message: "", type: "success" }),
+      3000,
+    );
+  };
+
+  const fetchProductDetails = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get(
+        `${import.meta.env.VITE_API_URL}/products/${id}`,
+      );
+      if (res.data.success) {
+        const prodData = res.data.data;
+        const allImages =
+          prodData.images && prodData.images.length > 0
+            ? prodData.images.map((img) => `${BASE_URL}${img.image_url}`)
+            : [];
+
+        setProduct({
+          ...prodData,
+          displayImages:
+            allImages.length > 0 ? allImages : ["/placeholder.png"],
+        });
+
+        if (prodData.variants && prodData.variants.length > 0) {
+          setSelectedVariant(prodData.variants[0]);
+        }
+
+        fetchRelatedProducts(prodData.category_id);
+      }
+    } catch (error) {
+      console.error("Gagal memuat produk:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchRelatedProducts = async (categoryId) => {
+    try {
+      const res = await axios.get(`${import.meta.env.VITE_API_URL}/products`);
+      if (res.data.success) {
+        let filtered = res.data.data.filter((p) => p.id !== parseInt(id));
+        if (categoryId) {
+          const sameCat = filtered.filter((p) => p.category_id === categoryId);
+          if (sameCat.length > 0) filtered = sameCat;
+        }
+        setRelatedProducts(filtered.slice(0, 4));
+      }
+    } catch (error) {
+      console.error("Gagal memuat produk terkait.");
+    }
+  };
+
+  const checkWishlistStatus = async () => {
+    try {
+      const res = await axios.get(
+        `${import.meta.env.VITE_API_URL}/users/${customerUser.id}/wishlists`,
+      );
+      if (res.data.success) {
+        const isExist = res.data.data.some(
+          (w) => w.product_id === parseInt(id),
+        );
+        setIsWishlisted(isExist);
+      }
+    } catch (error) {
+      console.error("Gagal mengecek status wishlist");
+    }
+  };
+
+  const toggleWishlist = async () => {
+    if (!customerUser) {
+      showAlert("Silakan login untuk menyimpan produk ke Wishlist.", "error");
+      setTimeout(() => navigate("/login"), 2000);
+      return;
+    }
+
+    try {
+      if (isWishlisted) {
+        navigate("/wishlist");
+      } else {
+        const res = await axios.post(
+          `${import.meta.env.VITE_API_URL}/wishlists`,
+          {
+            user_id: customerUser.id,
+            product_id: parseInt(id),
+          },
+        );
+        if (res.data.success) {
+          setIsWishlisted(true);
+          showAlert("Produk ditambahkan ke Wishlist!", "success");
+        }
+      }
+    } catch (error) {
+      showAlert(
+        error.response?.data?.message || "Gagal mengubah status Wishlist.",
+        "error",
+      );
+    }
+  };
 
   const updateQuantity = (type) => {
-    if (type === 'plus') setQuantity(prev => prev + 1);
-    else setQuantity(prev => (prev > 1 ? prev - 1 : 1));
+    if (type === "plus") setQuantity((prev) => prev + 1);
+    else setQuantity((prev) => (prev > 1 ? prev - 1 : 1));
   };
 
-  const nextImage = () => setCurrentImgIndex((prev) => (prev + 1) % dummyProduct.images.length);
-  const prevImage = () => setCurrentImgIndex((prev) => (prev - 1 + dummyProduct.images.length) % dummyProduct.images.length);
+  const handleAddToCart = async () => {
+    // 1. Cek apakah pelanggan sudah login
+    if (!customerUser) {
+      showAlert("Silakan login untuk menambahkan ke keranjang.", "error");
+      setTimeout(() => navigate("/login"), 2000);
+      return;
+    }
+
+    // 2. Cek apakah produk ini wajib pilih variasi (warna/ukuran) tapi belum dipilih
+    if (product.has_variant === 1 && !selectedVariant) {
+      showAlert("Silakan pilih variasi produk terlebih dahulu.", "error");
+      return;
+    }
+
+    // 3. Kirim data ke API Backend
+    try {
+      const payload = {
+        user_id: customerUser.id,
+        product_id: product.id,
+        variant_id: selectedVariant ? selectedVariant.id : null,
+        quantity: quantity,
+      };
+
+      const res = await axios.post(
+        `${import.meta.env.VITE_API_URL}/carts`,
+        payload,
+      );
+
+      if (res.data.success) {
+        showAlert("Berhasil ditambahkan ke keranjang!", "success");
+
+        // Memicu sinyal khusus agar App.jsx memperbarui laci keranjang tanpa refresh halaman!
+        window.dispatchEvent(new Event("cartUpdated"));
+      }
+    } catch (error) {
+      console.error("Gagal tambah keranjang:", error);
+      showAlert("Terjadi kesalahan saat menambah ke keranjang.", "error");
+    }
+  };
+
+  const handleShare = async () => {
+    if (!product) return;
+    const shareData = {
+      title: product.name,
+      text: `Cek produk mroblong keren ini: ${product.name}`,
+      url: window.location.href,
+    };
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+      } else {
+        await navigator.clipboard.writeText(window.location.href);
+        showAlert("Link produk berhasil disalin!", "success");
+      }
+    } catch (err) {
+      if (err.name !== "AbortError") console.error("Terjadi kesalahan:", err);
+    }
+  };
+
+  const nextImage = () =>
+    setCurrentImgIndex((prev) => (prev + 1) % product.displayImages.length);
+  const prevImage = () =>
+    setCurrentImgIndex(
+      (prev) =>
+        (prev - 1 + product.displayImages.length) %
+        product.displayImages.length,
+    );
 
   const handleMouseMove = (e) => {
-    // PERBAIKAN: Matikan zoom jika ukuran layar lebih kecil dari 768px (layar HP)
     if (window.innerWidth < 768) return;
-
-    const { left, top, width, height } = e.currentTarget.getBoundingClientRect();
+    const { left, top, width, height } =
+      e.currentTarget.getBoundingClientRect();
     const x = ((e.clientX - left) / width) * 100;
     const y = ((e.clientY - top) / height) * 100;
-    
-    setZoomStyle({
-      transformOrigin: `${x}% ${y}%`,
-      transform: 'scale(2)'
-    });
+    setZoomStyle({ transformOrigin: `${x}% ${y}%`, transform: "scale(2)" });
   };
+  const handleMouseLeave = () =>
+    setZoomStyle({ transformOrigin: "center", transform: "scale(1)" });
 
-  const handleMouseLeave = () => {
-    setZoomStyle({ transformOrigin: 'center', transform: 'scale(1)' });
-  };
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-4 border-gray-200 border-t-chester-pink"></div>
+      </div>
+    );
+  }
+
+  if (!product) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4">
+        <h2 className="text-2xl font-bold">Produk Tidak Ditemukan</h2>
+        <Link to="/products" className="text-chester-pink underline">
+          Kembali Belanja
+        </Link>
+      </div>
+    );
+  }
+
+  // MENGAMBIL HARGA DARI VARIASI (Memastikan format Number agar > dan < bekerja)
+  const currentPrice = selectedVariant
+    ? Number(selectedVariant.price || 0)
+    : Number(product.price || 0);
+  const currentOriginalPrice = selectedVariant
+    ? Number(selectedVariant.original_price || 0)
+    : Number(product.original_price || 0);
 
   return (
-    <div className="bg-white min-h-screen font-lora">
-      <div className="container mx-auto px-4 py-8">
-        
+    <div className="bg-white min-h-screen font-lora relative">
+      {customAlert.show && (
+        <div className="fixed top-6 right-6 z-50 animate-bounce">
+          <div
+            className={`flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-xl border text-sm font-semibold text-white ${customAlert.type === "success" ? "bg-emerald-500 border-emerald-400" : "bg-rose-500 border-rose-400"}`}
+          >
+            {customAlert.type === "success" ? (
+              <CheckCircle size={20} />
+            ) : (
+              <AlertCircle size={20} />
+            )}
+            <span>{customAlert.message}</span>
+          </div>
+        </div>
+      )}
+
+      <div className="container mx-auto px-4 py-8 max-w-6xl">
         <nav className="text-xs text-gray-500 mb-8 flex gap-2">
-          <Link to="/" className="hover:text-chester-pink">Beranda</Link> / 
-          <Link to="/products" className="hover:text-chester-pink">Pakaian</Link> / 
-          <span className="text-chester-text font-medium">{dummyProduct.name}</span>
+          <Link to="/" className="hover:text-chester-pink">
+            Beranda
+          </Link>{" "}
+          /
+          <Link to="/products" className="hover:text-chester-pink">
+            Katalog
+          </Link>{" "}
+          /
+          <span className="text-chester-text font-medium truncate w-32 md:w-auto">
+            {product.name}
+          </span>
         </nav>
 
         <div className="flex flex-col md:flex-row gap-10 lg:gap-16 items-start">
-          
           <div className="w-full md:w-1/2 flex flex-col gap-4">
-            
-            <div 
-              className="relative w-full aspect-[3/4] bg-gray-50 overflow-hidden cursor-crosshair group"
+            <div
+              className="relative w-full aspect-[3/4] bg-gray-50 overflow-hidden cursor-crosshair group rounded-lg"
               onMouseMove={handleMouseMove}
               onMouseLeave={handleMouseLeave}
             >
-              <img 
-                src={dummyProduct.images[currentImgIndex]} 
-                alt={`${dummyProduct.name} Main`} 
+              <img
+                src={product.displayImages[currentImgIndex]}
+                alt={`${product.name} Main`}
                 className="w-full h-full object-cover transition-transform duration-200 ease-out"
-                style={zoomStyle} 
+                style={zoomStyle}
               />
-              
-              {/* PERBAIKAN: opacity-100 diubah agar di HP panah ini selalu muncul, tidak perlu hover */}
-              <button 
-                onClick={(e) => { e.preventDefault(); e.stopPropagation(); prevImage(); }}
-                className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/80 hover:bg-white text-chester-text flex items-center justify-center opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity"
+
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  prevImage();
+                }}
+                className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/80 hover:bg-white text-chester-text flex items-center justify-center opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity rounded-full shadow"
               >
                 <ChevronLeft size={20} />
               </button>
-              <button 
-                onClick={(e) => { e.preventDefault(); e.stopPropagation(); nextImage(); }}
-                className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/80 hover:bg-white text-chester-text flex items-center justify-center opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity"
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  nextImage();
+                }}
+                className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/80 hover:bg-white text-chester-text flex items-center justify-center opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity rounded-full shadow"
               >
                 <ChevronRight size={20} />
               </button>
             </div>
 
-            <div className="flex gap-4 overflow-x-auto pb-2">
-              {dummyProduct.images.map((img, index) => (
-                <button 
-                  key={index} 
+            <div className="flex gap-4 overflow-x-auto pb-2 hide-scrollbar">
+              {product.displayImages.map((img, index) => (
+                <button
+                  key={index}
                   onClick={() => setCurrentImgIndex(index)}
-                  className={`w-20 lg:w-24 aspect-[3/4] flex-shrink-0 bg-gray-50 border-2 transition-all ${currentImgIndex === index ? 'border-chester-pink' : 'border-transparent hover:border-gray-200'}`}
+                  className={`w-20 lg:w-24 aspect-[3/4] flex-shrink-0 bg-gray-50 border-2 rounded transition-all ${currentImgIndex === index ? "border-chester-pink" : "border-transparent hover:border-gray-200"}`}
                 >
-                  <img src={img} alt={`Thumbnail ${index + 1}`} className="w-full h-full object-cover" />
+                  <img
+                    src={img}
+                    alt={`Thumbnail ${index + 1}`}
+                    className="w-full h-full object-cover rounded-sm"
+                  />
                 </button>
               ))}
             </div>
 
+            {product.video_url && (
+              <div className="mt-4 border border-gray-100 p-2 rounded-xl bg-gray-50">
+                <div className="w-full aspect-video rounded-lg overflow-hidden shadow-sm bg-gray-900">
+                  <iframe
+                    width="100%"
+                    height="100%"
+                    src={getYouTubeEmbedUrl(product.video_url)}
+                    title="Product Video"
+                    frameBorder="0"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                  ></iframe>
+                </div>
+              </div>
+            )}
           </div>
 
-          <div className="w-full md:w-1/2">
-            <h1 className="text-3xl lg:text-4xl font-bold text-chester-text mb-4 leading-tight">{dummyProduct.name}</h1>
-            <p className="text-2xl text-chester-text font-medium mb-8">{formatRupiah(dummyProduct.price)}</p>
+          <div className="w-full md:w-1/2 pt-2">
+            <h1 className="text-3xl lg:text-4xl font-bold text-chester-text mb-4 leading-tight">
+              {product.name}
+            </h1>
 
-            <div className="mb-6">
-              <p className="text-sm font-bold text-chester-text mb-3 uppercase tracking-wider">Warna: <span className="font-normal text-gray-500 capitalize">{selectedColor}</span></p>
+            {/* AREA HARGA CORET */}
+            <div className="flex items-end gap-3 mb-8">
+              {/* Menampilkan original_price sebagai Harga Jual (Utama) */}
+              <p className="text-2xl text-chester-pink font-medium">
+                {currentOriginalPrice > 0
+                  ? formatRupiah(currentOriginalPrice)
+                  : formatRupiah(currentPrice)}
+              </p>
+
+              {/* Menampilkan price sebagai Harga Lama (Dicoret) HANYA jika original_price ada nilainya */}
+              {currentOriginalPrice > 0 && (
+                <p className="text-lg text-gray-400 line-through decoration-gray-300 font-medium pb-0.5">
+                  {formatRupiah(currentPrice)}
+                </p>
+              )}
+            </div>
+
+            {product.has_variant === 1 &&
+              product.variants &&
+              product.variants.length > 0 && (
+                <div className="mb-8">
+                  <div className="flex justify-between items-center mb-3">
+                    <p className="text-sm font-bold text-chester-text uppercase tracking-wider">
+                      Pilihan Variasi:{" "}
+                      <span className="font-normal text-gray-500">
+                        {selectedVariant?.variant_key}
+                      </span>
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {product.variants.map((v) => (
+                      <button
+                        key={v.id}
+                        onClick={() => setSelectedVariant(v)}
+                        className={`px-4 py-2 text-sm font-bold border rounded transition ${selectedVariant?.id === v.id ? "border-chester-text bg-chester-text text-white" : "border-gray-200 text-chester-text hover:border-gray-400"}`}
+                      >
+                        {v.variant_key}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+            <div className="flex flex-col gap-4 mb-10">
+              <div className="flex items-center border border-gray-300 w-full md:w-32 h-14 md:h-12 rounded-lg">
+                <button
+                  onClick={() => updateQuantity("minus")}
+                  className="w-12 md:w-10 h-full flex justify-center items-center text-gray-500 hover:text-chester-text"
+                >
+                  <Minus size={16} />
+                </button>
+                <span className="flex-1 text-center font-bold text-sm">
+                  {quantity}
+                </span>
+                <button
+                  onClick={() => updateQuantity("plus")}
+                  className="w-12 md:w-10 h-full flex justify-center items-center text-gray-500 hover:text-chester-text"
+                >
+                  <Plus size={16} />
+                </button>
+              </div>
+
               <div className="flex gap-3">
-                {dummyProduct.colors.map(color => (
-                  <button 
-                    key={color} 
-                    onClick={() => setSelectedColor(color)}
-                    className={`px-6 py-2.5 text-xs font-semibold uppercase tracking-wider border transition ${selectedColor === color ? 'border-chester-text bg-chester-text text-white' : 'border-gray-200 text-chester-text hover:border-gray-400'}`}
-                  >
-                    {color}
-                  </button>
-                ))}
-              </div>
-            </div>
+                <button
+                  onClick={handleAddToCart}
+                  className="flex-1 bg-chester-pink text-white h-14 rounded-lg font-bold text-sm uppercase tracking-widest hover:bg-pink-600 transition shadow-sm"
+                >
+                  Tambah ke Keranjang
+                </button>
 
-            <div className="mb-8">
-              <div className="flex justify-between items-center mb-3">
-                <p className="text-sm font-bold text-chester-text uppercase tracking-wider">Ukuran: <span className="font-normal text-gray-500">{selectedSize}</span></p>
-                <button className="text-xs text-gray-500 underline hover:text-chester-pink">Panduan Ukuran</button>
+                <button
+                  onClick={toggleWishlist}
+                  className={`w-14 h-14 flex items-center justify-center border-2 rounded-lg transition-colors ${isWishlisted ? "border-chester-pink bg-pink-50 text-chester-pink" : "border-gray-200 text-gray-400 hover:border-chester-pink hover:text-chester-pink"}`}
+                  title="Simpan ke Wishlist"
+                >
+                  <Heart
+                    size={20}
+                    fill={isWishlisted ? "currentColor" : "none"}
+                  />
+                </button>
               </div>
-              <div className="flex gap-2">
-                {dummyProduct.sizes.map(size => (
-                  <button 
-                    key={size} 
-                    onClick={() => setSelectedSize(size)}
-                    className={`w-12 h-12 flex items-center justify-center text-sm font-bold border transition ${selectedSize === size ? 'border-chester-text bg-chester-text text-white' : 'border-gray-200 text-chester-text hover:border-gray-400'}`}
-                  >
-                    {size}
-                  </button>
-                ))}
-              </div>
-            </div>
 
-            <div className="flex flex-col gap-4 mb-12">
-              <div className="flex items-center border border-gray-300 w-full md:w-32 h-14 md:h-12">
-                <button onClick={() => updateQuantity('minus')} className="w-12 md:w-10 h-full flex justify-center items-center text-gray-500 hover:text-chester-text"><Minus size={16} /></button>
-                <span className="flex-1 text-center font-bold text-sm">{quantity}</span>
-                <button onClick={() => updateQuantity('plus')} className="w-12 md:w-10 h-full flex justify-center items-center text-gray-500 hover:text-chester-text"><Plus size={16} /></button>
-              </div>
-              
-              <button className="w-full bg-chester-pink text-white h-14 font-bold text-sm uppercase tracking-widest hover:bg-gray-900 transition duration-300">Tambah ke Keranjang</button>
-              <button className="w-full bg-white text-chester-text border-2 border-chester-text h-14 font-bold text-sm uppercase tracking-widest hover:bg-gray-50 transition duration-300">Beli Sekarang</button>
+              <button className="w-full bg-white text-chester-text border-2 border-chester-text h-14 rounded-lg font-bold text-sm uppercase tracking-widest hover:bg-gray-50 transition shadow-sm">
+                Beli Sekarang
+              </button>
             </div>
 
             <div className="pt-8 border-t border-gray-100">
               <div className="mb-6">
-                <h3 className="text-sm font-bold text-chester-text uppercase tracking-wider mb-3">Deskripsi Produk</h3>
-                <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-line">{dummyProduct.description}</p>
-              </div>
-              <div className="mb-6">
-                <h3 className="text-sm font-bold text-chester-text uppercase tracking-wider mb-3">Bahan & Perawatan</h3>
-                <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-line">{dummyProduct.materials}</p>
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-chester-text uppercase tracking-wider mb-3">Pengiriman</h3>
-                <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-line">{dummyProduct.shipping}</p>
+                <h3 className="text-sm font-bold text-chester-text uppercase tracking-wider mb-3">
+                  Deskripsi Produk
+                </h3>
+                {/* 
+                  Perbaikan: Mengubah [&_ol]:!list-decimal menjadi [&_ol]:!list-disc 
+                  sehingga semua daftar angka paksa diubah menjadi titik bullet.
+                */}
+                <div
+                  className="text-sm text-gray-600 leading-relaxed [&_ul]:!list-disc [&_ul]:!pl-5 [&_ol]:!list-disc [&_ol]:!pl-5 [&_li]:!mb-2 [&_li]:!ml-4"
+                  dangerouslySetInnerHTML={{
+                    __html: product.description || "Tidak ada deskripsi.",
+                  }}
+                />
               </div>
             </div>
 
-            <div className="mt-10 pt-6 border-t border-gray-100 flex items-center gap-2 text-sm text-gray-500 cursor-pointer hover:text-chester-pink transition w-fit">
+            <div
+              onClick={handleShare}
+              className="mt-8 pt-6 border-t border-gray-100 flex items-center gap-2 text-sm text-gray-500 cursor-pointer hover:text-chester-pink transition w-fit"
+            >
               <Share2 size={16} />
               <span className="underline font-medium">Bagikan Produk Ini</span>
             </div>
-
           </div>
         </div>
 
         {/* --- BAGIAN PRODUK TERKAIT --- */}
-        <div className="mt-24 pt-16 border-t border-gray-100">
-          <div className="flex justify-between items-end mb-10">
-            <h2 className="text-2xl lg:text-3xl font-bold text-chester-text">Produk Terkait</h2>
-            <Link to="/products" className="text-sm font-semibold text-gray-500 hover:text-chester-pink underline hidden sm:block">Lihat Semua</Link>
-          </div>
-          
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
-            {relatedProducts.map(product => (
-              <Link key={product.id} to={`/product/${product.id}`} className="group font-lora block cursor-pointer">
-                <div className="aspect-square overflow-hidden mb-4 bg-gray-100 relative">
-                  <img 
-                    src={product.image} 
-                    alt={product.name} 
-                    className={`w-full h-full object-cover transition-transform duration-500 ${product.stockStatus === 'sold' ? 'opacity-70 grayscale' : 'group-hover:scale-105'}`} 
-                  />
-                  {product.stockStatus === 'available' && <span className="absolute top-2 left-2 bg-white text-chester-text text-[10px] font-bold uppercase tracking-wider px-2 py-1 shadow-sm border border-gray-100 z-10">Available</span>}
-                  {product.stockStatus === 'low' && <span className="absolute top-2 left-2 bg-orange-100 text-orange-800 text-[10px] font-bold uppercase tracking-wider px-2 py-1 shadow-sm z-10">Low Stock</span>}
-                  {product.stockStatus === 'sold' && <span className="absolute top-2 left-2 bg-gray-900 text-white text-[10px] font-bold uppercase tracking-wider px-2 py-1 shadow-sm z-10">Sold Out</span>}
-                </div>
-                
-                <h3 className="text-sm font-medium text-chester-text group-hover:text-chester-pink transition mb-1 line-clamp-1">{product.name}</h3>
-                
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className={`text-sm font-semibold ${product.originalPrice ? 'text-chester-pink' : 'text-chester-text'}`}>
-                    {formatRupiah(product.price)}
-                  </p>
-                  {product.originalPrice && <p className="text-xs text-gray-400 line-through">{formatRupiah(product.originalPrice)}</p>}
-                </div>
+        {relatedProducts.length > 0 && (
+          <div className="mt-24 pt-16 border-t border-gray-100">
+            <div className="flex justify-between items-end mb-10">
+              <h2 className="text-2xl lg:text-3xl font-bold text-chester-text">
+                Produk Terkait
+              </h2>
+              <Link
+                to="/products"
+                className="text-sm font-semibold text-gray-500 hover:text-chester-pink underline hidden sm:block"
+              >
+                Lihat Semua
               </Link>
-            ))}
-          </div>
-          <Link to="/products" className="sm:hidden block mt-8 text-center text-sm font-bold text-chester-text border border-chester-text py-3 uppercase tracking-widest">
-            Lihat Semua Produk
-          </Link>
-        </div>
+            </div>
 
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
+              {relatedProducts.map((rel) => {
+                // 1. Logika untuk menentukan harga produk terkait (memperhitungkan variasi)
+                const relPrice =
+                  rel.has_variant === 1
+                    ? Number(rel.min_v_price || 0)
+                    : Number(rel.price || 0);
+                const relOriginalPrice =
+                  rel.has_variant === 1
+                    ? Number(rel.min_v_original_price || 0)
+                    : Number(rel.original_price || 0);
+
+                return (
+                  <Link
+                    key={rel.id}
+                    to={`/product/${rel.id}`}
+                    className="group font-lora block cursor-pointer"
+                  >
+                    {/* Area Gambar Produk */}
+                    <div className="aspect-[4/5] overflow-hidden mb-4 bg-gray-100 relative rounded-lg">
+                      <img
+                        src={
+                          rel.primary_image
+                            ? `${BASE_URL}${rel.primary_image}`
+                            : "/placeholder.png"
+                        }
+                        alt={rel.name}
+                        className={`w-full h-full object-cover transition-transform duration-500 ${rel.status !== "available" ? "opacity-70 grayscale" : "group-hover:scale-105"}`}
+                      />
+                      {rel.status === "sold" && (
+                        <span className="absolute top-2 left-2 bg-gray-900 text-white text-[10px] font-bold uppercase tracking-wider px-2 py-1 shadow-sm z-10 rounded">
+                          Sold Out
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Area Nama Produk */}
+                    <h3 className="text-sm font-medium text-chester-text group-hover:text-chester-pink transition mb-1 line-clamp-1">
+                      {rel.name}
+                    </h3>
+
+                    {/* Area Harga (Diperbarui dengan logika Harga Coret) */}
+                    <div className="flex flex-wrap items-center gap-2 mt-1">
+                      <p className="text-sm font-semibold text-chester-pink">
+                        {relOriginalPrice > 0
+                          ? formatRupiah(relOriginalPrice)
+                          : formatRupiah(relPrice)}
+                      </p>
+
+                      {relOriginalPrice > 0 && (
+                        <p className="text-[11px] text-gray-400 line-through decoration-gray-300 font-medium">
+                          {formatRupiah(relPrice)}
+                        </p>
+                      )}
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+            <Link
+              to="/products"
+              className="sm:hidden block mt-8 text-center text-sm font-bold text-chester-text border border-chester-text py-3 rounded-lg uppercase tracking-widest"
+            >
+              Lihat Semua Produk
+            </Link>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -236,22 +236,101 @@ app.post("/api/products", cpUpload, async (req, res) => {
 
 app.get("/api/products", async (req, res) => {
   try {
-    const [rows] = await db.query(`
-      SELECT p.id, p.name, p.category_id, p.price, p.stock, p.status, p.has_variant, p.sku, p.created_at, pi.image_url AS primary_image, MIN(pv.price) AS min_v_price, MAX(pv.price) AS max_v_price, SUM(pv.stock) AS total_v_stock
+    // 1. Tangkap parameter dari URL (Frontend)
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 12; // Menampilkan 12 produk per halaman
+    const search = req.query.search || "";
+    const category = req.query.category || "";
+    const maxPrice = req.query.maxPrice || 3000000;
+    const availability = req.query.availability || "all";
+    const sortBy = req.query.sortBy || "terbaru";
+
+    const offset = (page - 1) * limit;
+
+    // 2. Susun kerangka dasar Query SQL
+    let baseQuery = `
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id AND pi.is_primary = 1
       LEFT JOIN product_variants pv ON p.id = pv.product_id
-      GROUP BY p.id, pi.image_url ORDER BY p.created_at DESC
-    `);
+    `;
+
+    let whereClauses = [];
+    let queryParams = [];
+
+    // Filter Pencarian
+    if (search) {
+      whereClauses.push("p.name LIKE ?");
+      queryParams.push(`%${search}%`);
+    }
+
+    // Filter Kategori (Menerima format "1,2,3")
+    if (category) {
+      const catArray = category
+        .split(",")
+        .map((id) => parseInt(id))
+        .filter((id) => !isNaN(id));
+      if (catArray.length > 0) {
+        whereClauses.push(
+          `p.category_id IN (${catArray.map(() => "?").join(",")})`,
+        );
+        queryParams.push(...catArray);
+      }
+    }
+
+    let selectClause = `
+      SELECT p.id, p.name, p.category_id, p.price, p.original_price, p.stock, p.status, p.has_variant, p.sku, p.created_at, 
+      pi.image_url AS primary_image, 
+      MIN(pv.price) AS min_v_price, MAX(pv.price) AS max_v_price, 
+      MIN(pv.original_price) AS min_v_original_price, SUM(pv.stock) AS total_v_stock
+    `;
+
+    let whereString =
+      whereClauses.length > 0 ? " WHERE " + whereClauses.join(" AND ") : "";
+    let groupByString = " GROUP BY p.id, pi.image_url";
+
+    // Filter Harga & Stok menggunakan HAVING (karena kita pakai data Agregat/Group)
+    let havingClauses = [];
+    havingClauses.push(`(IF(p.has_variant = 1, min_v_price, p.price) <= ?)`);
+    queryParams.push(maxPrice);
+
+    if (availability === "instock") {
+      havingClauses.push(`(p.stock > 0 OR total_v_stock > 0)`);
+    }
+    let havingString =
+      havingClauses.length > 0 ? " HAVING " + havingClauses.join(" AND ") : "";
+
+    // Logika Sortir/Urutkan
+    let orderString = " ORDER BY p.created_at DESC";
+    if (sortBy === "termurah") {
+      orderString = " ORDER BY IF(p.has_variant = 1, min_v_price, p.price) ASC";
+    } else if (sortBy === "termahal") {
+      orderString =
+        " ORDER BY IF(p.has_variant = 1, min_v_price, p.price) DESC";
+    } else if (sortBy === "abjad") {
+      orderString = " ORDER BY p.name ASC";
+    }
+
+    // 3. Eksekusi Query untuk Hitung Total Halaman (Pagination)
+    let countQuery = `SELECT COUNT(*) as total FROM (${selectClause} ${baseQuery} ${whereString} ${groupByString} ${havingString}) as count_table`;
+    const [countResult] = await db.query(countQuery, queryParams);
+    const totalItems = countResult[0].total;
+    const totalPages = Math.ceil(totalItems / limit);
+
+    // 4. Eksekusi Query Pengambilan Data sesuai Halaman
+    let dataQuery = `${selectClause} ${baseQuery} ${whereString} ${groupByString} ${havingString} ${orderString} LIMIT ? OFFSET ?`;
+    queryParams.push(limit, offset);
+    const [rows] = await db.query(dataQuery, queryParams);
+
     return res.status(200).json({
       success: true,
-      message: "Berhasil mengambil daftar produk",
       data: rows,
+      pagination: { totalItems, totalPages, currentPage: page, limit },
     });
   } catch (error) {
+    console.error("Gagal get produk server-side:", error);
     return res
       .status(500)
-      .json({ success: false, message: "Gagal mengambil data produk." });
+      .json({ success: false, message: "Gagal memuat produk." });
   }
 });
 
@@ -1488,12 +1567,10 @@ app.post("/api/vouchers/claim", async (req, res) => {
         [voucher_id],
       );
       if (usage[0].total_claimed >= voucher[0].quota) {
-        return res
-          .status(400)
-          .json({
-            success: false,
-            message: "Maaf, kuota voucher ini sudah habis.",
-          });
+        return res.status(400).json({
+          success: false,
+          message: "Maaf, kuota voucher ini sudah habis.",
+        });
       }
     }
 
@@ -1503,20 +1580,16 @@ app.post("/api/vouchers/claim", async (req, res) => {
       [user_id, voucher_id],
     );
 
-    return res
-      .status(201)
-      .json({
-        success: true,
-        message: "Voucher berhasil diklaim dan siap digunakan!",
-      });
+    return res.status(201).json({
+      success: true,
+      message: "Voucher berhasil diklaim dan siap digunakan!",
+    });
   } catch (error) {
     console.error("Gagal klaim voucher:", error);
-    return res
-      .status(500)
-      .json({
-        success: false,
-        message: "Terjadi kesalahan server saat mengklaim.",
-      });
+    return res.status(500).json({
+      success: false,
+      message: "Terjadi kesalahan server saat mengklaim.",
+    });
   }
 });
 
@@ -1876,6 +1949,257 @@ app.post("/api/reviews", async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Terjadi kesalahan server saat menyimpan ulasan.",
+    });
+  }
+});
+
+// =======================================================================
+// ENDPOINT: WISHLIST (DAFTAR KESUKAAN)
+// =======================================================================
+
+// 1. Tambah Produk ke Wishlist
+app.post("/api/wishlists", async (req, res) => {
+  try {
+    const { user_id, product_id } = req.body;
+    if (!user_id || !product_id) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Data tidak lengkap." });
+    }
+
+    // Evaluasi: Cek apakah produk sudah ada di wishlist (Mencegah data ganda/duplikat)
+    const [existing] = await db.query(
+      "SELECT id FROM wishlists WHERE user_id = ? AND product_id = ?",
+      [user_id, product_id],
+    );
+
+    if (existing.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Produk ini sudah ada di daftar Wishlist Anda.",
+      });
+    }
+
+    // Jika belum ada, masukkan ke database
+    await db.query(
+      "INSERT INTO wishlists (user_id, product_id) VALUES (?, ?)",
+      [user_id, product_id],
+    );
+
+    return res.status(201).json({
+      success: true,
+      message: "Produk berhasil ditambahkan ke Wishlist!",
+    });
+  } catch (error) {
+    console.error("Gagal menambah wishlist:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Terjadi kesalahan server saat menyimpan wishlist.",
+    });
+  }
+});
+
+// 2. Ambil Daftar Wishlist Milik Pelanggan Spesifik
+app.get("/api/users/:id/wishlists", async (req, res) => {
+  try {
+    const userId = req.params.id;
+
+    // Query penggabungan (JOIN) untuk mengambil data wishlist sekaligus gambar dan harga produknya
+    const [rows] = await db.query(
+      `
+      SELECT w.id as wishlist_id, p.id as product_id, p.name, p.price, p.status, p.has_variant,
+             (SELECT image_url FROM product_images WHERE product_id = p.id AND is_primary = 1 LIMIT 1) as primary_image
+      FROM wishlists w
+      JOIN products p ON w.product_id = p.id
+      WHERE w.user_id = ?
+      ORDER BY w.created_at DESC
+    `,
+      [userId],
+    );
+
+    return res.status(200).json({ success: true, data: rows });
+  } catch (error) {
+    console.error("Gagal mengambil wishlist:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server." });
+  }
+});
+
+// 3. Hapus Produk dari Wishlist
+app.delete("/api/wishlists/:id", async (req, res) => {
+  try {
+    const wishlistId = req.params.id;
+    await db.query("DELETE FROM wishlists WHERE id = ?", [wishlistId]);
+    return res.status(200).json({
+      success: true,
+      message: "Produk berhasil dihapus dari Wishlist.",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: "Terjadi kesalahan server saat menghapus.",
+    });
+  }
+});
+
+// =======================================================================
+// ENDPOINT: KERANJANG BELANJA (CART)
+// =======================================================================
+
+// 1. Ambil Semua Item Keranjang User (Telah Diperbarui untuk Harga Coret)
+app.get("/api/carts/:userId", async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `
+      SELECT c.*, p.name, 
+      p.price as base_price, p.original_price as base_original_price,
+      (SELECT image_url FROM product_images WHERE product_id = p.id AND is_primary = 1 LIMIT 1) as image,
+      v.variant_key, 
+      v.price as variant_price, v.original_price as variant_original_price
+      FROM carts c
+      JOIN products p ON c.product_id = p.id
+      LEFT JOIN product_variants v ON c.variant_id = v.id
+      WHERE c.user_id = ?
+    `,
+      [req.params.userId],
+    );
+
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    res
+      .status(500)
+      .json({ success: false, message: "Gagal mengambil keranjang." });
+  }
+});
+
+// 2. Tambah Item ke Keranjang
+app.post("/api/carts", async (req, res) => {
+  try {
+    const { user_id, product_id, variant_id, quantity } = req.body;
+    await db.query(
+      "INSERT INTO carts (user_id, product_id, variant_id, quantity) VALUES (?, ?, ?, ?)",
+      [user_id, product_id, variant_id, quantity],
+    );
+    res.json({ success: true, message: "Berhasil ditambah ke keranjang." });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Gagal menambah item." });
+  }
+});
+
+// 3. Hapus Item Keranjang
+app.delete("/api/carts/:id", async (req, res) => {
+  try {
+    await db.query("DELETE FROM carts WHERE id = ?", [req.params.id]);
+    res.json({ success: true, message: "Item dihapus." });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Gagal menghapus." });
+  }
+});
+
+// =======================================================================
+// ENDPOINT: HITUNG ONGKIR BITESHIP (DINAMIS & BEBAS HARDCODE)
+// =======================================================================
+app.post("/api/shipping-cost", async (req, res) => {
+  try {
+    const { postal_code, total_weight, courier, cart_items, cart_value } =
+      req.body;
+
+    if (!postal_code) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Kode pos tujuan wajib diisi." });
+    }
+
+    const [settings] = await db.query(
+      "SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('biteship_api_key', 'biteship_api_url', 'store_postal_code')",
+    );
+
+    let biteshipKey = "";
+    let biteshipUrl = "https://api.biteship.com/v1/rates/couriers";
+    let originPostalCode = "";
+
+    settings.forEach((setting) => {
+      if (setting.setting_key === "biteship_api_key")
+        biteshipKey = setting.setting_value;
+      if (setting.setting_key === "biteship_api_url" && setting.setting_value)
+        biteshipUrl = setting.setting_value;
+      if (setting.setting_key === "store_postal_code")
+        originPostalCode = setting.setting_value;
+    });
+
+    if (!biteshipKey) {
+      return res.status(500).json({
+        success: false,
+        message: "API Key Biteship belum diatur admin.",
+      });
+    }
+
+    const finalOriginPostal = originPostalCode
+      ? originPostalCode.toString()
+      : "57144";
+
+    const payloadItems =
+      cart_items && cart_items.length > 0
+        ? cart_items.map((item) => ({
+            name: item.name,
+            description: `Varian: ${item.variant || "Standar"}`,
+            value: Number(item.price),
+            length: 20,
+            width: 15,
+            height: 5,
+            weight: Number(item.weight || 200),
+            quantity: Number(item.qty),
+          }))
+        : [
+            {
+              name: "Paket Pesanan",
+              description: "Barang pesanan customer",
+              value: Number(cart_value || 10000),
+              length: 20,
+              width: 15,
+              height: 5,
+              weight: Number(total_weight > 0 ? total_weight : 200),
+              quantity: 1,
+            },
+          ];
+
+    const payload = {
+      origin_postal_code: finalOriginPostal,
+      destination_postal_code: postal_code.toString(),
+      couriers: courier || "jne,jnt,sicepat,pos",
+      items: payloadItems,
+    };
+
+    console.log(
+      "DEBUG: Payload ke Biteship:",
+      JSON.stringify(payload, null, 2),
+    );
+
+    const response = await axios.post(biteshipUrl, payload, {
+      headers: {
+        Authorization: `Bearer ${biteshipKey}`,
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (response.data && response.data.pricing) {
+      const options = response.data.pricing.map((rate) => ({
+        service: `${rate.courier_name} ${rate.courier_service_name}`,
+        cost: rate.price,
+        etd: rate.duration,
+      }));
+      return res.json({ success: true, data: options });
+    } else {
+      return res
+        .status(400)
+        .json({ success: false, message: "Gagal memproses tarif kurir." });
+    }
+  } catch (err) {
+    console.error("Biteship Error:", err.response?.data || err.message);
+    return res.status(500).json({
+      success: false,
+      message: "Kesalahan server saat hitung ongkir.",
     });
   }
 });

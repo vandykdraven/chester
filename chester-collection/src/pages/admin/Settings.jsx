@@ -29,6 +29,7 @@ export default function Settings() {
   const [formData, setFormData] = useState({
     shop_name: "",
     shop_phone: "",
+    store_postal_code: "",
     shop_address: "",
     biteship_api_key: "", // Menggantikan rajaongkir_api_key
   });
@@ -312,10 +313,11 @@ export default function Settings() {
                   Informasi Dasar Toko
                 </h2>
                 <p className="text-xs text-gray-500">
-                  Data ini digunakan untuk keperluan struk dan info halaman
-                  utama website.
+                  Data ini digunakan untuk keperluan struk dan lokasi awal
+                  pengiriman (Origin).
                 </p>
               </div>
+
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">
                   Nama Toko
@@ -328,18 +330,40 @@ export default function Settings() {
                   className="w-full border px-4 py-2.5 rounded-lg focus:border-chester-pink outline-none"
                 />
               </div>
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">
-                  Nomor WhatsApp (CS)
-                </label>
-                <input
-                  type="text"
-                  name="shop_phone"
-                  value={formData.shop_phone || ""}
-                  onChange={handleChangeSetting}
-                  className="w-full border px-4 py-2.5 rounded-lg focus:border-chester-pink outline-none"
-                />
+
+              {/* Baris Baru: WhatsApp & Kodepos bersebelahan */}
+              <div className="flex flex-col sm:flex-row gap-4">
+                <div className="w-full">
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Nomor WhatsApp (CS)
+                  </label>
+                  <input
+                    type="text"
+                    name="shop_phone"
+                    value={formData.shop_phone || ""}
+                    onChange={handleChangeSetting}
+                    className="w-full border px-4 py-2.5 rounded-lg focus:border-chester-pink outline-none"
+                  />
+                </div>
+
+                <div className="w-full">
+                  <label className="block text-sm font-bold text-gray-700 mb-2 text-chester-pink flex items-center gap-1">
+                    Kodepos Pengiriman (Origin){" "}
+                    <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    name="store_postal_code"
+                    value={formData.store_postal_code || ""}
+                    onChange={handleChangeSetting}
+                    placeholder="Contoh: 57144"
+                    required
+                    className="w-full border px-4 py-2.5 rounded-lg focus:border-chester-pink outline-none border-pink-200 bg-pink-50/20"
+                  />
+                </div>
               </div>
+
+              {/* Textarea Alamat Dipertahankan */}
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">
                   Alamat Fisik Toko
@@ -350,8 +374,14 @@ export default function Settings() {
                   onChange={handleChangeSetting}
                   rows="3"
                   className="w-full border px-4 py-3 rounded-lg focus:border-chester-pink outline-none resize-none"
+                  placeholder="Nama jalan, gedung, RT/RW..."
                 ></textarea>
+                <p className="text-[10px] text-gray-400 mt-1">
+                  Alamat ini digunakan sebagai informasi di label pengiriman dan
+                  struk pesanan.
+                </p>
               </div>
+
               <button
                 type="submit"
                 disabled={isSaving}

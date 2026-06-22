@@ -317,18 +317,50 @@ export default function ProductList() {
 
                   const currentStatus = getDerivedStatus(product, actualStock);
 
-                  let displayPrice;
+                  // LOGIKA HARGA BARU (Disesuaikan untuk mendukung Harga Coret)
+                  let currentPrice = 0;
+                  let currentOriginalPrice = 0;
+                  let isRange = false;
+                  let maxRangePrice = 0;
+
                   if (product.has_variant && product.min_v_price !== null) {
-                    const minPrice = Number(product.min_v_price);
-                    const maxPrice = Number(product.max_v_price);
-                    if (minPrice === maxPrice) {
-                      displayPrice = formatRupiah(minPrice);
-                    } else {
-                      displayPrice = `${formatRupiah(minPrice)} - ${formatRupiah(maxPrice)}`;
+                    currentPrice = Number(product.min_v_price);
+                    currentOriginalPrice = Number(
+                      product.min_v_original_price || 0,
+                    );
+                    maxRangePrice = Number(product.max_v_price);
+                    if (currentPrice !== maxRangePrice) {
+                      isRange = true;
                     }
                   } else {
-                    displayPrice = formatRupiah(Number(product.price) || 0);
+                    currentPrice = Number(product.price || 0);
+                    currentOriginalPrice = Number(product.original_price || 0);
                   }
+
+                  // Komponen Tampilan Harga
+                  const displayPriceUI = (
+                    <div className="flex flex-col gap-1">
+                      {isRange ? (
+                        <span className="font-semibold text-chester-text">
+                          {formatRupiah(currentPrice)} -{" "}
+                          {formatRupiah(maxRangePrice)}
+                        </span>
+                      ) : (
+                        <>
+                          <span className="font-semibold text-chester-text">
+                            {currentOriginalPrice > 0
+                              ? formatRupiah(currentOriginalPrice)
+                              : formatRupiah(currentPrice)}
+                          </span>
+                          {currentOriginalPrice > 0 && (
+                            <span className="text-xs text-gray-400 line-through decoration-gray-300 font-medium">
+                              {formatRupiah(currentPrice)}
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  );
 
                   return (
                     <tr
@@ -377,9 +409,7 @@ export default function ProductList() {
                         </div>
                       </td>
 
-                      <td className="p-5 font-semibold text-chester-text align-middle">
-                        {displayPrice}
-                      </td>
+                      <td className="p-5 align-middle">{displayPriceUI}</td>
 
                       <td className="p-5 align-middle">
                         <span

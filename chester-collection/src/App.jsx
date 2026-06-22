@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   HashRouter as Router,
   Routes,
@@ -7,9 +7,9 @@ import {
   useNavigate,
   useLocation,
 } from "react-router-dom";
-import { useEffect } from "react";
 import logo from "./assets/logo.png";
 import { Search, User, ShoppingBag, Menu, X, Trash2 } from "lucide-react";
+import axios from "axios"; // Tambahan import axios
 
 // Import Halaman Pelanggan
 import Home from "./pages/Home";
@@ -22,6 +22,8 @@ import ForgotPassword from "./pages/ForgotPassword";
 import ProfileCustomer from "./pages/Profile";
 import Orders from "./pages/Orders";
 import Vouchers from "./pages/Vouchers";
+import Wishlist from "./pages/Wishlist";
+import Checkout from "./pages/Checkout";
 
 // Import Halaman Admin
 import AdminLayout from "./pages/admin/AdminLayout";
@@ -41,6 +43,7 @@ import OrderDetail from "./pages/admin/OrderDetail";
 import Settings from "./pages/admin/Settings";
 import VoucherList from "./pages/admin/VoucherList";
 import CustomerDetail from "./pages/admin/CustomerDetail";
+import ShippingSettings from "./pages/admin/ShippingSettings";
 
 // Import Penjaga Rute
 import AdminGuard from "./components/AdminGuard";
@@ -56,12 +59,11 @@ const formatRupiah = (angka) => {
 const Header = ({ setIsCartOpen, cartCount }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [customerName, setCustomerName] = useState(""); // State baru untuk nama
+  const [customerName, setCustomerName] = useState("");
 
   const navigate = useNavigate();
-  const location = useLocation(); // Mengambil info halaman saat ini
+  const location = useLocation();
 
-  // Efek ini akan berjalan setiap kali pelanggan pindah halaman
   useEffect(() => {
     const token =
       localStorage.getItem("customerToken") ||
@@ -74,18 +76,16 @@ const Header = ({ setIsCartOpen, cartCount }) => {
 
     if (userStr) {
       const userObj = JSON.parse(userStr);
-      // Mengambil nama depan saja agar navbar tidak terlalu panjang
       setCustomerName(userObj.fullname.split(" ")[0]);
     } else {
       setCustomerName("");
     }
-  }, [location.pathname]); // <--- Kunci cerdasnya ada di sini!
+  }, [location.pathname]);
 
   const handleProfileClick = () => {
     if (isLoggedIn) {
       navigate("/profile");
     } else {
-      // Bawa informasi "dari halaman mana" pelanggan ini berasal
       navigate("/login", { state: { from: location.pathname } });
     }
   };
@@ -150,7 +150,6 @@ const Header = ({ setIsCartOpen, cartCount }) => {
               title={isLoggedIn ? "Profil Saya" : "Masuk Akun"}
             >
               <User className="h-5 w-5 text-inherit" />
-              {/* Teks sapaan hanya muncul jika sudah login (disembunyikan di layar HP kecil) */}
               {isLoggedIn && customerName && (
                 <span className="text-sm font-bold hidden sm:block">
                   Hai, {customerName}
@@ -263,7 +262,6 @@ const Footer = () => {
             <a
               href="#"
               className="opacity-80 hover:opacity-100 hover:scale-110 transition-all duration-300"
-              aria-label="Facebook"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -282,7 +280,6 @@ const Footer = () => {
             <a
               href="#"
               className="opacity-80 hover:opacity-100 hover:scale-110 transition-all duration-300"
-              aria-label="Instagram"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -303,7 +300,6 @@ const Footer = () => {
             <a
               href="#"
               className="opacity-80 hover:opacity-100 hover:scale-110 transition-all duration-300"
-              aria-label="Twitter"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -322,7 +318,6 @@ const Footer = () => {
             <a
               href="#"
               className="opacity-80 hover:opacity-100 hover:scale-110 transition-all duration-300"
-              aria-label="TikTok"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -353,39 +348,77 @@ const Footer = () => {
 
 export default function App() {
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [cartItems, setCartItems] = useState([]);
 
-  const [cartItems, setCartItems] = useState([
-    {
-      id: 1,
-      name: "Gaun Campuran Linen",
-      price: 450000,
-      qty: 1,
-      size: "M",
-      color: "Oatmeal",
-      image:
-        "https://images.unsplash.com/photo-1539008835657-9e8e9680c956?w=200",
-    },
-    {
-      id: 3,
-      name: "Celana Pendek Denim",
-      price: 325000,
-      qty: 2,
-      size: "L",
-      color: "Blue",
-      image:
-        "https://images.unsplash.com/photo-1591369822096-ffd140ec948f?w=200",
-    },
-  ]);
+  const BASE_URL = import.meta.env.VITE_API_URL.replace("/api", "");
+
+  // --- LOGIKA MENGAMBIL DATA KERANJANG DARI DATABASE ---
+  const fetchCartItems = async () => {
+    const userStr =
+      localStorage.getItem("customerUser") ||
+      sessionStorage.getItem("customerUser");
+    if (!userStr) {
+      setCartItems([]);
+      return;
+    }
+    const user = JSON.parse(userStr);
+    try {
+      const response = await axios.get(
+        `${import.meta.env.VITE_API_URL}/carts/${user.id}`,
+      );
+      if (response.data.success) {
+        const formattedItems = response.data.data.map((item) => {
+          // Menerjemahkan angka dari database
+          const baseP = item.variant_id
+            ? Number(item.variant_price || 0)
+            : Number(item.base_price || 0);
+          const origP = item.variant_id
+            ? Number(item.variant_original_price || 0)
+            : Number(item.base_original_price || 0);
+
+          // RUMUS CERDAS: Menentukan Harga Bayar yang Sebenarnya
+          // Jika ada harga coret (origP > 0), maka bayar pakai origP. Jika tidak ada, bayar pakai baseP.
+          const finalSellingPrice = origP > 0 ? origP : baseP;
+
+          return {
+            id: item.id,
+            name: item.name,
+            price: finalSellingPrice, // Memasukkan harga yang sudah difilter
+            qty: item.quantity,
+            variant: item.variant_key || "Standar",
+            image: item.image ? `${BASE_URL}${item.image}` : "/placeholder.png",
+          };
+        });
+        setCartItems(formattedItems);
+      }
+    } catch (error) {
+      console.error("Gagal mengambil data keranjang:", error);
+    }
+  };
+
+  useEffect(() => {
+    fetchCartItems();
+
+    // Event Listener Cerdas: Merespon sinyal "cartUpdated" dari halaman lain
+    window.addEventListener("cartUpdated", fetchCartItems);
+    return () => window.removeEventListener("cartUpdated", fetchCartItems);
+  }, []);
+
+  // --- LOGIKA MENGHAPUS ITEM DARI DATABASE ---
+  const removeItem = async (id) => {
+    try {
+      await axios.delete(`${import.meta.env.VITE_API_URL}/carts/${id}`);
+      fetchCartItems(); // Muat ulang keranjang setelah dihapus
+    } catch (error) {
+      console.error("Gagal menghapus produk dari keranjang:", error);
+    }
+  };
 
   const cartTotal = cartItems.reduce(
     (total, item) => total + item.price * item.qty,
     0,
   );
   const cartCount = cartItems.reduce((total, item) => total + item.qty, 0);
-
-  const removeItem = (id) => {
-    setCartItems(cartItems.filter((item) => item.id !== id));
-  };
 
   return (
     <Router>
@@ -399,7 +432,6 @@ export default function App() {
         {/* RUTE ADMIN (Dilindungi oleh AdminGuard) */}
         {/* ======================================= */}
         <Route element={<AdminGuard />}>
-          {/* Semua yang ada di dalam /admin HANYA BISA diakses kalau AdminGuard mengizinkan */}
           <Route path="/admin" element={<AdminLayout />}>
             <Route index element={<Dashboard />} />
             <Route path="products" element={<ProductList />} />
@@ -413,12 +445,11 @@ export default function App() {
             <Route path="product-categories" element={<ProductCategory />} />
             <Route path="products/edit/:id" element={<ProductEdit />} />
             <Route path="products/gallery" element={<GalleryList />} />
-
-            {/* Rute Panduan Ukuran */}
             <Route path="size-guides" element={<SizeGuideList />} />
             <Route path="size-guides/add" element={<SizeGuideForm />} />
             <Route path="size-guides/edit/:id" element={<SizeGuideForm />} />
             <Route path="product-vouchers" element={<VoucherList />} />
+            <Route path="product-shipping" element={<ShippingSettings />} />
           </Route>
         </Route>
 
@@ -438,11 +469,15 @@ export default function App() {
                   <Route path="/product/:id" element={<ProductPage />} />
                   <Route path="/orders" element={<Orders />} />
                   <Route path="/vouchers" element={<Vouchers />} />
+                  <Route path="/wishlist" element={<Wishlist />} />
+                  <Route path="/checkout" element={<Checkout />} />
                   <Route path="/login" element={<Login />} />
                   <Route path="/register" element={<Register />} />
                   <Route path="/forgot-password" element={<ForgotPassword />} />
                   <Route path="/profile" element={<ProfileCustomer />} />
                   <Route path="/addresses" element={<AddressBook />} />
+                  {/* Nantinya tambahkan Rute Checkout di sini */}
+                  {/* <Route path="/checkout" element={<Checkout />} /> */}
                 </Routes>
               </div>
 
@@ -477,35 +512,36 @@ export default function App() {
                     ) : (
                       cartItems.map((item) => (
                         <div key={item.id} className="flex gap-4 group">
-                          <div className="w-24 aspect-[3/4] bg-gray-50 flex-shrink-0">
+                          <div className="w-24 aspect-[3/4] bg-gray-50 flex-shrink-0 rounded-lg overflow-hidden border border-gray-100">
                             <img
                               src={item.image}
                               alt={item.name}
                               className="w-full h-full object-cover"
                             />
                           </div>
-                          <div className="flex-1 flex flex-col justify-between">
+                          <div className="flex-1 flex flex-col justify-between py-1">
                             <div>
                               <div className="flex justify-between items-start mb-1">
-                                <h3 className="text-sm font-medium text-chester-text line-clamp-2 pr-4">
+                                <h3 className="text-sm font-bold text-chester-text line-clamp-2 pr-4 leading-tight">
                                   {item.name}
                                 </h3>
                                 <button
                                   onClick={() => removeItem(item.id)}
-                                  className="text-gray-400 hover:text-chester-pink transition"
+                                  className="text-gray-400 hover:text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition"
+                                  title="Hapus"
                                 >
                                   <Trash2 size={16} />
                                 </button>
                               </div>
-                              <p className="text-xs text-gray-500 mb-1">
-                                {item.color} / {item.size}
+                              <p className="text-[11px] font-semibold text-gray-500 bg-gray-100 w-max px-2 py-0.5 rounded border mb-1">
+                                {item.variant}
                               </p>
                             </div>
                             <div className="flex justify-between items-end">
-                              <span className="text-xs font-semibold text-gray-500 border border-gray-200 px-3 py-1">
+                              <span className="text-xs font-semibold text-gray-500 px-3 py-1 bg-gray-50 rounded-lg border border-gray-200">
                                 Qty: {item.qty}
                               </span>
-                              <span className="text-sm font-bold text-chester-text">
+                              <span className="text-sm font-bold text-chester-pink">
                                 {formatRupiah(item.price * item.qty)}
                               </span>
                             </div>
@@ -515,28 +551,37 @@ export default function App() {
                     )}
                   </div>
 
-                  <div className="border-t border-gray-100 p-6 bg-gray-50">
-                    <div className="flex justify-between items-center mb-6">
-                      <span className="text-sm font-bold text-gray-600 uppercase">
-                        Subtotal
-                      </span>
-                      <span className="text-xl font-bold text-chester-text">
-                        {formatRupiah(cartTotal)}
-                      </span>
-                    </div>
+                  {cartItems.length > 0 && (
+                    <div className="border-t border-gray-100 p-6 bg-white shadow-[0_-4px_15px_rgba(0,0,0,0.02)]">
+                      <div className="flex justify-between items-center mb-6">
+                        <span className="text-sm font-bold text-gray-600 uppercase tracking-widest">
+                          Total
+                        </span>
+                        <span className="text-xl font-black text-chester-text">
+                          {formatRupiah(cartTotal)}
+                        </span>
+                      </div>
 
-                    <div className="flex flex-col gap-3">
-                      <button className="w-full bg-chester-pink text-white h-14 font-bold text-sm uppercase tracking-widest hover:bg-gray-900 transition duration-300">
-                        Checkout
-                      </button>
-                      <button
-                        onClick={() => setIsCartOpen(false)}
-                        className="w-full bg-white text-chester-text border-2 border-chester-text h-14 font-bold text-sm uppercase tracking-widest hover:bg-gray-100 transition duration-300"
-                      >
-                        Lanjut Belanja
-                      </button>
+                      <div className="flex flex-col gap-3">
+                        {/* Tombol Checkout (Sekarang berupa Link) */}
+                        <Link
+                          to="/checkout"
+                          onClick={() => setIsCartOpen(false)}
+                          className="w-full flex items-center justify-center bg-chester-pink text-white h-14 rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-pink-600 transition shadow-sm"
+                        >
+                          Checkout Sekarang
+                        </Link>
+
+                        {/* Tombol Lanjut Belanja (Menutup Drawer) */}
+                        <button
+                          onClick={() => setIsCartOpen(false)}
+                          className="w-full bg-white text-gray-600 border border-gray-200 h-14 rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-gray-50 transition"
+                        >
+                          Lanjut Belanja
+                        </button>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               </div>
             </div>
