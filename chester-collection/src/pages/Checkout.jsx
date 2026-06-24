@@ -5,7 +5,6 @@ import {
   Truck,
   CreditCard,
   ChevronLeft,
-  CheckCircle,
   ShoppingBag,
 } from "lucide-react";
 import axios from "axios";
@@ -27,14 +26,16 @@ export default function Checkout() {
   const [selectedVoucher, setSelectedVoucher] = useState(null);
   const [showVoucherModal, setShowVoucherModal] = useState(false);
 
-  // Status courier dihilangkan karena sekarang diurus backend
   const [shippingOptions, setShippingOptions] = useState([]);
   const [selectedShipping, setSelectedShipping] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState("transfer");
 
   const [isLoading, setIsLoading] = useState(true);
   const [issubmitting, setIsSubmitting] = useState(false);
-  const [shippingLoading, setShippingLoading] = useState(false); // Indikator khusus ongkir
+  const [shippingLoading, setShippingLoading] = useState(false);
+
+  // 1. TAMBAHAN BARU: State untuk menangkap pesan error Biteship ke layar
+  const [shippingError, setShippingError] = useState(null);
 
   const customerUser = JSON.parse(
     localStorage.getItem("customerUser") ||
@@ -86,7 +87,6 @@ export default function Checkout() {
           return;
         }
 
-        // Tambahkan ini di dalam initCheckoutData setelah memuat keranjang
         const voucherRes = await axios.get(
           `${import.meta.env.VITE_API_URL}/vouchers/storefront/${customerUser.id}`,
         );
@@ -96,6 +96,7 @@ export default function Checkout() {
       }
 
       if (addrRes.data.success && addrRes.data.data.length > 0) {
+        console.log("DEBUG: Data alamat dari backend:", addrRes.data.data);
         setAddresses(addrRes.data.data);
         setSelectedAddress(addrRes.data.data[0]);
       }
@@ -110,19 +111,22 @@ export default function Checkout() {
     if (selectedAddress && cartItems.length > 0) {
       calculateShipping();
     }
-  }, [selectedAddress, cartItems]); // 'courier' dihapus dari dependencies
+  }, [selectedAddress, cartItems]);
 
   const calculateShipping = async () => {
-    // 1. Validasi: Pastikan alamat dan kodepos tersedia
-    if (!selectedAddress || !selectedAddress.postal_code) {
-      console.warn("Kodepos belum lengkap, tidak bisa hitung ongkir.");
+    // 1. Validasi diubah: kita mengecek city_id
+    if (!selectedAddress || !selectedAddress.city_id) {
+      setShippingError(
+        "Wilayah pengiriman tidak valid. Harap perbarui alamat Anda.",
+      );
       return;
     }
 
     setShippingLoading(true);
     setShippingOptions([]);
+    setShippingError(null);
+    setSelectedShipping(null);
 
-    // 2. Sanitasi data: Pastikan weight dan price minimal 1 agar tidak ditolak API
     const totalWeight = cartItems.reduce(
       (total, item) => total + Math.max(item.weight || 200, 1) * item.qty,
       0,
@@ -137,15 +141,15 @@ export default function Checkout() {
       const res = await axios.post(
         `${import.meta.env.VITE_API_URL}/shipping-cost`,
         {
-          postal_code: String(selectedAddress.postal_code), // Pastikan jadi String
-          city: selectedAddress.city,
-          province: selectedAddress.province,
+          // 2. DI SINI PERUBAHANNYA: Kirim city_id, bukan postal_code
+          city_id: selectedAddress.city_id,
+
           total_weight: totalWeight,
           courier: "",
           cart_items: cartItems.map((item) => ({
             ...item,
-            weight: Math.max(item.weight || 200, 1), // Pastikan berat minimal 1g
-            price: Math.max(item.price || 10000, 1000), // Pastikan harga minimal
+            weight: Math.max(item.weight || 200, 1),
+            price: Math.max(item.price || 10000, 1000),
           })),
           cart_value: cartTotalValue,
         },
@@ -157,13 +161,15 @@ export default function Checkout() {
           setSelectedShipping(res.data.data[0]);
         }
       } else {
-        console.error("API Shipping gagal:", res.data.message);
+        setShippingError(res.data.message || "Gagal memproses tarif.");
       }
     } catch (error) {
-      console.error(
-        "Error Detail dari Backend:",
-        error.response?.data || error.message,
-      );
+      // 2. PERBAIKAN: Menangkap error spesifik dari Backend & Biteship ke state UI
+      const errorMessage =
+        error.response?.data?.message ||
+        "Terjadi kesalahan pada server Logistik.";
+      setShippingError(errorMessage);
+      console.error("Detail Error Biteship:", errorMessage);
     } finally {
       setShippingLoading(false);
     }
@@ -181,12 +187,38 @@ export default function Checkout() {
     }, 1500);
   };
 
+  // =======================================================
+  // 3. LOGIKA MATEMATIKA VOUCHER & KERANJANG (DISEMPURNAKAN)
+  // =======================================================
   const cartTotal = cartItems.reduce(
     (total, item) => total + item.price * item.qty,
     0,
   );
+
   const shippingCost = selectedShipping ? selectedShipping.cost : 0;
-  const grandTotal = cartTotal + shippingCost;
+
+  // Rumus pintar diskon (Mendukung Persen & Nominal + Minimal Belanja)
+  let discountAmount = 0;
+  if (selectedVoucher) {
+    if (cartTotal >= Number(selectedVoucher.min_purchase || 0)) {
+      if (selectedVoucher.discount_type === "percent") {
+        let calcDiscount =
+          (cartTotal * Number(selectedVoucher.discount_value)) / 100;
+        const maxDiscount = Number(selectedVoucher.max_discount || 0);
+        // Jika ada maksimal diskon, potong sesuai batas maksimal
+        if (maxDiscount > 0 && calcDiscount > maxDiscount) {
+          calcDiscount = maxDiscount;
+        }
+        discountAmount = calcDiscount;
+      } else {
+        // Tipe Nominal Tetap (Fixed)
+        discountAmount = Number(selectedVoucher.discount_value);
+      }
+    }
+  }
+
+  // Mencegah total bayar menjadi minus
+  const grandTotal = Math.max(cartTotal + shippingCost - discountAmount, 0);
 
   if (isLoading) {
     return (
@@ -279,7 +311,7 @@ export default function Checkout() {
               )}
             </div>
 
-            {/* SECTION 2: JASA PENGIRIMAN (KURIR) - DINAMIS */}
+            {/* SECTION 2: JASA PENGIRIMAN (KURIR) */}
             <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
               <div className="flex items-center gap-3 mb-4 border-b border-gray-50 pb-3">
                 <div className="w-8 h-8 rounded-lg bg-pink-50 text-chester-pink flex items-center justify-center">
@@ -296,10 +328,15 @@ export default function Checkout() {
                   Menghitung tarif ongkos kirim...
                 </div>
               ) : shippingOptions.length === 0 ? (
-                <div className="text-center py-6 text-sm text-red-400">
-                  {selectedAddress
-                    ? "Gagal memuat tarif kurir atau API Key belum dikonfigurasi."
-                    : "Pilih alamat terlebih dahulu untuk melihat ongkos kirim."}
+                <div className="text-center py-6 text-sm text-red-500 px-4">
+                  {/* 4. TAMPILAN ERROR: Pesan error dicetak langsung di layar */}
+                  {shippingError ? (
+                    <span className="font-semibold">{shippingError}</span>
+                  ) : selectedAddress ? (
+                    "Gagal memuat tarif kurir atau API Key belum dikonfigurasi."
+                  ) : (
+                    "Pilih alamat terlebih dahulu untuk melihat ongkos kirim."
+                  )}
                 </div>
               ) : (
                 <div className="flex flex-col gap-2">
@@ -414,7 +451,31 @@ export default function Checkout() {
                   <span>Subtotal Belanja</span>
                   <span>{formatRupiah(cartTotal)}</span>
                 </div>
-                <div className="flex justify-between text-gray-500 font-medium">
+
+                <div className="flex justify-between items-center py-2 border-y border-dashed border-gray-200 my-1">
+                  <span className="text-xs font-bold text-gray-500">
+                    Voucher Diskon
+                  </span>
+                  <button
+                    onClick={() => setShowVoucherModal(true)}
+                    className="text-xs text-chester-pink font-bold hover:underline bg-pink-50 px-3 py-1 rounded-full"
+                  >
+                    {selectedVoucher ? "Ganti Voucher" : "Pilih Voucher"}
+                  </button>
+                </div>
+
+                {selectedVoucher && (
+                  <div className="flex justify-between text-emerald-600 font-bold mb-1">
+                    <span>Promo: {selectedVoucher.name}</span>
+                    <span>
+                      {cartTotal < Number(selectedVoucher.min_purchase || 0)
+                        ? "Minimal belanja belum tercapai"
+                        : `-${formatRupiah(discountAmount)}`}
+                    </span>
+                  </div>
+                )}
+
+                <div className="flex justify-between text-gray-500 font-medium mt-1">
                   <span>Biaya Pengiriman</span>
                   <span>
                     {shippingLoading
@@ -424,25 +485,7 @@ export default function Checkout() {
                         : "Belum dihitung"}
                   </span>
                 </div>
-                <div className="flex justify-between items-center py-3 border-t border-gray-50">
-                  <span className="text-xs font-bold text-gray-500">
-                    Voucher
-                  </span>
-                  <button
-                    onClick={() => setShowVoucherModal(true)}
-                    className="text-xs text-chester-pink font-bold hover:underline"
-                  >
-                    {selectedVoucher ? selectedVoucher.name : "Pilih Voucher"}
-                  </button>
-                </div>
 
-                {/* Logika potongan harga */}
-                {selectedVoucher && (
-                  <div className="flex justify-between text-xs text-emerald-600 font-bold mb-2">
-                    <span>Diskon Voucher</span>
-                    <span>-{formatRupiah(selectedVoucher.discount_value)}</span>
-                  </div>
-                )}
                 <div className="flex justify-between text-base font-black text-chester-text pt-3 border-t border-gray-200">
                   <span>Total Bayar</span>
                   <span className="text-chester-pink text-lg">
@@ -467,31 +510,87 @@ export default function Checkout() {
           </div>
         </div>
       </div>
+
+      {/* MODAL VOUCHER */}
       {showVoucherModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white p-6 rounded-2xl w-full max-w-sm max-h-[80vh] overflow-y-auto">
-            <h3 className="font-bold mb-4">Voucher Saya</h3>
-            {myVouchers.map((v) => (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div className="bg-white p-6 rounded-2xl w-full max-w-sm max-h-[80vh] flex flex-col shadow-2xl">
+            <h3 className="font-bold text-lg text-chester-text mb-4 border-b pb-3">
+              Voucher Saya
+            </h3>
+
+            <div className="overflow-y-auto flex-1 flex flex-col gap-3 custom-scrollbar pr-2">
+              {myVouchers.length === 0 ? (
+                <div className="text-center py-8 text-gray-400 text-sm">
+                  Belum ada voucher yang Anda simpan/klaim.
+                </div>
+              ) : (
+                myVouchers.map((v) => {
+                  const isEligible = cartTotal >= Number(v.min_purchase || 0);
+
+                  return (
+                    <button
+                      key={v.id}
+                      disabled={!isEligible}
+                      onClick={() => {
+                        setSelectedVoucher(v);
+                        setShowVoucherModal(false);
+                      }}
+                      className={`w-full p-4 border rounded-xl text-left transition relative ${
+                        isEligible
+                          ? "hover:border-chester-pink hover:bg-pink-50 cursor-pointer border-gray-200"
+                          : "bg-gray-50 border-gray-100 opacity-60 cursor-not-allowed"
+                      } ${selectedVoucher?.id === v.id ? "border-chester-pink ring-1 ring-chester-pink bg-pink-50/50" : ""}`}
+                    >
+                      <p className="text-sm font-bold text-chester-text">
+                        {v.name}
+                      </p>
+                      {v.discount_type === "percent" ? (
+                        <p className="text-xs text-chester-pink font-bold mt-1">
+                          Diskon {v.discount_value}%
+                        </p>
+                      ) : (
+                        <p className="text-xs text-chester-pink font-bold mt-1">
+                          Potongan {formatRupiah(v.discount_value)}
+                        </p>
+                      )}
+
+                      <p className="text-[10px] text-gray-500 mt-2">
+                        Min. Belanja: {formatRupiah(v.min_purchase || 0)}
+                      </p>
+
+                      {!isEligible && (
+                        <div className="absolute inset-0 bg-white/40 flex items-center justify-center rounded-xl">
+                          <span className="bg-black/70 text-white text-[10px] px-2 py-1 rounded font-bold">
+                            Minimal Belanja Belum Tercapai
+                          </span>
+                        </div>
+                      )}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="mt-4 pt-3 border-t flex flex-col gap-2">
+              {selectedVoucher && (
+                <button
+                  onClick={() => {
+                    setSelectedVoucher(null);
+                    setShowVoucherModal(false);
+                  }}
+                  className="w-full text-xs text-red-500 font-bold py-2 hover:bg-red-50 rounded-lg"
+                >
+                  Batalkan Penggunaan Voucher
+                </button>
+              )}
               <button
-                key={v.id}
-                onClick={() => {
-                  setSelectedVoucher(v);
-                  setShowVoucherModal(false);
-                }}
-                className="w-full p-3 border rounded-xl mb-2 text-left hover:bg-pink-50"
+                onClick={() => setShowVoucherModal(false)}
+                className="w-full py-3 bg-gray-100 text-gray-600 rounded-xl text-xs font-bold hover:bg-gray-200 transition"
               >
-                <p className="text-sm font-bold">{v.name}</p>
-                <p className="text-[10px] text-gray-500">
-                  Berlaku sampai {v.end_date}
-                </p>
+                Tutup Jendela
               </button>
-            ))}
-            <button
-              onClick={() => setShowVoucherModal(false)}
-              className="w-full mt-4 text-xs text-gray-400"
-            >
-              Tutup
-            </button>
+            </div>
           </div>
         </div>
       )}

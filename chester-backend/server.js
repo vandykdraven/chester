@@ -2102,22 +2102,28 @@ app.delete("/api/carts/:id", async (req, res) => {
 // =======================================================================
 app.post("/api/shipping-cost", async (req, res) => {
   try {
-    const { postal_code, total_weight, courier, cart_items, cart_value } =
-      req.body;
+    // 1. KITA TANGKAP city_id DARI FRONTEND, BUKAN postal_code
+    const { city_id, total_weight, courier, cart_items, cart_value } = req.body;
 
-    if (!postal_code) {
+    if (!city_id) {
       return res
         .status(400)
-        .json({ success: false, message: "Kode pos tujuan wajib diisi." });
+        .json({
+          success: false,
+          message: "Area tujuan (city_id) wajib diisi.",
+        });
     }
 
     const [settings] = await db.query(
-      "SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('biteship_api_key', 'biteship_api_url', 'store_postal_code')",
+      "SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('biteship_api_key', 'biteship_api_url', 'store_postal_code', 'active_couriers')",
     );
 
     let biteshipKey = "";
-    let biteshipUrl = "https://api.biteship.com/v1/rates/couriers";
+    let biteshipUrl =
+      process.env.BITESHIP_API_URL ||
+      "https://api.biteship.com/v1/rates/couriers";
     let originPostalCode = "";
+    let activeCouriers = "";
 
     settings.forEach((setting) => {
       if (setting.setting_key === "biteship_api_key")
@@ -2126,12 +2132,21 @@ app.post("/api/shipping-cost", async (req, res) => {
         biteshipUrl = setting.setting_value;
       if (setting.setting_key === "store_postal_code")
         originPostalCode = setting.setting_value;
+      if (setting.setting_key === "active_couriers")
+        activeCouriers = setting.setting_value;
     });
 
     if (!biteshipKey) {
       return res.status(500).json({
         success: false,
-        message: "API Key Biteship belum diatur admin.",
+        message: "API Key Biteship belum dikonfigurasi di ENV / Admin.",
+      });
+    }
+
+    if (!activeCouriers) {
+      return res.status(400).json({
+        success: false,
+        message: "Belum ada ekspedisi yang diaktifkan di panel Admin.",
       });
     }
 
@@ -2164,17 +2179,15 @@ app.post("/api/shipping-cost", async (req, res) => {
             },
           ];
 
+    // 2. PAYLOAD BARU: MENGGUNAKAN destination_area_id
     const payload = {
       origin_postal_code: finalOriginPostal,
-      destination_postal_code: postal_code.toString(),
-      couriers: courier || "jne,jnt,sicepat,pos",
+      destination_area_id: city_id, // KUNCI PENYELESAIAN MASALAH ADA DI SINI
+      couriers: courier || activeCouriers,
       items: payloadItems,
     };
 
-    console.log(
-      "DEBUG: Payload ke Biteship:",
-      JSON.stringify(payload, null, 2),
-    );
+    console.log("PAYLOAD KE BITESHIP:", JSON.stringify(payload, null, 2));
 
     const response = await axios.post(biteshipUrl, payload, {
       headers: {
@@ -2196,10 +2209,14 @@ app.post("/api/shipping-cost", async (req, res) => {
         .json({ success: false, message: "Gagal memproses tarif kurir." });
     }
   } catch (err) {
-    console.error("Biteship Error:", err.response?.data || err.message);
-    return res.status(500).json({
+    console.error(
+      "Biteship Error Response:",
+      err.response?.data || err.message,
+    );
+    return res.status(err.response?.status || 500).json({
       success: false,
-      message: "Kesalahan server saat hitung ongkir.",
+      message:
+        err.response?.data?.error || "Kesalahan server saat hitung ongkir.",
     });
   }
 });
