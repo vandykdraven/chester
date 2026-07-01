@@ -1127,6 +1127,283 @@ app.put("/api/orders/:id/status", async (req, res) => {
 });
 
 // =======================================================================
+// ENDPOINT: MEMBUAT PESANAN BARU (CHECKOUT)
+// =======================================================================
+app.post("/api/orders", async (req, res) => {
+  const connection = await db.getConnection();
+  try {
+    const {
+      user_id,
+      address,
+      shipping_option,
+      cart_items,
+      subtotal,
+      shipping_cost,
+      discount_amount,
+      grand_total,
+    } = req.body;
+
+    const date = new Date();
+    const invoiceNumber = `INV-${date.getFullYear()}${(date.getMonth() + 1).toString().padStart(2, "0")}${date.getDate().toString().padStart(2, "0")}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    await connection.beginTransaction();
+
+    // 1. Simpan Data ke Tabel Orders (Disesuaikan dengan struktur DB Mas Fandy)
+    const [orderResult] = await connection.query(
+      `INSERT INTO orders (
+        invoice_number, user_id, 
+        recipient_name, phone, full_address, city_id, city_name, province_name, postal_code,
+        province_id, subdistrict_id,
+        courier_name, courier_service, shipping_cost, 
+        subtotal_products, total_amount, discount_amount, status
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '0', '0', ?, ?, ?, ?, ?, ?, 'pending')`,
+      [
+        invoiceNumber,
+        user_id,
+        address.recipient_name,
+        address.phone,
+        address.full_address,
+        address.city_id,
+        address.city_name,
+        address.province_name,
+        address.postal_code,
+        shipping_option.courierName,
+        shipping_option.serviceName,
+        shipping_cost,
+        subtotal,
+        grand_total,
+        discount_amount,
+      ],
+    );
+
+    const orderId = orderResult.insertId;
+
+    // 2. Simpan Item ke Tabel order_items (Ubah 'variant' menjadi 'variant_key')
+    for (const item of cart_items) {
+      await connection.query(
+        `INSERT INTO order_items (order_id, product_id, product_name, variant_key, price, quantity, weight) 
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          orderId,
+          item.product_id,
+          item.name,
+          item.variant,
+          item.price,
+          item.qty,
+          item.weight,
+        ],
+      );
+    }
+
+    // 3. Kosongkan Keranjang
+    await connection.query("DELETE FROM carts WHERE user_id = ?", [user_id]);
+
+    await connection.commit();
+
+    return res.status(201).json({
+      success: true,
+      orderId: orderId,
+    });
+  } catch (error) {
+    await connection.rollback();
+    console.error("Gagal membuat pesanan:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan database." });
+  } finally {
+    connection.release();
+  }
+});
+
+// =======================================================================
+// ENDPOINT: REQUEST PICKUP (ORDER CREATION) KE BITESHIP - FINAL FIX + DATE + TIME
+// =======================================================================
+app.post("/api/orders/:id/book-shipping", async (req, res) => {
+  try {
+    const orderId = req.params.id;
+
+    const { delivery_date, delivery_time } = req.body;
+
+    if (!delivery_date || !delivery_time) {
+      return res.status(400).json({
+        success: false,
+        message: "Tanggal dan waktu penjemputan (pickup) wajib diisi.",
+      });
+    }
+
+    const [orders] = await db.query(
+      "SELECT o.*, u.fullname as customer_name, u.email as customer_email FROM orders o JOIN users u ON o.user_id = u.id WHERE o.id = ?",
+      [orderId],
+    );
+    if (orders.length === 0) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Pesanan tidak ditemui." });
+    }
+
+    const order = orders[0];
+
+    if (order.biteship_order_id) {
+      return res.status(400).json({
+        success: false,
+        message: "Pesanan ini sudah pernah di-booking sebelumnya.",
+      });
+    }
+
+    const [items] = await db.query(
+      "SELECT * FROM order_items WHERE order_id = ?",
+      [orderId],
+    );
+
+    const [settings] = await db.query(
+      "SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('biteship_api_key', 'shop_name', 'shop_phone', 'shop_address', 'store_postal_code')",
+    );
+
+    let shopConfig = {};
+    settings.forEach((s) => (shopConfig[s.setting_key] = s.setting_value));
+
+    let formattedCourier = order.courier_name.toLowerCase();
+    if (formattedCourier === "j&t" || formattedCourier === "j&t express") {
+      formattedCourier = "jnt";
+    }
+
+    // const date = new Date();
+    // const deliveryDate = date.toISOString().split("T")[0];
+
+    const payload = {
+      shipper_contact_name: shopConfig.shop_name || "Admin",
+      shipper_contact_phone: shopConfig.shop_phone || "08000000000",
+      origin_contact_name: shopConfig.shop_name || "Admin",
+      origin_contact_phone: shopConfig.shop_phone || "08000000000",
+      origin_address: shopConfig.shop_address || "Alamat Toko",
+      origin_postal_code: shopConfig.store_postal_code || "57148",
+
+      destination_contact_name: order.recipient_name,
+      destination_contact_phone: order.phone,
+      destination_address: `${order.full_address}, ${order.city_name}, ${order.province_name}`,
+      destination_postal_code: order.postal_code || "",
+      destination_area_id: order.city_id || "",
+
+      courier_company: formattedCourier,
+      courier_type: order.courier_service.toLowerCase(),
+
+      delivery_type: "later",
+      origin_collection_method: "pickup",
+
+      delivery_date: delivery_date,
+      // PERBAIKAN: FORMAT HH:mm TUNGGAL
+      delivery_time: delivery_time,
+
+      items: items.map((item) => ({
+        name: item.product_name,
+        value: Number(item.price),
+        quantity: Number(item.quantity),
+        weight: Number(item.weight || 200),
+      })),
+    };
+
+    const biteshipHeaders = {
+      Authorization: `Bearer ${shopConfig.biteship_api_key}`,
+      "Content-Type": "application/json",
+    };
+
+    let response;
+
+    try {
+      response = await axios.post(
+        "https://api.biteship.com/v1/orders",
+        payload,
+        {
+          headers: biteshipHeaders,
+        },
+      );
+    } catch (biteshipError) {
+      if (biteshipError.response?.data?.code === 40002031) {
+        console.warn(
+          `Kurir ${payload.courier_company} tidak menyokong pickup. Menukar kaedah kepada drop-off...`,
+        );
+
+        payload.origin_collection_method = "drop_off";
+
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
+        response = await axios.post(
+          "https://api.biteship.com/v1/orders",
+          payload,
+          {
+            headers: biteshipHeaders,
+          },
+        );
+      } else {
+        throw biteshipError;
+      }
+    }
+
+    const biteshipData = response.data;
+    const awbNumber = biteshipData.courier.waybill_id;
+    const biteshipOrderId = biteshipData.id;
+    const waybillUrl = biteshipData.courier.waybill_url;
+
+    await db.query(
+      "UPDATE orders SET airway_bill = ?, biteship_order_id = ?, waybill_url = ?, status = 'shipping' WHERE id = ?",
+      [awbNumber, biteshipOrderId, waybillUrl, orderId],
+    );
+
+    const statusMessage =
+      payload.origin_collection_method === "drop_off"
+        ? "Booking sukses (Mode Drop-off). Harap cetak resi dan antarkan paket ke gerai."
+        : "Booking sukses. Kurir akan segera melakukan penjemputan.";
+
+    return res.status(200).json({
+      success: true,
+      message: statusMessage,
+      data: { airway_bill: awbNumber, waybill_url: waybillUrl },
+    });
+  } catch (error) {
+    console.error("Ralat Biteship API:", error.response?.data || error.message);
+    return res.status(500).json({
+      success: false,
+      message:
+        error.response?.data?.error ||
+        "Gagal melakukan proses tempahan (booking) kurier ke Biteship.",
+    });
+  }
+});
+
+app.get("/api/logistic/search-area", async (req, res) => {
+  try {
+    const { keyword } = req.query; // Sesuai dengan AddressBook.jsx
+    if (!keyword || keyword.length < 3) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Ketik minimal 3 huruf." });
+    }
+
+    const [settings] = await db.query(
+      "SELECT setting_value FROM settings WHERE setting_key = 'biteship_api_key'",
+    );
+    const apiKey = settings[0]?.setting_value;
+
+    if (!apiKey) {
+      return res
+        .status(400)
+        .json({ success: false, message: "API Key tidak ada." });
+    }
+
+    // PENTING: Kita tetap gunakan &type=single karena ini kunci agar data muncul
+    const response = await axios.get(
+      `https://api.biteship.com/v1/maps/areas?countries=ID&input=${keyword}&type=single`,
+      { headers: { Authorization: apiKey } },
+    );
+
+    // Kita kembalikan data apa adanya dari Biteship agar frontend bisa mengolahnya
+    res.status(200).json({ success: true, data: response.data.areas });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Gagal memuat area." });
+  }
+});
+
+// =======================================================================
 // ENDPOINT: PENGATURAN TOKO MASSAL (SETTINGS)
 // =======================================================================
 app.get("/api/settings", async (req, res) => {
@@ -1743,77 +2020,6 @@ app.post("/api/auth/forgot-password", async (req, res) => {
 // =======================================================================
 // ENDPOINT: INTEGRASI BITESHIP & BUKU ALAMAT PINTAR (FIXED)
 // =======================================================================
-const getBiteshipConfig = async () => {
-  const [rows] = await db.query(
-    "SELECT setting_value FROM settings WHERE setting_key = 'biteship_api_key'",
-  );
-  const apiKey =
-    rows.length > 0 && rows[0].setting_value
-      ? rows[0].setting_value.trim()
-      : "";
-  return {
-    baseURL: "https://api.biteship.com/v1",
-    headers: { Authorization: apiKey, "Content-Type": "application/json" },
-  };
-};
-
-app.get("/api/logistic/search-area", async (req, res) => {
-  try {
-    const { keyword } = req.query;
-    if (!keyword || keyword.length < 3)
-      return res
-        .status(400)
-        .json({ success: false, message: "Ketik minimal 3 huruf." });
-
-    const config = await getBiteshipConfig();
-    if (!config.headers.Authorization)
-      return res.status(400).json({
-        success: false,
-        message: "API Key Biteship belum diatur di Admin.",
-      });
-
-    const response = await axios.get(
-      `${config.baseURL}/maps/areas?countries=ID&input=${keyword}`,
-      { headers: config.headers, timeout: 30000 },
-    );
-    res.status(200).json({ success: true, data: response.data.areas });
-  } catch (error) {
-    res.status(error.response?.status || 500).json({
-      success: false,
-      message: error.response?.data?.error || "Gagal memuat area pengiriman.",
-    });
-  }
-});
-
-app.post("/api/logistic/rates", async (req, res) => {
-  try {
-    const { origin_area_id, destination_area_id, weight, couriers } = req.body;
-    const config = await getBiteshipConfig();
-    if (!config.headers.Authorization)
-      return res
-        .status(400)
-        .json({ success: false, message: "API Key Biteship belum diatur." });
-
-    const payload = {
-      origin_area_id,
-      destination_area_id,
-      couriers: couriers || "jne,sicepat,jnt",
-      items: [{ name: "Pesanan Baju", value: 50000, weight, quantity: 1 }],
-    };
-
-    const response = await axios.post(
-      `${config.baseURL}/rates/couriers`,
-      payload,
-      { headers: config.headers, timeout: 30000 },
-    );
-    res.status(200).json({ success: true, data: response.data.pricing });
-  } catch (error) {
-    res.status(error.response?.status || 500).json({
-      success: false,
-      message: error.response?.data?.error || "Gagal menghitung tarif.",
-    });
-  }
-});
 
 app.get("/api/users/:id/addresses", async (req, res) => {
   try {
@@ -2102,27 +2308,25 @@ app.delete("/api/carts/:id", async (req, res) => {
 // =======================================================================
 app.post("/api/shipping-cost", async (req, res) => {
   try {
-    // 1. KITA TANGKAP city_id DARI FRONTEND, BUKAN postal_code
     const { city_id, total_weight, courier, cart_items, cart_value } = req.body;
 
     if (!city_id) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Area tujuan (city_id) wajib diisi.",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Area tujuan (city_id) wajib diisi.",
+      });
     }
 
+    // Perbaikan: Ambil store_area_id, bukan store_postal_code
     const [settings] = await db.query(
-      "SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('biteship_api_key', 'biteship_api_url', 'store_postal_code', 'active_couriers')",
+      "SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('biteship_api_key', 'biteship_api_url', 'store_area_id', 'active_couriers')",
     );
 
     let biteshipKey = "";
     let biteshipUrl =
       process.env.BITESHIP_API_URL ||
       "https://api.biteship.com/v1/rates/couriers";
-    let originPostalCode = "";
+    let originAreaId = "";
     let activeCouriers = "";
 
     settings.forEach((setting) => {
@@ -2130,8 +2334,11 @@ app.post("/api/shipping-cost", async (req, res) => {
         biteshipKey = setting.setting_value;
       if (setting.setting_key === "biteship_api_url" && setting.setting_value)
         biteshipUrl = setting.setting_value;
-      if (setting.setting_key === "store_postal_code")
-        originPostalCode = setting.setting_value;
+
+      // Perbaikan: Simpan nilai store_area_id
+      if (setting.setting_key === "store_area_id")
+        originAreaId = setting.setting_value;
+
       if (setting.setting_key === "active_couriers")
         activeCouriers = setting.setting_value;
     });
@@ -2150,9 +2357,16 @@ app.post("/api/shipping-cost", async (req, res) => {
       });
     }
 
-    const finalOriginPostal = originPostalCode
-      ? originPostalCode.toString()
-      : "57144";
+    const finalCouriers = (courier || activeCouriers).toLowerCase();
+
+    // Pastikan kita memiliki origin_area_id, jika kosong tolak request
+    if (!originAreaId) {
+      return res.status(500).json({
+        success: false,
+        message:
+          "Area ID Toko (Origin) belum dikonfigurasi di Pengaturan Admin.",
+      });
+    }
 
     const payloadItems =
       cart_items && cart_items.length > 0
@@ -2179,11 +2393,11 @@ app.post("/api/shipping-cost", async (req, res) => {
             },
           ];
 
-    // 2. PAYLOAD BARU: MENGGUNAKAN destination_area_id
+    // Perbaikan: Payload sekarang 100% menggunakan Area ID
     const payload = {
-      origin_postal_code: finalOriginPostal,
-      destination_area_id: city_id, // KUNCI PENYELESAIAN MASALAH ADA DI SINI
-      couriers: courier || activeCouriers,
+      origin_area_id: originAreaId,
+      destination_area_id: city_id,
+      couriers: finalCouriers,
       items: payloadItems,
     };
 
@@ -2218,6 +2432,391 @@ app.post("/api/shipping-cost", async (req, res) => {
       message:
         err.response?.data?.error || "Kesalahan server saat hitung ongkir.",
     });
+  }
+});
+
+// =======================================================================
+// ENDPOINT: PENCARIAN AREA BITESHIP (UNTUK SETTINGS & CHECKOUT)
+// =======================================================================
+app.get("/api/shipping/areas", async (req, res) => {
+  try {
+    const { search } = req.query;
+
+    if (!search || search.length < 3) {
+      return res.json({ success: true, data: [] });
+    }
+
+    const [settings] = await db.query(
+      "SELECT setting_value FROM settings WHERE setting_key = 'biteship_api_key'",
+    );
+    const apiKey = settings[0]?.setting_value;
+
+    if (!apiKey) {
+      return res.status(400).json({
+        success: false,
+        message: "API Key Biteship belum dikonfigurasi.",
+      });
+    }
+
+    const response = await axios.get(
+      `https://api.biteship.com/v1/maps/areas?countries=ID&input=${search}&type=single`,
+      { headers: { Authorization: `Bearer ${apiKey}` } },
+    );
+
+    const areas = response.data.areas.map((area) => {
+      const areaName = [
+        area.name,
+        area.administrative_division_level_3_name,
+        area.administrative_division_level_2_name,
+        area.administrative_division_level_1_name,
+      ]
+        .filter(Boolean)
+        .join(", ");
+
+      return {
+        id: area.id,
+        name: areaName,
+        postal_code: area.postal_code || "",
+        province_name: area.administrative_division_level_1_name || "",
+        city_name: area.administrative_division_level_2_name || "",
+      };
+    });
+
+    res.json({ success: true, data: areas });
+  } catch (error) {
+    console.error(
+      "Error dari Biteship API:",
+      error.response?.data || error.message,
+    );
+    res
+      .status(500)
+      .json({ success: false, message: "Gagal mencari area ke Biteship." });
+  }
+});
+
+// =======================================================================
+// ENDPOINT: AMBIL DAFTAR KURIR RESMI DARI BITESHIP
+// =======================================================================
+app.get("/api/shipping/couriers", async (req, res) => {
+  try {
+    // 1. Ambil API Key Biteship dari database
+    const [settings] = await db.query(
+      "SELECT setting_value FROM settings WHERE setting_key = 'biteship_api_key'",
+    );
+    const apiKey = settings[0]?.setting_value;
+
+    if (!apiKey) {
+      return res.status(400).json({
+        success: false,
+        message: "API Key Biteship belum dikonfigurasi di Admin.",
+      });
+    }
+
+    // 2. Lakukan request GET ke endpoint Retrieve Couriers Biteship
+    const response = await axios.get("https://api.biteship.com/v1/couriers", {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+    });
+
+    // 3. Kembalikan data kurir ke frontend
+    return res.status(200).json({
+      success: true,
+      data: response.data.couriers,
+    });
+  } catch (error) {
+    console.error(
+      "Gagal menarik data kurir:",
+      error.response?.data || error.message,
+    );
+    return res.status(500).json({
+      success: false,
+      message: "Terjadi kesalahan server saat menghubungi API Biteship.",
+    });
+  }
+});
+
+// =======================================================================
+// ENDPOINT: WEBHOOK DARI BITESHIP (Menerima Update Status & Resi)
+// =======================================================================
+app.post("/api/webhook/biteship", async (req, res) => {
+  try {
+    const webhookData = req.body || {};
+
+    // 1. PENANGANAN PING INSTALASI DARI BITESHIP
+    if (!webhookData.event) {
+      console.log("Menerima Ping Validasi Webhook dari Biteship");
+      return res
+        .status(200)
+        .json({ success: true, message: "Webhook URL valid" });
+    }
+
+    console.log(
+      `MENDAPATKAN WEBHOOK (Event: ${webhookData.event}, Status: ${webhookData.status})`,
+    );
+
+    // 2. PROSES UPDATE STATUS & RESI
+    if (webhookData.event === "order.status") {
+      const biteshipOrderId = webhookData.order_id;
+      const newStatus = webhookData.status;
+
+      // Menangkap resi dan URL resi jika sudah diterbitkan oleh kurir
+      const resiBaru = webhookData.courier
+        ? webhookData.courier.waybill_id
+        : null;
+      const urlResiBaru = webhookData.courier
+        ? webhookData.courier.waybill_url
+        : null;
+
+      // Mapping status dari Biteship ke status lokal kita
+      let localStatus = "shipping";
+      if (newStatus === "delivered") {
+        localStatus = "completed";
+      } else if (newStatus === "cancelled" || newStatus === "rejected") {
+        localStatus = "cancelled";
+      }
+
+      // 3. SIMPAN KE DATABASE
+      // Jika Biteship sudah mengirimkan nomor resi, kita update kolom airway_bill
+      if (resiBaru) {
+        await db.query(
+          "UPDATE orders SET status = ?, airway_bill = ?, waybill_url = ? WHERE biteship_order_id = ?",
+          [localStatus, resiBaru, urlResiBaru, biteshipOrderId],
+        );
+        console.log(
+          `✅ Resi pesanan ${biteshipOrderId} berhasil turun: ${resiBaru}`,
+        );
+      } else {
+        // Jika belum ada resi (hanya update status proses), update statusnya saja
+        await db.query(
+          "UPDATE orders SET status = ? WHERE biteship_order_id = ?",
+          [localStatus, biteshipOrderId],
+        );
+        console.log(
+          `✅ Status pesanan ${biteshipOrderId} diperbarui menjadi ${localStatus}`,
+        );
+      }
+    }
+
+    return res.status(200).send("Webhook processed successfully");
+  } catch (error) {
+    console.error("Gagal memproses webhook:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Internal Server Error" });
+  }
+});
+
+// =======================================================================
+// ENDPOINT: AMBIL DETAIL PESANAN LANGSUNG DARI BITESHIP (DEBUGGING)
+// =======================================================================
+app.get("/api/orders/biteship/:biteshipOrderId", async (req, res) => {
+  try {
+    const { biteshipOrderId } = req.params;
+
+    // Ambil API Key dari database settings
+    const [settings] = await db.query(
+      "SELECT setting_value FROM settings WHERE setting_key = 'biteship_api_key'",
+    );
+
+    if (settings.length === 0 || !settings[0].setting_value) {
+      return res.status(500).json({
+        success: false,
+        message: "API Key Biteship tidak ditemukan di pengaturan.",
+      });
+    }
+
+    const apiKey = settings[0].setting_value;
+
+    // Tembak GET Request ke Biteship menggunakan API Key tersebut
+    const response = await axios.get(
+      `https://api.biteship.com/v1/orders/${biteshipOrderId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+        },
+      },
+    );
+
+    // Kembalikan data murni dari Biteship ke browser kita
+    return res.status(200).json({
+      success: true,
+      message: "Data berhasil ditarik dari Biteship",
+      biteship_data: response.data,
+    });
+  } catch (error) {
+    console.error(
+      "Gagal menarik data dari Biteship:",
+      error.response?.data || error.message,
+    );
+    return res.status(500).json({
+      success: false,
+      message: "Gagal menarik data dari Biteship",
+      error_detail: error.response?.data || error.message,
+    });
+  }
+});
+
+// ENDPOINT SEMENTARA UNTUK MEMBATALKAN PESANAN (Mendapatkan ID Cancelled)
+app.delete("/api/orders/biteship/:biteshipOrderId/cancel", async (req, res) => {
+  try {
+    const { biteshipOrderId } = req.params;
+
+    // Asumsi: Ambil API Key Testing Anda seperti cara sebelumnya
+    const [settings] = await db.query(
+      "SELECT setting_value FROM settings WHERE setting_key = 'biteship_api_key'",
+    );
+    const apiKey = settings[0].setting_value;
+
+    const response = await axios.delete(
+      `https://api.biteship.com/v1/orders/${biteshipOrderId}`,
+      {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      },
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Pesanan berhasil dibatalkan di Biteship!",
+      data: response.data,
+    });
+  } catch (error) {
+    return res
+      .status(500)
+      .json({ error: error.response?.data || error.message });
+  }
+});
+
+// =======================================================================
+// ENDPOINT: STATISTIK DASHBOARD ADMIN - DINAMIS BERDASARKAN FILTER
+// =======================================================================
+// 1. ENDPOINT BARU: MENERIMA SINYAL TRACKING DARI WEBSITE PEMBELI
+app.post("/api/analytics/track", async (req, res) => {
+  try {
+    const { page_url, product_id } = req.body;
+
+    // Ambil IP Address pembeli untuk validasi Unique Visitor
+    const ip_address =
+      req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+
+    await db.query(
+      "INSERT INTO site_analytics (page_url, product_id, ip_address) VALUES (?, ?, ?)",
+      [page_url, product_id || null, ip_address],
+    );
+
+    return res
+      .status(200)
+      .json({ success: true, message: "Aktivitas berhasil dicatat" });
+  } catch (error) {
+    console.error("Gagal mencatat tracking:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Internal Server Error" });
+  }
+});
+
+// 2. REVISI TOTAL ENDPOINT STATS DASHBOARD AGAR MENGGUNAKAN DATA TRACKING RIIL
+app.get("/api/dashboard/stats", async (req, res) => {
+  try {
+    const { filter, month, year } = req.query;
+
+    let orderDateCond = "1=1";
+    let analyticsDateCond = "1=1";
+
+    if (filter === "hariIni") {
+      orderDateCond = "DATE(o.created_at) = CURDATE()";
+      analyticsDateCond = "DATE(viewed_at) = CURDATE()";
+    } else if (filter === "kemarin") {
+      orderDateCond = "DATE(o.created_at) = CURDATE() - INTERVAL 1 DAY";
+      analyticsDateCond = "DATE(viewed_at) = CURDATE() - INTERVAL 1 DAY";
+    } else if (filter === "7hari") {
+      orderDateCond =
+        "DATE(o.created_at) BETWEEN CURDATE() - INTERVAL 7 DAY AND CURDATE()";
+      analyticsDateCond =
+        "DATE(viewed_at) BETWEEN CURDATE() - INTERVAL 7 DAY AND CURDATE()";
+    } else if (filter === "bulan") {
+      const targetMonth = month ? parseInt(month) : new Date().getMonth() + 1;
+      const targetYear = year ? parseInt(year) : new Date().getFullYear();
+      orderDateCond = `MONTH(o.created_at) = ${targetMonth} AND YEAR(o.created_at) = ${targetYear}`;
+      analyticsDateCond = `MONTH(viewed_at) = ${targetMonth} AND YEAR(viewed_at) = ${targetYear}`;
+    } else if (filter === "tahun") {
+      const targetYear = year ? parseInt(year) : new Date().getFullYear();
+      orderDateCond = `YEAR(o.created_at) = ${targetYear}`;
+      analyticsDateCond = `YEAR(viewed_at) = ${targetYear}`;
+    }
+
+    // A. Kueri Ambil 5 Pesanan Terbaru
+    const [recentOrders] = await db.query(
+      `SELECT o.invoice_number, o.created_at, o.total_amount, o.status, u.fullname 
+       FROM orders o 
+       JOIN users u ON o.user_id = u.id 
+       ORDER BY o.created_at DESC 
+       LIMIT 5`,
+    );
+
+    // B. Kueri Hitung Finansial (Pendapatan & Total Order)
+    const [revenueStats] = await db.query(
+      `SELECT SUM(o.total_amount) as total_rev, COUNT(o.id) as total_orders 
+       FROM orders o
+       WHERE o.status IN ('paid', 'shipping', 'completed') AND ${orderDateCond}`,
+    );
+
+    // C. Kueri Hitung Analytics (Pengunjung & Produk Dilihat)
+    const [analyticsStats] = await db.query(
+      `SELECT 
+         COUNT(DISTINCT ip_address) as unique_visitors,
+         COUNT(CASE WHEN product_id IS NOT NULL THEN 1 END) as product_views
+       FROM site_analytics
+       WHERE ${analyticsDateCond}`,
+    );
+
+    // D. KUERI BARU: DATA GRAFIK PENJUALAN
+    let chartQuery = "";
+    if (filter === "hariIni" || filter === "kemarin") {
+      chartQuery = `SELECT HOUR(o.created_at) as label_key, SUM(o.total_amount) as total_val FROM orders o WHERE o.status IN ('paid', 'shipping', 'completed') AND ${orderDateCond} GROUP BY HOUR(o.created_at) ORDER BY HOUR(o.created_at)`;
+    } else if (filter === "7hari") {
+      chartQuery = `SELECT DATE(o.created_at) as label_key, SUM(o.total_amount) as total_val FROM orders o WHERE o.status IN ('paid', 'shipping', 'completed') AND ${orderDateCond} GROUP BY DATE(o.created_at) ORDER BY DATE(o.created_at)`;
+    } else if (filter === "bulan") {
+      chartQuery = `SELECT DAY(o.created_at) as label_key, SUM(o.total_amount) as total_val FROM orders o WHERE o.status IN ('paid', 'shipping', 'completed') AND ${orderDateCond} GROUP BY DAY(o.created_at) ORDER BY DAY(o.created_at)`;
+    } else if (filter === "tahun") {
+      chartQuery = `SELECT MONTH(o.created_at) as label_key, SUM(o.total_amount) as total_val FROM orders o WHERE o.status IN ('paid', 'shipping', 'completed') AND ${orderDateCond} GROUP BY MONTH(o.created_at) ORDER BY MONTH(o.created_at)`;
+    }
+
+    const [rawChartData] = await db.query(chartQuery);
+
+    const dataDashboard = {
+      revenue: Number(revenueStats[0].total_rev || 0),
+      ordersCount: Number(revenueStats[0].total_orders || 0),
+      webVisitors: analyticsStats[0].unique_visitors || 0,
+      productViews: analyticsStats[0].product_views || 0,
+      rawChartData: rawChartData, // Kita kirim data mentah grafik ke frontend
+      recentOrders: recentOrders.map((order) => {
+        let uiStatus = "Menunggu Pembayaran";
+        if (order.status === "paid") uiStatus = "Diproses";
+        if (order.status === "shipping") uiStatus = "Dikirim";
+        if (order.status === "completed") uiStatus = "Selesai";
+        if (order.status === "cancelled") uiStatus = "Dibatalkan";
+
+        return {
+          id: order.invoice_number,
+          customer: order.fullname,
+          date: new Date(order.created_at).toLocaleDateString("id-ID", {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+          }),
+          total: Number(order.total_amount),
+          status: uiStatus,
+        };
+      }),
+    };
+
+    return res.status(200).json({ success: true, data: dataDashboard });
+  } catch (error) {
+    console.error("Gagal memuat statistik dashboard:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Internal Server Error" });
   }
 });
 

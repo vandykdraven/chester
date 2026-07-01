@@ -31,10 +31,9 @@ export default function Checkout() {
   const [paymentMethod, setPaymentMethod] = useState("transfer");
 
   const [isLoading, setIsLoading] = useState(true);
-  const [issubmitting, setIsSubmitting] = useState(false);
+  // Perbaikan: Standarisasi camelCase untuk isSubmitting
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [shippingLoading, setShippingLoading] = useState(false);
-
-  // 1. TAMBAHAN BARU: State untuk menangkap pesan error Biteship ke layar
   const [shippingError, setShippingError] = useState(null);
 
   const customerUser = JSON.parse(
@@ -72,7 +71,8 @@ export default function Checkout() {
           const finalSellingPrice = origP > 0 ? origP : baseP;
 
           return {
-            id: item.id,
+            id: item.id, // Ini ID cart (biarkan saja)
+            product_id: item.product_id, // TAMBAHKAN BARIS INI (ID produk asli dari tabel products)
             name: item.name,
             price: finalSellingPrice,
             qty: item.quantity,
@@ -96,7 +96,6 @@ export default function Checkout() {
       }
 
       if (addrRes.data.success && addrRes.data.data.length > 0) {
-        console.log("DEBUG: Data alamat dari backend:", addrRes.data.data);
         setAddresses(addrRes.data.data);
         setSelectedAddress(addrRes.data.data[0]);
       }
@@ -114,10 +113,9 @@ export default function Checkout() {
   }, [selectedAddress, cartItems]);
 
   const calculateShipping = async () => {
-    // 1. Validasi diubah: kita mengecek city_id
     if (!selectedAddress || !selectedAddress.city_id) {
       setShippingError(
-        "Wilayah pengiriman tidak valid. Harap perbarui alamat Anda.",
+        "Wilayah pengiriman tidak valid. Harap perbarui alamat Anda agar sistem logistik dapat menjangkau tujuan.",
       );
       return;
     }
@@ -141,9 +139,7 @@ export default function Checkout() {
       const res = await axios.post(
         `${import.meta.env.VITE_API_URL}/shipping-cost`,
         {
-          // 2. DI SINI PERUBAHANNYA: Kirim city_id, bukan postal_code
           city_id: selectedAddress.city_id,
-
           total_weight: totalWeight,
           courier: "",
           cart_items: cartItems.map((item) => ({
@@ -156,20 +152,50 @@ export default function Checkout() {
       );
 
       if (res.data.success) {
-        setShippingOptions(res.data.data);
-        if (res.data.data.length > 0) {
-          setSelectedShipping(res.data.data[0]);
+        // --- LOGIKA BARU: MENGELOMPOKKAN TARIF PER EKSPEDISI ---
+        const rawOptions = res.data.data;
+
+        // Objek sementara untuk mengelompokkan
+        const grouped = {};
+
+        rawOptions.forEach((opt) => {
+          // Mengambil kata pertama sebagai nama Ekspedisi (Cth: "JNE REG" -> "JNE")
+          const courierName = opt.service.split(" ")[0] || "LAINNYA";
+          // Mengambil sisa kata sebagai nama Layanan (Cth: "JNE REG" -> "REG")
+          const serviceName = opt.service.substring(courierName.length).trim();
+
+          if (!grouped[courierName]) {
+            grouped[courierName] = [];
+          }
+
+          grouped[courierName].push({
+            fullService: opt.service, // "JNE REG" (untuk dicocokkan dengan selectedShipping)
+            serviceName: serviceName, // "REG"
+            cost: opt.cost,
+            etd: opt.etd,
+          });
+        });
+
+        // Ubah objek grouped menjadi array agar mudah di-render di UI menggunakan .map()
+        const groupedArray = Object.keys(grouped).map((courier) => ({
+          courierName: courier,
+          services: grouped[courier],
+        }));
+
+        setShippingOptions(groupedArray); // Sekarang state ini berisi data berkelompok
+
+        // Set default pilihan pertama dari ekspedisi pertama (jika ada data)
+        if (groupedArray.length > 0 && groupedArray[0].services.length > 0) {
+          setSelectedShipping(groupedArray[0].services[0]);
         }
       } else {
         setShippingError(res.data.message || "Gagal memproses tarif.");
       }
     } catch (error) {
-      // 2. PERBAIKAN: Menangkap error spesifik dari Backend & Biteship ke state UI
       const errorMessage =
         error.response?.data?.message ||
-        "Terjadi kesalahan pada server Logistik.";
+        "Terjadi kesalahan pada server Logistik. Rute tidak ditemukan.";
       setShippingError(errorMessage);
-      console.error("Detail Error Biteship:", errorMessage);
     } finally {
       setShippingLoading(false);
     }
@@ -180,16 +206,47 @@ export default function Checkout() {
     if (!selectedShipping) return alert("Opsi pengiriman belum tersedia!");
 
     setIsSubmitting(true);
-    setTimeout(() => {
-      alert("Pesanan Berhasil Dibuat! Mengalihkan ke halaman pembayaran...");
-      setIsSubmitting(false);
-      navigate("/orders");
-    }, 1500);
+
+    // Payload yang sudah diperbaiki variabel pembacanya
+    const orderPayload = {
+      user_id: customerUser.id,
+      address: selectedAddress,
+      shipping_option: {
+        // PERBAIKAN: Menggunakan .fullService bukan .service
+        courierName: selectedShipping.fullService.split(" ")[0],
+        serviceName: selectedShipping.serviceName,
+      },
+      cart_items: cartItems.map((item) => ({
+        product_id: item.product_id, // PERBAIKAN: Gunakan item.product_id, BUKAN item.id
+        name: item.name,
+        variant: item.variant,
+        price: item.price,
+        qty: item.qty,
+        weight: item.weight || 200,
+      })),
+      subtotal: cartTotal,
+      shipping_cost: shippingCost,
+      discount_amount: discountAmount,
+      grand_total: grandTotal,
+    };
+
+    try {
+      const response = await axios.post(
+        `${import.meta.env.VITE_API_URL}/orders`,
+        orderPayload,
+      );
+
+      if (response.data.success) {
+        // Berhasil! Langsung ke halaman konfirmasi yang ada tombol WA-nya
+        navigate(`/payment-confirmation/${response.data.orderId}`);
+      }
+    } catch (error) {
+      console.error("Gagal men-checkout pesanan:", error);
+      alert("Gagal memproses pesanan. Periksa koneksi Anda.");
+      setIsSubmitting(false); // Matikan loading jika gagal
+    }
   };
 
-  // =======================================================
-  // 3. LOGIKA MATEMATIKA VOUCHER & KERANJANG (DISEMPURNAKAN)
-  // =======================================================
   const cartTotal = cartItems.reduce(
     (total, item) => total + item.price * item.qty,
     0,
@@ -197,7 +254,6 @@ export default function Checkout() {
 
   const shippingCost = selectedShipping ? selectedShipping.cost : 0;
 
-  // Rumus pintar diskon (Mendukung Persen & Nominal + Minimal Belanja)
   let discountAmount = 0;
   if (selectedVoucher) {
     if (cartTotal >= Number(selectedVoucher.min_purchase || 0)) {
@@ -205,19 +261,16 @@ export default function Checkout() {
         let calcDiscount =
           (cartTotal * Number(selectedVoucher.discount_value)) / 100;
         const maxDiscount = Number(selectedVoucher.max_discount || 0);
-        // Jika ada maksimal diskon, potong sesuai batas maksimal
         if (maxDiscount > 0 && calcDiscount > maxDiscount) {
           calcDiscount = maxDiscount;
         }
         discountAmount = calcDiscount;
       } else {
-        // Tipe Nominal Tetap (Fixed)
         discountAmount = Number(selectedVoucher.discount_value);
       }
     }
   }
 
-  // Mencegah total bayar menjadi minus
   const grandTotal = Math.max(cartTotal + shippingCost - discountAmount, 0);
 
   if (isLoading) {
@@ -284,8 +337,11 @@ export default function Checkout() {
                     </p>
                     <p className="text-xs text-gray-600 leading-relaxed max-w-md">
                       {selectedAddress.full_address}, {selectedAddress.district}
-                      , {selectedAddress.city}, {selectedAddress.province},{" "}
-                      {selectedAddress.postal_code}
+                      , {selectedAddress.city}, {selectedAddress.province}
+                      {/* Perbaikan: Fallback jika kodepos bernilai null */}
+                      {selectedAddress.postal_code
+                        ? `, ${selectedAddress.postal_code}`
+                        : ""}
                     </p>
                   </div>
 
@@ -329,7 +385,6 @@ export default function Checkout() {
                 </div>
               ) : shippingOptions.length === 0 ? (
                 <div className="text-center py-6 text-sm text-red-500 px-4">
-                  {/* 4. TAMPILAN ERROR: Pesan error dicetak langsung di layar */}
                   {shippingError ? (
                     <span className="font-semibold">{shippingError}</span>
                   ) : selectedAddress ? (
@@ -339,34 +394,77 @@ export default function Checkout() {
                   )}
                 </div>
               ) : (
-                <div className="flex flex-col gap-2">
-                  {shippingOptions.map((opt, idx) => (
-                    <label
-                      key={idx}
-                      className={`flex items-center justify-between p-4 border rounded-xl cursor-pointer transition ${selectedShipping?.service === opt.service ? "border-chester-pink bg-pink-50/20" : "border-gray-100 hover:border-gray-300"}`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="radio"
-                          name="shipping_service"
-                          checked={selectedShipping?.service === opt.service}
-                          onChange={() => setSelectedShipping(opt)}
-                          className="accent-chester-pink w-4 h-4"
-                        />
-                        <div>
-                          <p className="text-xs font-bold text-chester-text uppercase">
-                            {opt.service}
-                          </p>
-                          <p className="text-[11px] text-gray-400 mt-0.5">
-                            Estimasi Tiba: {opt.etd}
-                          </p>
+                // --- TAMPILAN BARU: DROPDOWN PER EKSPEDISI ---
+                <div className="flex flex-col gap-4">
+                  {shippingOptions.map((group, groupIdx) => {
+                    // Cari tahu apakah ada salah satu layanan dari ekspedisi ini yang sedang dipilih aktif
+                    const currentSelectedInGroup = group.services.find(
+                      (s) => s.fullService === selectedShipping?.fullService,
+                    );
+
+                    return (
+                      <div
+                        key={groupIdx}
+                        className={`p-4 border rounded-xl transition ${
+                          currentSelectedInGroup
+                            ? "border-chester-pink bg-pink-50/10"
+                            : "border-gray-100"
+                        }`}
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          {/* Nama Utama Ekspedisi */}
+                          <div>
+                            <p className="text-sm font-black text-gray-800 uppercase tracking-wide">
+                              {group.courierName} Express
+                            </p>
+                            {currentSelectedInGroup && (
+                              <p className="text-[11px] text-chester-pink font-semibold mt-0.5">
+                                Terpilih: {selectedShipping.serviceName} &bull;
+                                Estimasi {selectedShipping.etd}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Dropdown Pilihan Layanan di Dalam Ekspedisi Tersebut */}
+                          <div className="flex items-center gap-3 w-full sm:w-auto">
+                            <select
+                              value={
+                                currentSelectedInGroup
+                                  ? selectedShipping.fullService
+                                  : ""
+                              }
+                              onChange={(e) => {
+                                const matchedService = group.services.find(
+                                  (s) => s.fullService === e.target.value,
+                                );
+                                if (matchedService) {
+                                  setSelectedShipping(matchedService);
+                                }
+                              }}
+                              className="w-full sm:w-56 px-3 py-2 border border-gray-200 rounded-lg text-xs font-bold text-gray-700 bg-white outline-none focus:border-chester-pink"
+                            >
+                              {/* Opsi default pembantu jika pengguna belum memilih apa pun di kelompok ini */}
+                              <option value="" disabled>
+                                -- Pilih Layanan {group.courierName} --
+                              </option>
+                              {group.services.map((srv, srvIdx) => (
+                                <option key={srvIdx} value={srv.fullService}>
+                                  {srv.serviceName} ({formatRupiah(srv.cost)})
+                                </option>
+                              ))}
+                            </select>
+
+                            {/* Tampilan Harga di Samping Dropdown (Hanya muncul jika ekspedisi ini yang aktif dipilih) */}
+                            <span className="text-sm font-extrabold text-gray-900 shrink-0 min-w-[80px] text-right">
+                              {currentSelectedInGroup
+                                ? formatRupiah(selectedShipping.cost)
+                                : "-"}
+                            </span>
+                          </div>
                         </div>
                       </div>
-                      <span className="text-xs font-bold text-chester-text">
-                        {formatRupiah(opt.cost)}
-                      </span>
-                    </label>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -384,7 +482,11 @@ export default function Checkout() {
 
               <div className="flex flex-col gap-2">
                 <label
-                  className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer ${paymentMethod === "transfer" ? "border-chester-pink bg-pink-50/20" : "border-gray-100"}`}
+                  className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer ${
+                    paymentMethod === "transfer"
+                      ? "border-chester-pink bg-pink-50/20"
+                      : "border-gray-100"
+                  }`}
                 >
                   <input
                     type="radio"
@@ -397,7 +499,11 @@ export default function Checkout() {
                   </span>
                 </label>
                 <label
-                  className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer ${paymentMethod === "qris" ? "border-chester-pink bg-pink-50/20" : "border-gray-100"}`}
+                  className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer ${
+                    paymentMethod === "qris"
+                      ? "border-chester-pink bg-pink-50/20"
+                      : "border-gray-100"
+                  }`}
                 >
                   <input
                     type="radio"
@@ -499,11 +605,11 @@ export default function Checkout() {
                 <button
                   onClick={handlePlaceOrder}
                   disabled={
-                    issubmitting || !selectedShipping || shippingLoading
+                    isSubmitting || !selectedShipping || shippingLoading
                   }
                   className="w-full bg-chester-pink text-white h-14 font-bold rounded-xl text-sm uppercase tracking-widest hover:bg-pink-600 transition shadow-md flex items-center justify-center gap-2 disabled:bg-gray-300"
                 >
-                  {issubmitting ? "Memproses..." : "Konfirmasi & Bayar"}
+                  {isSubmitting ? "Memproses..." : "Konfirmasi & Bayar"}
                 </button>
               </div>
             </div>
@@ -540,7 +646,11 @@ export default function Checkout() {
                         isEligible
                           ? "hover:border-chester-pink hover:bg-pink-50 cursor-pointer border-gray-200"
                           : "bg-gray-50 border-gray-100 opacity-60 cursor-not-allowed"
-                      } ${selectedVoucher?.id === v.id ? "border-chester-pink ring-1 ring-chester-pink bg-pink-50/50" : ""}`}
+                      } ${
+                        selectedVoucher?.id === v.id
+                          ? "border-chester-pink ring-1 ring-chester-pink bg-pink-50/50"
+                          : ""
+                      }`}
                     >
                       <p className="text-sm font-bold text-chester-text">
                         {v.name}

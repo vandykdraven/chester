@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DollarSign, ShoppingBag, Globe, Eye, ChevronDown } from "lucide-react";
+import axios from "axios";
 
 const formatRupiah = (angka) => {
   return new Intl.NumberFormat("id-ID", {
@@ -10,15 +11,27 @@ const formatRupiah = (angka) => {
 };
 
 export default function Dashboard() {
-  // State untuk Logika Filter Bertingkat
   const [filterType, setFilterType] = useState("7hari");
-  const [selectedMonth, setSelectedMonth] = useState("5"); // Default bulan 5 (Mei)
-  const [selectedYear, setSelectedYear] = useState("2026"); // Default tahun saat ini
+  const [selectedMonth, setSelectedMonth] = useState("5");
+  const [selectedYear, setSelectedYear] = useState("2026");
 
-  // Data Tahun (3 tahun ke belakang dari 2026)
-  const years = ["2026", "2025", "2024"];
+  const [liveOrders, setLiveOrders] = useState([]);
+  const [revenue, setRevenue] = useState(0);
+  const [purchases, setPurchases] = useState(0);
+  const [visitors, setVisitors] = useState(0);
+  const [views, setViews] = useState(0);
 
-  // Data Bulan
+  const [chartData, setChartData] = useState([]);
+  const [isStatsLoading, setIsStatsLoading] = useState(true);
+
+  // Membuat array tahun secara dinamis mulai dari tahun saat ini mundur 3 tahun
+  const currentYear = new Date().getFullYear();
+  const years = [
+    String(currentYear),
+    String(currentYear - 1),
+    String(currentYear - 2),
+  ];
+
   const months = [
     { val: "1", name: "Januari" },
     { val: "2", name: "Februari" },
@@ -34,128 +47,123 @@ export default function Dashboard() {
     { val: "12", name: "Desember" },
   ];
 
-  // Simulasi Perubahan Data Berdasarkan Filter
-  const getStats = () => {
-    if (filterType === "hariIni")
-      return { rev: 1250000, vis: "450", views: "1.200", orders: "4" };
-    if (filterType === "kemarin")
-      return { rev: 2100000, vis: "620", views: "1.850", orders: "7" };
-    if (filterType === "7hari")
-      return { rev: 14500000, vis: "3.120", views: "12.050", orders: "32" };
-    if (filterType === "bulan")
-      return { rev: 45000000, vis: "12.450", views: "45.200", orders: "142" };
-    if (filterType === "tahun")
-      return {
-        rev: 284500000,
-        vis: "145.200",
-        views: "520.400",
-        orders: "1.842",
-      };
-    return { rev: 0, vis: "0", views: "0", orders: "0" };
+  useEffect(() => {
+    fetchDashboardStats();
+  }, [filterType, selectedMonth, selectedYear]);
+
+  const fetchDashboardStats = async () => {
+    setIsStatsLoading(true);
+    try {
+      const response = await axios.get(
+        `${import.meta.env.VITE_API_URL}/dashboard/stats`,
+        {
+          params: {
+            filter: filterType,
+            month: selectedMonth,
+            year: selectedYear,
+          },
+        },
+      );
+      if (response.data.success) {
+        const resData = response.data.data;
+        setLiveOrders(resData.recentOrders);
+        setRevenue(resData.revenue);
+        setPurchases(resData.ordersCount);
+        setVisitors(resData.webVisitors);
+        setViews(resData.productViews);
+
+        processChartData(resData.rawChartData, filterType);
+      }
+    } catch (error) {
+      console.error("Gagal memuat data statistik dashboard:", error);
+    } finally {
+      setIsStatsLoading(false);
+    }
   };
 
-  const currentStats = getStats();
+  const processChartData = (rawData, currentFilter) => {
+    if (!rawData || rawData.length === 0) {
+      setChartData([]);
+      return;
+    }
+
+    const maxVal = Math.max(
+      ...rawData.map((item) => Number(item.total_val)),
+      1,
+    );
+    let formattedChart = [];
+
+    if (currentFilter === "tahun") {
+      const monthsName = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "Mei",
+        "Jun",
+        "Jul",
+        "Ags",
+        "Sep",
+        "Okt",
+        "Nov",
+        "Des",
+      ];
+      formattedChart = monthsName.map((m, index) => {
+        const found = rawData.find(
+          (item) => Number(item.label_key) === index + 1,
+        );
+        const val = found ? Number(found.total_val) : 0;
+        return { label: m, h: `${(val / maxVal) * 100}%`, rawValue: val };
+      });
+    } else {
+      formattedChart = rawData.map((item) => {
+        let labelStr = item.label_key;
+
+        if (currentFilter === "hariIni" || currentFilter === "kemarin") {
+          labelStr = `${String(item.label_key).padStart(2, "0")}:00`;
+        } else if (currentFilter === "bulan") {
+          labelStr = `Tgl ${item.label_key}`;
+        } else if (currentFilter === "7hari") {
+          const d = new Date(item.label_key);
+          labelStr = d.toLocaleDateString("id-ID", { weekday: "short" });
+        }
+
+        const val = Number(item.total_val);
+        return {
+          label: labelStr,
+          h: `${(val / maxVal) * 100}%`,
+          rawValue: val,
+        };
+      });
+    }
+
+    setChartData(formattedChart);
+  };
 
   const statsList = [
     {
       title: "Total Pendapatan",
-      value: formatRupiah(currentStats.rev),
+      value: formatRupiah(revenue),
       icon: <DollarSign size={24} />,
       color: "bg-green-100 text-green-600",
     },
     {
       title: "Pengunjung Web",
-      value: currentStats.vis,
+      value: new Intl.NumberFormat("id-ID").format(visitors),
       icon: <Globe size={24} />,
       color: "bg-blue-100 text-blue-600",
     },
     {
       title: "Produk Dilihat",
-      value: currentStats.views,
+      value: new Intl.NumberFormat("id-ID").format(views),
       icon: <Eye size={24} />,
       color: "bg-purple-100 text-purple-600",
     },
     {
       title: "Total Pembelian",
-      value: currentStats.orders,
+      value: new Intl.NumberFormat("id-ID").format(purchases),
       icon: <ShoppingBag size={24} />,
       color: "bg-orange-100 text-orange-600",
-    },
-  ];
-
-  // Simulasi Perubahan Grafik Berdasarkan Filter
-  const getChartData = () => {
-    if (filterType === "hariIni" || filterType === "kemarin")
-      return [
-        { label: "08:00", h: "20%" },
-        { label: "12:00", h: "60%" },
-        { label: "16:00", h: "90%" },
-        { label: "20:00", h: "40%" },
-      ];
-    if (filterType === "7hari")
-      return [
-        { label: "Sen", h: "40%" },
-        { label: "Sel", h: "70%" },
-        { label: "Rab", h: "45%" },
-        { label: "Kam", h: "90%" },
-        { label: "Jum", h: "65%" },
-        { label: "Sab", h: "80%" },
-        { label: "Min", h: "50%" },
-      ];
-    if (filterType === "tahun")
-      return [
-        { label: "Jan", h: "30%" },
-        { label: "Feb", h: "40%" },
-        { label: "Mar", h: "35%" },
-        { label: "Apr", h: "60%" },
-        { label: "Mei", h: "85%" },
-        { label: "Jun", h: "70%" },
-        { label: "Jul", h: "90%" },
-        { label: "Ags", h: "65%" },
-        { label: "Sep", h: "75%" },
-        { label: "Okt", h: "80%" },
-        { label: "Nov", h: "95%" },
-        { label: "Des", h: "100%" },
-      ];
-    // Default: Bulan
-    return [
-      { label: "Minggu 1", h: "50%" },
-      { label: "Minggu 2", h: "75%" },
-      { label: "Minggu 3", h: "60%" },
-      { label: "Minggu 4", h: "90%" },
-    ];
-  };
-
-  const chartData = getChartData();
-
-  const recentOrders = [
-    {
-      id: "#ORD-001",
-      customer: "Budi Santoso",
-      date: "30 Mei 2026",
-      total: 499000,
-      status: "Selesai",
-    },
-    {
-      id: "#ORD-002",
-      customer: "Siti Aminah",
-      date: "30 Mei 2026",
-      total: 250000,
-      status: "Diproses",
-    },
-    {
-      id: "#ORD-003",
-      customer: "Andi Wijaya",
-      date: "29 Mei 2026",
-      total: 1150000,
-      status: "Dikirim",
-    },
-    {
-      id: "#ORD-004",
-      customer: "Rina Melati",
-      date: "29 Mei 2026",
-      total: 325000,
-      status: "Menunggu Pembayaran",
     },
   ];
 
@@ -172,7 +180,6 @@ export default function Dashboard() {
     }
   };
 
-  // Fungsi Helper untuk render Judul Grafik
   const renderChartTitle = () => {
     if (filterType === "hariIni") return "Grafik Penjualan Hari Ini";
     if (filterType === "kemarin") return "Grafik Penjualan Kemarin";
@@ -184,15 +191,12 @@ export default function Dashboard() {
 
   return (
     <div>
-      {/* Header Halaman & Filter Kelas Marketplace */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-4">
         <h1 className="text-2xl font-bold text-chester-text">
           Dashboard Overview
         </h1>
 
-        {/* Kontrol Filter */}
         <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
-          {/* Dropdown 1: Tipe Waktu */}
           <div className="relative">
             <select
               value={filterType}
@@ -211,7 +215,6 @@ export default function Dashboard() {
             />
           </div>
 
-          {/* Dropdown 2: Pilih Bulan (Hanya muncul jika filterType === 'bulan') */}
           {filterType === "bulan" && (
             <div className="relative animate-fade-in">
               <select
@@ -232,7 +235,6 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* Dropdown 3: Pilih Tahun (Muncul jika filterType === 'bulan' ATAU 'tahun') */}
           {(filterType === "bulan" || filterType === "tahun") && (
             <div className="relative animate-fade-in">
               <select
@@ -255,7 +257,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Kartu Statistik Utama */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         {statsList.map((stat, index) => (
           <div
@@ -267,7 +268,9 @@ export default function Dashboard() {
               <p className="text-sm text-gray-500 font-medium mb-1">
                 {stat.title}
               </p>
-              <p className="text-xl font-bold text-chester-text transition-all">
+              <p
+                className={`text-xl font-bold text-chester-text transition-all ${isStatsLoading ? "opacity-30" : "opacity-100"}`}
+              >
                 {stat.value}
               </p>
             </div>
@@ -290,24 +293,34 @@ export default function Dashboard() {
               <div className="border-t border-gray-100 w-full opacity-50"></div>
             </div>
 
-            {chartData.map((data, index) => (
-              <div
-                key={index}
-                className="flex flex-col items-center flex-1 z-10 group"
-              >
+            {chartData.length === 0 && !isStatsLoading ? (
+              <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-400 font-medium pb-8">
+                Belum ada data penjualan pada periode ini.
+              </div>
+            ) : (
+              chartData.map((data, index) => (
                 <div
-                  className="w-full max-w-[40px] bg-chester-pink/80 hover:bg-chester-pink transition-all duration-500 rounded-t-sm cursor-pointer relative"
-                  style={{ height: data.h }}
+                  key={index}
+                  className="flex flex-col items-center flex-1 z-10 group h-full"
                 >
-                  <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                    {data.h}
+                  {/* PERBAIKAN: Pembungkus flex khusus untuk membatasi ruang balok (bounding box) */}
+                  <div className="w-full flex-1 flex items-end justify-center relative">
+                    <div
+                      className="w-full max-w-[40px] bg-chester-pink opacity-80 hover:opacity-100 transition-all duration-1000 rounded-t-sm cursor-pointer"
+                      style={{ height: data.h }}
+                    >
+                      <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-20">
+                        {formatRupiah(data.rawValue)}
+                      </span>
+                    </div>
+                  </div>
+                  {/* PERBAIKAN: Teks dipisahkan di bawah balok agar tidak tumpang tindih */}
+                  <span className="text-xs text-gray-500 mt-2 font-medium text-center">
+                    {data.label}
                   </span>
                 </div>
-                <span className="text-xs text-gray-500 mt-3 font-medium">
-                  {data.label}
-                </span>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
 
@@ -319,29 +332,35 @@ export default function Dashboard() {
             </h2>
           </div>
           <div className="overflow-y-auto flex-1 p-2">
-            {recentOrders.map((order, index) => (
-              <div
-                key={index}
-                className="p-4 border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition flex justify-between items-center gap-2"
-              >
-                <div>
-                  <p className="font-bold text-sm text-chester-text">
-                    {order.id}
-                  </p>
-                  <p className="text-xs text-gray-500">{order.customer}</p>
-                </div>
-                <div className="text-right">
-                  <p className="font-semibold text-sm text-chester-text">
-                    {formatRupiah(order.total)}
-                  </p>
-                  <span
-                    className={`inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-bold ${getStatusColor(order.status)}`}
-                  >
-                    {order.status}
-                  </span>
-                </div>
+            {liveOrders.length === 0 ? (
+              <div className="p-8 text-center text-xs text-gray-400">
+                Belum ada antrean invoice masuk di database.
               </div>
-            ))}
+            ) : (
+              liveOrders.map((order, index) => (
+                <div
+                  key={index}
+                  className="p-4 border-b border-gray-50 last:border-0 hover:bg-gray-50/50 transition flex justify-between items-center gap-2"
+                >
+                  <div>
+                    <p className="font-bold text-sm text-chester-text">
+                      {order.id}
+                    </p>
+                    <p className="text-xs text-gray-500">{order.customer}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-semibold text-sm text-chester-text">
+                      {formatRupiah(order.total)}
+                    </p>
+                    <span
+                      className={`inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-bold ${getStatusColor(order.status)}`}
+                    >
+                      {order.status}
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>

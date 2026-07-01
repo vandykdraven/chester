@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Settings as SettingsIcon,
   Store,
@@ -12,6 +12,9 @@ import {
   Plus,
   Trash2,
   X,
+  Search,
+  MapPin,
+  Bell, // Icon baru untuk Notifikasi
 } from "lucide-react";
 import axios from "axios";
 
@@ -25,13 +28,26 @@ export default function Settings() {
     type: "success",
   });
 
-  // 1. STATE FORM PENGATURAN UMUM (DIUBAH KE BITESHIP)
+  // --- STATE PENCARIAN AREA BITESHIP ---
+  const [areaQuery, setAreaQuery] = useState("");
+  const [areaResults, setAreaResults] = useState([]);
+  const [isSearchingArea, setIsSearchingArea] = useState(false);
+  const [showAreaDropdown, setShowAreaDropdown] = useState(false);
+  const dropdownRef = useRef(null);
+
+  // 1. STATE FORM PENGATURAN UMUM & NOTIFIKASI (Telah Ditambahkan)
   const [formData, setFormData] = useState({
     shop_name: "",
     shop_phone: "",
-    store_postal_code: "",
+    store_area_id: "",
     shop_address: "",
-    biteship_api_key: "", // Menggantikan rajaongkir_api_key
+    biteship_api_key: "",
+    // Tambahan Notifikasi
+    smtp_host: "",
+    smtp_port: "",
+    smtp_user: "",
+    smtp_password: "",
+    fonnte_api_key: "",
   });
 
   // 2. STATE MANAJEMEN STAF (ADMINS)
@@ -44,7 +60,7 @@ export default function Settings() {
     role: "Editor",
   });
 
-  // 3. STATE PROFIL SAYA (LOGIN USER)
+  // 3. STATE PROFIL SAYA
   const [profileData, setProfileData] = useState({
     id: "",
     fullname: "",
@@ -55,6 +71,17 @@ export default function Settings() {
 
   useEffect(() => {
     initPage();
+  }, []);
+
+  // Menutup dropdown area jika klik di luar area input
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setShowAreaDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
   const initPage = async () => {
@@ -70,8 +97,13 @@ export default function Settings() {
       const response = await axios.get(
         `${import.meta.env.VITE_API_URL}/settings`,
       );
-      if (response.data.success)
+      if (response.data.success) {
         setFormData((prev) => ({ ...prev, ...response.data.data }));
+        // Jika sudah ada area_id sebelumnya, tampilkan ID-nya sementara
+        if (response.data.data.store_area_id) {
+          setAreaQuery(response.data.data.store_area_id);
+        }
+      }
     } catch (e) {
       console.error(e);
     }
@@ -90,7 +122,6 @@ export default function Settings() {
 
   const loadCurrentLoggedInAdmin = () => {
     let savedAdmin = JSON.parse(localStorage.getItem("admin"));
-
     if (!savedAdmin || !savedAdmin.id) {
       savedAdmin = {
         id: 1,
@@ -99,7 +130,6 @@ export default function Settings() {
       };
       localStorage.setItem("admin", JSON.stringify(savedAdmin));
     }
-
     setProfileData((prev) => ({
       ...prev,
       id: savedAdmin.id,
@@ -116,7 +146,44 @@ export default function Settings() {
     );
   };
 
-  // Handlers
+  // --- HANDLER PENCARIAN AREA ---
+  const handleAreaSearchChange = async (e) => {
+    const keyword = e.target.value;
+    setAreaQuery(keyword);
+
+    // Hapus ID dari form jika pengguna mulai mengetik ulang
+    setFormData((prev) => ({ ...prev, store_area_id: "" }));
+
+    if (keyword.length < 3) {
+      setAreaResults([]);
+      setShowAreaDropdown(false);
+      return;
+    }
+
+    setIsSearchingArea(true);
+    setShowAreaDropdown(true);
+
+    try {
+      const res = await axios.get(
+        `${import.meta.env.VITE_API_URL}/shipping/areas?search=${keyword}`,
+      );
+      if (res.data.success) {
+        setAreaResults(res.data.data);
+      }
+    } catch (error) {
+      console.error("Gagal mencari area:", error);
+    } finally {
+      setIsSearchingArea(false);
+    }
+  };
+
+  const handleSelectArea = (area) => {
+    setFormData({ ...formData, store_area_id: area.id }); // Simpan ID rahasia ke state
+    setAreaQuery(area.name); // Tampilkan nama kota yang indah di input
+    setShowAreaDropdown(false);
+  };
+
+  // --- STANDARD HANDLERS ---
   const handleChangeSetting = (e) =>
     setFormData({ ...formData, [e.target.name]: e.target.value });
   const handleChangeNewAdmin = (e) =>
@@ -126,8 +193,17 @@ export default function Settings() {
 
   const handleSaveSettings = async (e) => {
     e.preventDefault();
+    if (activeTab === "general" && !formData.store_area_id) {
+      showAlert(
+        "Harap pilih Area ID Pengiriman dari hasil pencarian!",
+        "error",
+      );
+      return;
+    }
+
     setIsSaving(true);
     try {
+      // Kita menggunakan endpoint PUT/settings sesuai skrip asli Anda
       const res = await axios.put(
         `${import.meta.env.VITE_API_URL}/settings`,
         formData,
@@ -259,8 +335,8 @@ export default function Settings() {
           Sistem
         </h1>
         <p className="text-sm text-gray-500">
-          Konfigurasi operasional toko, integrasi logistik, serta manajemen
-          otorisasi staf.
+          Konfigurasi operasional toko, integrasi logistik, notifikasi otomatis,
+          serta manajemen otorisasi staf.
         </p>
       </div>
 
@@ -279,6 +355,12 @@ export default function Settings() {
             id="shipping"
             icon={<Truck size={18} />}
             label="API Logistik"
+          />
+          {/* TAB BARU: NOTIFIKASI */}
+          <TabButton
+            id="notification"
+            icon={<Bell size={18} />}
+            label="Notifikasi (Email & WA)"
           />
           <TabButton
             id="payment"
@@ -300,7 +382,7 @@ export default function Settings() {
           />
         </div>
 
-        {/* CONTEN AREA */}
+        {/* CONTENT AREA */}
         <div className="md:col-span-3">
           {/* TAB 1: INFORMASI TOKO */}
           {activeTab === "general" && (
@@ -331,7 +413,6 @@ export default function Settings() {
                 />
               </div>
 
-              {/* Baris Baru: WhatsApp & Kodepos bersebelahan */}
               <div className="flex flex-col sm:flex-row gap-4">
                 <div className="w-full">
                   <label className="block text-sm font-bold text-gray-700 mb-2">
@@ -346,24 +427,80 @@ export default function Settings() {
                   />
                 </div>
 
-                <div className="w-full">
+                {/* FORM PENCARIAN AREA ID BITESHIP */}
+                <div className="w-full relative" ref={dropdownRef}>
                   <label className="block text-sm font-bold text-gray-700 mb-2 text-chester-pink flex items-center gap-1">
-                    Kodepos Pengiriman (Origin){" "}
+                    Area ID Pengiriman (Origin){" "}
                     <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="number"
-                    name="store_postal_code"
-                    value={formData.store_postal_code || ""}
-                    onChange={handleChangeSetting}
-                    placeholder="Contoh: 57144"
-                    required
-                    className="w-full border px-4 py-2.5 rounded-lg focus:border-chester-pink outline-none border-pink-200 bg-pink-50/20"
-                  />
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={areaQuery}
+                      onChange={handleAreaSearchChange}
+                      onFocus={() => {
+                        if (areaResults.length > 0) setShowAreaDropdown(true);
+                      }}
+                      placeholder="Ketik nama kecamatan..."
+                      className="w-full border px-4 py-2.5 pl-10 rounded-lg focus:border-chester-pink outline-none border-pink-200 bg-pink-50/20 text-sm"
+                    />
+                    <Search
+                      className="absolute left-3 top-3 text-pink-400"
+                      size={18}
+                    />
+                  </div>
+
+                  {/* DROPDOWN HASIL PENCARIAN */}
+                  {showAreaDropdown && (
+                    <div className="absolute z-10 w-full mt-1 bg-white border rounded-xl shadow-xl max-h-60 overflow-y-auto">
+                      {isSearchingArea ? (
+                        <div className="p-4 text-center text-sm text-gray-500">
+                          Sedang mencari lokasi...
+                        </div>
+                      ) : areaResults.length > 0 ? (
+                        <ul className="py-2">
+                          {areaResults.map((area) => (
+                            <li
+                              key={area.id}
+                              onClick={() => handleSelectArea(area)}
+                              className="px-4 py-3 hover:bg-pink-50 cursor-pointer flex items-start gap-3 border-b last:border-0 transition"
+                            >
+                              <MapPin
+                                size={18}
+                                className="text-chester-pink mt-0.5 shrink-0"
+                              />
+                              <div>
+                                <p className="text-sm font-bold text-gray-800 leading-tight">
+                                  {area.name}
+                                </p>
+                                <p className="text-[10px] text-gray-400 font-mono mt-1">
+                                  ID: {area.id}
+                                </p>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        areaQuery.length >= 3 && (
+                          <div className="p-4 text-center text-sm text-gray-500">
+                            Lokasi tidak ditemukan.
+                          </div>
+                        )
+                      )}
+                    </div>
+                  )}
+                  {/* Peringatan jika belum divalidasi */}
+                  {areaQuery &&
+                    !formData.store_area_id &&
+                    !showAreaDropdown && (
+                      <p className="text-[10px] text-red-500 mt-1 font-bold">
+                        ⚠️ Harap pilih lokasi dari daftar rekomendasi yang
+                        muncul.
+                      </p>
+                    )}
                 </div>
               </div>
 
-              {/* Textarea Alamat Dipertahankan */}
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">
                   Alamat Fisik Toko
@@ -407,7 +544,6 @@ export default function Settings() {
                   mengaktifkan perhitungan ongkos kirim otomatis.
                 </p>
               </div>
-
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">
                   API Key Biteship
@@ -421,13 +557,118 @@ export default function Settings() {
                   className="w-full border px-4 py-2.5 rounded-lg font-mono text-sm outline-none focus:border-chester-pink bg-gray-50"
                 />
               </div>
-
               <button
                 type="submit"
                 disabled={isSaving}
                 className="bg-chester-pink text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 w-max shadow-sm"
               >
                 <Save size={18} /> Simpan API Logistik
+              </button>
+            </form>
+          )}
+
+          {/* TAB BARU: NOTIFIKASI (EMAIL & FONNTE) */}
+          {activeTab === "notification" && (
+            <form
+              onSubmit={handleSaveSettings}
+              className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm min-h-[400px] animate-fade-in flex flex-col gap-6"
+            >
+              <div>
+                <h2 className="text-lg font-bold text-gray-800 mb-1">
+                  Gateway Notifikasi
+                </h2>
+                <p className="text-xs text-gray-500">
+                  Pengaturan untuk mengirim email dan WhatsApp otomatis kepada
+                  admin dan pelanggan.
+                </p>
+              </div>
+
+              {/* Fonnte API Key */}
+              <div className="pb-6 border-b border-gray-100">
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  Fonnte API Key (WhatsApp Gateway)
+                </label>
+                <input
+                  type="password"
+                  name="fonnte_api_key"
+                  value={formData.fonnte_api_key || ""}
+                  onChange={handleChangeSetting}
+                  placeholder="Masukkan Token dari Fonnte..."
+                  className="w-full border px-4 py-2.5 rounded-lg font-mono text-sm outline-none focus:border-chester-pink bg-gray-50"
+                />
+                <p className="text-[10px] text-gray-400 mt-1">
+                  Token ini digunakan agar website bisa memerintahkan Fonnte
+                  mengirim pesan WA otomatis.
+                </p>
+              </div>
+
+              {/* Pengaturan SMTP Email */}
+              <div>
+                <h3 className="text-sm font-bold text-gray-700 mb-4 flex items-center gap-2">
+                  Konfigurasi Email SMTP
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-2">
+                      SMTP Host
+                    </label>
+                    <input
+                      type="text"
+                      name="smtp_host"
+                      value={formData.smtp_host || ""}
+                      onChange={handleChangeSetting}
+                      placeholder="contoh: smtp.gmail.com"
+                      className="w-full border px-4 py-2.5 rounded-lg text-sm outline-none focus:border-chester-pink"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-2">
+                      SMTP Port
+                    </label>
+                    <input
+                      type="text"
+                      name="smtp_port"
+                      value={formData.smtp_port || ""}
+                      onChange={handleChangeSetting}
+                      placeholder="contoh: 465 atau 587"
+                      className="w-full border px-4 py-2.5 rounded-lg text-sm outline-none focus:border-chester-pink"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-2">
+                      Username / Email Pengirim
+                    </label>
+                    <input
+                      type="email"
+                      name="smtp_user"
+                      value={formData.smtp_user || ""}
+                      onChange={handleChangeSetting}
+                      placeholder="email.toko@gmail.com"
+                      className="w-full border px-4 py-2.5 rounded-lg text-sm outline-none focus:border-chester-pink"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-2">
+                      Password / App Password
+                    </label>
+                    <input
+                      type="password"
+                      name="smtp_password"
+                      value={formData.smtp_password || ""}
+                      onChange={handleChangeSetting}
+                      placeholder="Masukkan kata sandi..."
+                      className="w-full border px-4 py-2.5 rounded-lg text-sm outline-none focus:border-chester-pink"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSaving}
+                className="bg-chester-pink text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 w-max shadow-sm mt-4"
+              >
+                <Save size={18} /> Simpan Pengaturan Notifikasi
               </button>
             </form>
           )}
@@ -471,7 +712,6 @@ export default function Settings() {
                 </button>
               </div>
 
-              {/* FORM TAMBAH STAF BARU (SLIDE-IN EFFECT) */}
               {showAddForm && (
                 <form
                   onSubmit={handleAddAdmin}
@@ -538,7 +778,6 @@ export default function Settings() {
                 </form>
               )}
 
-              {/* TABEL STAF */}
               <div className="border rounded-xl overflow-hidden shadow-sm">
                 <table className="w-full text-left">
                   <thead className="bg-gray-50 border-b text-xs text-gray-500 uppercase font-bold">
@@ -563,11 +802,7 @@ export default function Settings() {
                         <td className="p-4 text-gray-600">{admin.email}</td>
                         <td className="p-4">
                           <span
-                            className={`px-2 py-0.5 rounded text-xs font-bold border ${
-                              admin.role === "Superadmin"
-                                ? "bg-purple-50 text-purple-600 border-purple-200"
-                                : "bg-blue-50 text-blue-600 border-blue-200"
-                            }`}
+                            className={`px-2 py-0.5 rounded text-xs font-bold border ${admin.role === "Superadmin" ? "bg-purple-50 text-purple-600 border-purple-200" : "bg-blue-50 text-blue-600 border-blue-200"}`}
                           >
                             {admin.role}
                           </span>

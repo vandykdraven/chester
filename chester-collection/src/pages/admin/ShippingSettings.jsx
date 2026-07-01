@@ -8,7 +8,8 @@ export default function ShippingSettings() {
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState({ type: "", text: "" });
 
-  // Daftar kurir resmi yang didukung oleh API Biteship (Berbasis Kodepos)
+  // Daftar kurir resmi yang didukung oleh API Biteship (Berbasis Area ID)
+  // Perbaikan: ID Express menggunakan 'ide', bukan 'idx'
   const availableCouriers = [
     { id: "jne", name: "JNE Express" },
     { id: "jnt", name: "J&T Express" },
@@ -21,7 +22,7 @@ export default function ShippingSettings() {
     { id: "wahana", name: "Wahana Prestasi Logistik" },
     { id: "sap", name: "SAP Express" },
     { id: "paxel", name: "Paxel (Next Day)" },
-    { id: "idx", name: "ID Express" },
+    { id: "ide", name: "ID Express" },
   ];
 
   // Mengambil pengaturan kurir yang saat ini aktif dari database

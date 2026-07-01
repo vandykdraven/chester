@@ -9,7 +9,7 @@ import {
 } from "react-router-dom";
 import logo from "./assets/logo.png";
 import { Search, User, ShoppingBag, Menu, X, Trash2 } from "lucide-react";
-import axios from "axios"; // Tambahan import axios
+import axios from "axios";
 
 // Import Halaman Pelanggan
 import Home from "./pages/Home";
@@ -20,6 +20,7 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import ForgotPassword from "./pages/ForgotPassword";
 import ProfileCustomer from "./pages/Profile";
+import PaymentConfirmation from "./pages/PaymentConfirmation";
 import Orders from "./pages/Orders";
 import Vouchers from "./pages/Vouchers";
 import Wishlist from "./pages/Wishlist";
@@ -346,13 +347,49 @@ const Footer = () => {
   );
 };
 
+// =======================================================================
+// PERBAIKAN: KOMPONEN TRACKER BACKGROUND
+// =======================================================================
+// Diubah menjadi function komponen biasa dan tidak menggunakan `export default`
+function PageTracker() {
+  const location = useLocation();
+
+  useEffect(() => {
+    const sendTrackingData = async () => {
+      try {
+        let productId = null;
+
+        // Kita menggunakan manipulasi string (split) karena komponen ini berada
+        // di level tertinggi Router, sehingga useParams() belum bisa menangkap id
+        if (location.pathname.startsWith("/product/")) {
+          const pathParts = location.pathname.split("/");
+          productId = pathParts[pathParts.length - 1];
+        }
+
+        await axios.post(`${import.meta.env.VITE_API_URL}/analytics/track`, {
+          page_url: location.pathname,
+          product_id: productId || null,
+        });
+      } catch (error) {
+        console.error("Gagal mengirim log aktivitas pembeli:", error);
+      }
+    };
+
+    sendTrackingData();
+  }, [location.pathname]);
+
+  return null; // Komponen ini berjalan secara gaib (tidak merender tampilan apa-apa)
+}
+
+// =======================================================================
+// KOMPONEN UTAMA (APP)
+// =======================================================================
 export default function App() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [cartItems, setCartItems] = useState([]);
 
   const BASE_URL = import.meta.env.VITE_API_URL.replace("/api", "");
 
-  // --- LOGIKA MENGAMBIL DATA KERANJANG DARI DATABASE ---
   const fetchCartItems = async () => {
     const userStr =
       localStorage.getItem("customerUser") ||
@@ -368,7 +405,6 @@ export default function App() {
       );
       if (response.data.success) {
         const formattedItems = response.data.data.map((item) => {
-          // Menerjemahkan angka dari database
           const baseP = item.variant_id
             ? Number(item.variant_price || 0)
             : Number(item.base_price || 0);
@@ -376,14 +412,12 @@ export default function App() {
             ? Number(item.variant_original_price || 0)
             : Number(item.base_original_price || 0);
 
-          // RUMUS CERDAS: Menentukan Harga Bayar yang Sebenarnya
-          // Jika ada harga coret (origP > 0), maka bayar pakai origP. Jika tidak ada, bayar pakai baseP.
           const finalSellingPrice = origP > 0 ? origP : baseP;
 
           return {
             id: item.id,
             name: item.name,
-            price: finalSellingPrice, // Memasukkan harga yang sudah difilter
+            price: finalSellingPrice,
             qty: item.quantity,
             variant: item.variant_key || "Standar",
             image: item.image ? `${BASE_URL}${item.image}` : "/placeholder.png",
@@ -398,17 +432,14 @@ export default function App() {
 
   useEffect(() => {
     fetchCartItems();
-
-    // Event Listener Cerdas: Merespon sinyal "cartUpdated" dari halaman lain
     window.addEventListener("cartUpdated", fetchCartItems);
     return () => window.removeEventListener("cartUpdated", fetchCartItems);
   }, []);
 
-  // --- LOGIKA MENGHAPUS ITEM DARI DATABASE ---
   const removeItem = async (id) => {
     try {
       await axios.delete(`${import.meta.env.VITE_API_URL}/carts/${id}`);
-      fetchCartItems(); // Muat ulang keranjang setelah dihapus
+      fetchCartItems();
     } catch (error) {
       console.error("Gagal menghapus produk dari keranjang:", error);
     }
@@ -422,15 +453,12 @@ export default function App() {
 
   return (
     <Router>
+      {/* PERBAIKAN: Memanggil Komponen Tracker di dalam lingkungan Router */}
+      <PageTracker />
+
       <Routes>
-        {/* ======================================= */}
-        {/* RUTE ADMIN LOGIN (Bebas Diakses)          */}
-        {/* ======================================= */}
         <Route path="/admin-login" element={<AdminLogin />} />
 
-        {/* ======================================= */}
-        {/* RUTE ADMIN (Dilindungi oleh AdminGuard) */}
-        {/* ======================================= */}
         <Route element={<AdminGuard />}>
           <Route path="/admin" element={<AdminLayout />}>
             <Route index element={<Dashboard />} />
@@ -453,9 +481,6 @@ export default function App() {
           </Route>
         </Route>
 
-        {/* ======================================= */}
-        {/* RUTE PELANGGAN (Ada Header/Footer/Cart) */}
-        {/* ======================================= */}
         <Route
           path="/*"
           element={
@@ -470,20 +495,22 @@ export default function App() {
                   <Route path="/orders" element={<Orders />} />
                   <Route path="/vouchers" element={<Vouchers />} />
                   <Route path="/wishlist" element={<Wishlist />} />
-                  <Route path="/checkout" element={<Checkout />} />
+
                   <Route path="/login" element={<Login />} />
                   <Route path="/register" element={<Register />} />
                   <Route path="/forgot-password" element={<ForgotPassword />} />
                   <Route path="/profile" element={<ProfileCustomer />} />
                   <Route path="/addresses" element={<AddressBook />} />
-                  {/* Nantinya tambahkan Rute Checkout di sini */}
-                  {/* <Route path="/checkout" element={<Checkout />} /> */}
+                  <Route path="/checkout" element={<Checkout />} />
+                  <Route
+                    path="/payment-confirmation/:orderId"
+                    element={<PaymentConfirmation />}
+                  />
                 </Routes>
               </div>
 
               <Footer />
 
-              {/* Slide Keranjang Belanja */}
               <div
                 className={`fixed inset-0 z-50 bg-black/40 transition-opacity duration-300 ${isCartOpen ? "opacity-100 visible" : "opacity-0 invisible"}`}
                 onClick={() => setIsCartOpen(false)}
@@ -563,7 +590,6 @@ export default function App() {
                       </div>
 
                       <div className="flex flex-col gap-3">
-                        {/* Tombol Checkout (Sekarang berupa Link) */}
                         <Link
                           to="/checkout"
                           onClick={() => setIsCartOpen(false)}
@@ -571,8 +597,6 @@ export default function App() {
                         >
                           Checkout Sekarang
                         </Link>
-
-                        {/* Tombol Lanjut Belanja (Menutup Drawer) */}
                         <button
                           onClick={() => setIsCartOpen(false)}
                           className="w-full bg-white text-gray-600 border border-gray-200 h-14 rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-gray-50 transition"

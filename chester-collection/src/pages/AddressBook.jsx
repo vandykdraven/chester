@@ -119,7 +119,7 @@ export default function AddressBook() {
   const selectArea = (item) => {
     setAddressForm({
       ...addressForm,
-      city_id: item.id,
+      city_id: item.id, // item.id ini akan otomatis berisi IDZ jika hasil pencarian valid
       city_name: `${item.name}, ${item.administrative_division_level_2_name}`,
       province_name: item.administrative_division_level_1_name,
       postal_code: item.postal_code || "",

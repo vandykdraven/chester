@@ -1,241 +1,185 @@
-import { useState, useEffect } from "react";
-import { useNavigate, Link, useLocation } from "react-router-dom";
-import {
-  User,
-  ShoppingBag,
-  MapPin,
-  Ticket,
-  Heart,
-  LogOut,
-  Plus,
-  Trash2,
-} from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { Search, MapPin, Save, ChevronLeft } from "lucide-react";
 import axios from "axios";
 
-export default function AddressBook() {
+export default function AddAddress() {
   const navigate = useNavigate();
-  const location = useLocation();
+  const [formData, setFormData] = useState({
+    label: "Rumah",
+    recipient_name: "",
+    phone: "",
+    full_address: "",
+    city_id: "", // Ini akan menampung Area ID lengkap (IDZ...)
+  });
 
-  // --- STATE DATA PENGGUNA ---
-  const [userData, setUserData] = useState(null);
-  const [avatarPreview, setAvatarPreview] = useState(null);
+  // State untuk Pencarian Area
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const dropdownRef = useRef(null);
 
-  // --- STATE ALAMAT ---
-  const [addresses, setAddresses] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Penanganan Pencarian (dengan fitur debounce sederhana)
+  const handleSearch = async (e) => {
+    const value = e.target.value;
+    setSearchQuery(value);
 
-  const BASE_URL = import.meta.env.VITE_API_URL.replace("/api", "");
-
-  useEffect(() => {
-    // Muat data user untuk Sidebar
-    const localUser = localStorage.getItem("customerUser");
-    const sessionUser = sessionStorage.getItem("customerUser");
-    const storedUser = localUser
-      ? JSON.parse(localUser)
-      : sessionUser
-        ? JSON.parse(sessionUser)
-        : null;
-
-    if (!storedUser) {
-      navigate("/login");
+    if (value.length < 3) {
+      setSearchResults([]);
+      setShowDropdown(false);
       return;
     }
 
-    setUserData(storedUser);
-    if (storedUser.avatar) {
-      setAvatarPreview(`${BASE_URL}${storedUser.avatar}`);
-    }
-
-    // Muat daftar alamat
-    loadAddresses(storedUser.id);
-  }, [navigate, BASE_URL]);
-
-  const loadAddresses = async (id) => {
+    setIsSearching(true);
+    setShowDropdown(true);
     try {
-      const response = await axios.get(
-        `${import.meta.env.VITE_API_URL}/users/${id}/addresses`,
+      const res = await axios.get(
+        `${import.meta.env.VITE_API_URL}/shipping/areas?search=${value}`,
       );
-      setAddresses(response.data.data);
-    } catch (error) {
-      console.error("Gagal memuat alamat:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const setAsPrimary = async (addressId) => {
-    try {
-      await axios.put(
-        `${import.meta.env.VITE_API_URL}/users/${userData.id}/addresses/${addressId}/primary`,
-      );
-      loadAddresses(userData.id);
-    } catch (error) {
-      console.error("Gagal mengubah alamat utama:", error);
-    }
-  };
-
-  const deleteAddress = async (addressId) => {
-    if (window.confirm("Apakah Anda yakin ingin menghapus alamat ini?")) {
-      try {
-        await axios.delete(
-          `${import.meta.env.VITE_API_URL}/users/${userData.id}/addresses/${addressId}`,
-        );
-        loadAddresses(userData.id);
-      } catch (error) {
-        console.error("Gagal menghapus alamat:", error);
+      if (res.data.success) {
+        setSearchResults(res.data.data);
       }
+    } catch (err) {
+      console.error("Error pencarian:", err);
+    } finally {
+      setIsSearching(false);
     }
   };
 
-  const handleLogout = () => {
-    localStorage.clear();
-    sessionStorage.clear();
-    navigate("/login");
+  const handleSelectArea = (area) => {
+    // Pastikan semua data hirarki dari Biteship ikut masuk ke state formData
+    setFormData({
+      ...formData,
+      city_id: area.id,
+      city_name: area.city_name,
+      province_name: area.province_name,
+      postal_code: area.postal_code,
+    });
+    setSearchQuery(area.name);
+    setShowDropdown(false);
   };
 
-  if (!userData) return null;
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!formData.city_id) {
+      alert("Harap pilih lokasi dari hasil pencarian!");
+      return;
+    }
+
+    try {
+      const user = JSON.parse(localStorage.getItem("customerUser"));
+      await axios.post(
+        `${import.meta.env.VITE_API_URL}/users/${user.id}/addresses`,
+        formData,
+      );
+      alert("Alamat berhasil ditambahkan!");
+      navigate("/addresses");
+    } catch (err) {
+      alert("Gagal menyimpan alamat.");
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 py-10 font-lora">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
-          {/* ========================================= */}
-          {/* SIDEBAR NAVIGASI (SAMA PERSIS DENGAN PROFIL)*/}
-          {/* ========================================= */}
-          <div className="md:col-span-3">
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-              <div className="p-6 text-center border-b border-gray-100 bg-gray-950 text-white">
-                <div className="w-16 h-16 mx-auto rounded-full bg-gray-800 border-2 border-chester-pink overflow-hidden mb-3">
-                  {avatarPreview ? (
-                    <img
-                      src={avatarPreview}
-                      alt="Avatar"
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-xl font-bold uppercase">
-                      {userData.fullname.charAt(0)}
-                    </div>
-                  )}
-                </div>
-                <h3 className="font-bold text-sm truncate">
-                  {userData.fullname}
-                </h3>
-              </div>
+      <div className="max-w-2xl mx-auto px-4">
+        <button
+          onClick={() => navigate(-1)}
+          className="mb-6 flex items-center text-sm text-gray-500 hover:text-black"
+        >
+          <ChevronLeft size={16} /> Kembali
+        </button>
 
-              <nav className="flex flex-col p-2 gap-1 text-sm font-semibold">
-                <Link
-                  to="/profile"
-                  className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${location.pathname === "/profile" ? "bg-pink-50 text-chester-pink" : "text-gray-600 hover:bg-gray-50"}`}
-                >
-                  <User size={18} /> Profil Saya
-                </Link>
-                <Link
-                  to="/addresses"
-                  className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${location.pathname === "/addresses" || location.pathname === "/AddressForm" ? "bg-pink-50 text-chester-pink" : "text-gray-600 hover:bg-gray-50"}`}
-                >
-                  <MapPin size={18} /> Buku Alamat
-                </Link>
-                <Link
-                  to="/orders"
-                  className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${location.pathname === "/orders" ? "bg-pink-50 text-chester-pink" : "text-gray-600 hover:bg-gray-50"}`}
-                >
-                  <ShoppingBag size={18} /> Pesanan Saya
-                </Link>
-                <Link
-                  to="/vouchers"
-                  className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${location.pathname === "/vouchers" ? "bg-pink-50 text-chester-pink" : "text-gray-600 hover:bg-gray-50"}`}
-                >
-                  <Ticket size={18} /> Voucher Saya
-                </Link>
-                <Link
-                  to="/wishlist"
-                  className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${location.pathname === "/wishlist" ? "bg-pink-50 text-chester-pink" : "text-gray-600 hover:bg-gray-50"}`}
-                >
-                  <Heart size={18} /> Wishlist
-                </Link>
-                <button
-                  onClick={handleLogout}
-                  className="flex items-center gap-3 px-4 py-3 rounded-xl text-red-500 hover:bg-red-50 text-left mt-2 border-t border-gray-100"
-                >
-                  <LogOut size={18} /> Keluar Akun
-                </button>
-              </nav>
-            </div>
+        <form
+          onSubmit={handleSubmit}
+          className="bg-white p-8 rounded-2xl border border-gray-100 shadow-sm flex flex-col gap-6"
+        >
+          <h2 className="text-xl font-bold">Tambah Alamat Baru</h2>
+
+          {/* Label & Nama */}
+          <div className="grid grid-cols-2 gap-4">
+            <input
+              type="text"
+              placeholder="Label (ex: Rumah)"
+              className="border p-3 rounded-xl w-full"
+              onChange={(e) =>
+                setFormData({ ...formData, label: e.target.value })
+              }
+              required
+            />
+            <input
+              type="text"
+              placeholder="Nama Penerima"
+              className="border p-3 rounded-xl w-full"
+              onChange={(e) =>
+                setFormData({ ...formData, recipient_name: e.target.value })
+              }
+              required
+            />
           </div>
 
-          {/* ========================================= */}
-          {/* AREA KONTEN UTAMA: BUKU ALAMAT             */}
-          {/* ========================================= */}
-          <div className="md:col-span-9">
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 sm:p-8">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-                <h2 className="text-xl font-bold text-gray-900">
-                  Buku Alamat Saya
-                </h2>
-                <button className="flex items-center gap-2 bg-gray-950 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-black transition-colors">
-                  <Plus size={18} /> Tambah Alamat
-                </button>
-              </div>
+          <input
+            type="text"
+            placeholder="No. Telepon"
+            className="border p-3 rounded-xl w-full"
+            onChange={(e) =>
+              setFormData({ ...formData, phone: e.target.value })
+            }
+            required
+          />
 
-              {loading ? (
-                <p className="text-gray-500 text-sm">Memuat data alamat...</p>
-              ) : addresses.length === 0 ? (
-                <div className="text-center py-10 border-2 border-dashed border-gray-200 rounded-xl">
-                  <p className="text-gray-500 text-sm">
-                    Anda belum memiliki alamat tersimpan.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {addresses.map((addr) => (
-                    <div
-                      key={addr.id}
-                      className={`p-4 border rounded-2xl flex flex-col sm:flex-row justify-between items-start gap-4 ${addr.is_primary ? "border-chester-pink bg-pink-50/30" : "border-gray-100"}`}
-                    >
-                      <div>
-                        <p className="font-bold text-gray-900">
-                          {addr.label}
-                          {addr.is_primary && (
-                            <span className="text-[10px] bg-chester-pink text-white px-2 py-0.5 rounded-full ml-2 uppercase tracking-wider">
-                              Utama
-                            </span>
-                          )}
-                        </p>
-                        <p className="text-sm text-gray-800 mt-1 font-semibold">
-                          {addr.recipient_name} | {addr.phone}
-                        </p>
-                        <p className="text-sm text-gray-500 mt-1 leading-relaxed">
-                          {addr.full_address}
-                          <br />
-                          {addr.city_name}, {addr.province_name}{" "}
-                          {addr.postal_code}
-                        </p>
-                      </div>
-                      <div className="flex flex-row sm:flex-col gap-3 items-center sm:items-end w-full sm:w-auto mt-2 sm:mt-0">
-                        {!addr.is_primary && (
-                          <button
-                            onClick={() => setAsPrimary(addr.id)}
-                            className="text-xs font-bold text-chester-pink hover:underline"
-                          >
-                            Jadikan Utama
-                          </button>
-                        )}
-                        <button
-                          onClick={() => deleteAddress(addr.id)}
-                          className="text-gray-400 hover:text-rose-500 transition-colors p-1"
-                          title="Hapus Alamat"
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+          {/* Pencarian Area */}
+          <div className="relative" ref={dropdownRef}>
+            <label className="text-xs font-bold text-gray-500 mb-1 block">
+              Cari Kecamatan/Kota
+            </label>
+            <div className="relative">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={handleSearch}
+                className="w-full border p-3 pl-10 rounded-xl"
+                placeholder="Cari lokasi (min 3 huruf)..."
+              />
+              <Search
+                className="absolute left-3 top-3.5 text-gray-400"
+                size={18}
+              />
             </div>
+
+            {/* Dropdown Hasil */}
+            {showDropdown && (
+              <div className="absolute z-50 w-full mt-2 bg-white border rounded-xl shadow-lg max-h-60 overflow-y-auto">
+                {searchResults.map((area) => (
+                  <div
+                    key={area.id}
+                    onClick={() => handleSelectArea(area)}
+                    className="p-3 hover:bg-pink-50 cursor-pointer flex items-center gap-3 border-b"
+                  >
+                    <MapPin size={16} className="text-chester-pink" />
+                    <span className="text-sm">{area.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        </div>
+
+          <textarea
+            placeholder="Alamat Lengkap (Jalan, No Rumah, RT/RW)"
+            className="border p-3 rounded-xl w-full h-24"
+            onChange={(e) =>
+              setFormData({ ...formData, full_address: e.target.value })
+            }
+            required
+          />
+
+          <button
+            type="submit"
+            className="bg-chester-pink text-white py-3 rounded-xl font-bold hover:bg-pink-600 transition"
+          >
+            <Save size={18} className="inline mr-2" /> Simpan Alamat
+          </button>
+        </form>
       </div>
     </div>
   );

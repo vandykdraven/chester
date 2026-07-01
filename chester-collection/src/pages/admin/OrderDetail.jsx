@@ -21,8 +21,13 @@ export default function OrderDetail() {
   const [order, setOrder] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isBooking, setIsBooking] = useState(false);
+  const [showConfirmPickup, setShowConfirmPickup] = useState(false);
 
-  // State untuk form update status manual
+  // --- PERBAIKAN: State Baru untuk Tanggal & Jam Pickup ---
+  const [pickupDate, setPickupDate] = useState("");
+  const [pickupTime, setPickupTime] = useState("");
+
   const [newStatus, setNewStatus] = useState("");
   const [newResi, setNewResi] = useState("");
 
@@ -31,6 +36,12 @@ export default function OrderDetail() {
     message: "",
     type: "success",
   });
+
+  // --- PERBAIKAN: Kalkulasi Hari Ini dan Besok untuk Dropdown ---
+  const todayObj = new Date();
+  const tomorrowObj = new Date(todayObj);
+  tomorrowObj.setDate(tomorrowObj.getDate() + 1);
+  const formatDateForInput = (date) => date.toISOString().split("T")[0]; // YYYY-MM-DD
 
   useEffect(() => {
     fetchOrderDetail();
@@ -83,6 +94,41 @@ export default function OrderDetail() {
     } finally {
       setIsLoading(false);
       setIsUpdating(false);
+    }
+  };
+
+  const handleBookShipping = async () => {
+    // --- PERBAIKAN: Validasi input tanggal & jam ---
+    if (!pickupDate || !pickupTime) {
+      showAlert("Pilih tanggal dan jam pickup terlebih dahulu!", "error");
+      return;
+    }
+
+    setShowConfirmPickup(false);
+    setIsBooking(true);
+    try {
+      // --- PERBAIKAN: Kirim payload waktu ke backend ---
+      const response = await axios.post(
+        `${import.meta.env.VITE_API_URL}/orders/${id}/book-shipping`,
+        {
+          delivery_date: pickupDate,
+          delivery_time: pickupTime,
+        },
+      );
+      if (response.data.success) {
+        showAlert(
+          "Berhasil request pickup! Resi otomatis diterbitkan.",
+          "success",
+        );
+        fetchOrderDetail();
+      }
+    } catch (error) {
+      showAlert(
+        error.response?.data?.message || "Gagal melakukan booking logistik.",
+        "error",
+      );
+    } finally {
+      setIsBooking(false);
     }
   };
 
@@ -325,17 +371,68 @@ export default function OrderDetail() {
             </div>
           </div>
 
-          {/* Panel Kontrol Status (Persiapan KiriminAja) */}
+          {/* Panel Kontrol Status (Biteship Terintegrasi) */}
           <div className="bg-gray-800 p-6 rounded-2xl border border-gray-700 shadow-sm text-white">
             <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
               <Truck size={20} className="text-chester-pink" /> Proses
               Pengiriman
             </h2>
 
-            <form onSubmit={handleUpdateStatus} className="flex flex-col gap-4">
+            {/* AREA TOMBOL BITESHIP */}
+            <div className="mb-6 p-4 bg-gray-900 rounded-xl border border-gray-700">
+              <h3 className="text-sm font-bold mb-2">
+                Automasi Logistik Biteship
+              </h3>
+
+              {!order.biteship_order_id ? (
+                <div>
+                  <p className="text-xs text-gray-400 mb-3">
+                    Klik tombol di bawah untuk otomatis mendapatkan nomor resi
+                    dan memanggil kurir penjemput.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPickup(true)}
+                    disabled={isBooking || order.status === "cancelled"}
+                    className="w-full bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2.5 rounded-lg text-sm font-bold transition disabled:opacity-50"
+                  >
+                    {isBooking
+                      ? "Memproses Booking..."
+                      : "Request Pickup Kurir"}
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  <div className="bg-gray-800 p-3 rounded-lg border border-gray-700 flex justify-between items-center">
+                    <span className="text-xs text-gray-400">
+                      Nomor Resi (AWB)
+                    </span>
+                    <span className="font-bold text-chester-pink">
+                      {order.airway_bill}
+                    </span>
+                  </div>
+                  {order.waybill_url && (
+                    <a
+                      href={order.waybill_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full bg-blue-500 hover:bg-blue-600 text-white px-4 py-2.5 rounded-lg text-sm font-bold transition text-center flex items-center justify-center gap-2"
+                    >
+                      🖨️ Cetak Label Pengiriman
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* UPDATE STATUS MANUAL */}
+            <form
+              onSubmit={handleUpdateStatus}
+              className="flex flex-col gap-4 border-t border-gray-700 pt-4"
+            >
               <div>
                 <label className="block text-xs font-bold text-gray-400 uppercase mb-1.5">
-                  Status Pesanan
+                  Update Status Manual
                 </label>
                 <select
                   value={newStatus}
@@ -350,35 +447,96 @@ export default function OrderDetail() {
                 </select>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-gray-400 uppercase mb-1.5">
-                  Nomor Resi (AWB)
-                </label>
-                <input
-                  type="text"
-                  value={newResi}
-                  onChange={(e) => setNewResi(e.target.value)}
-                  placeholder="Input resi jika ada..."
-                  className="w-full border border-gray-600 bg-gray-700 text-white px-3 py-2.5 rounded-lg text-sm focus:outline-none focus:border-chester-pink placeholder-gray-500"
-                />
-                <p className="text-[10px] text-gray-400 mt-1.5">
-                  Nantinya, resi akan terisi otomatis oleh KiriminAja saat
-                  Request Pickup dilakukan.
-                </p>
-              </div>
-
               <button
                 type="submit"
                 disabled={isUpdating}
-                className="mt-2 bg-chester-pink hover:bg-pink-600 text-white px-4 py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition disabled:opacity-70"
+                className="bg-gray-700 hover:bg-gray-600 border border-gray-600 text-white px-4 py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition disabled:opacity-70"
               >
                 <Save size={16} />{" "}
-                {isUpdating ? "Menyimpan..." : "Simpan Perubahan"}
+                {isUpdating ? "Menyimpan..." : "Simpan Status Manual"}
               </button>
             </form>
           </div>
         </div>
       </div>
+
+      {/* --- PERBAIKAN: MODAL KONFIRMASI PICKUP DENGAN DROPDOWN --- */}
+      {showConfirmPickup && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm">
+          <div className="bg-white p-6 rounded-2xl w-full max-w-sm shadow-2xl">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center">
+                <Truck size={20} />
+              </div>
+              <h3 className="font-bold text-lg text-gray-900">
+                Jadwal Pickup Kurir
+              </h3>
+            </div>
+
+            <p className="text-sm text-gray-500 mb-5 leading-relaxed">
+              Tentukan hari dan jam agar kurir mengetahui kapan paket Anda siap
+              untuk dijemput.
+            </p>
+
+            <div className="flex flex-col gap-4 mb-6">
+              <div>
+                <label className="block text-xs font-bold text-gray-600 uppercase mb-2">
+                  Hari Penjemputan
+                </label>
+                <select
+                  value={pickupDate}
+                  onChange={(e) => setPickupDate(e.target.value)}
+                  className="w-full border border-gray-200 text-gray-700 px-3 py-2.5 rounded-lg text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                >
+                  <option value="" disabled>
+                    -- Pilih Hari --
+                  </option>
+                  <option value={formatDateForInput(todayObj)}>
+                    Hari Ini ({formatDateForInput(todayObj)})
+                  </option>
+                  <option value={formatDateForInput(tomorrowObj)}>
+                    Besok ({formatDateForInput(tomorrowObj)})
+                  </option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-600 uppercase mb-2">
+                  Jam Penjemputan
+                </label>
+                <select
+                  value={pickupTime}
+                  onChange={(e) => setPickupTime(e.target.value)}
+                  className="w-full border border-gray-200 text-gray-700 px-3 py-2.5 rounded-lg text-sm focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                >
+                  <option value="" disabled>
+                    -- Pilih Jam --
+                  </option>
+                  <option value="09:00">09:00 Pagi</option>
+                  <option value="12:00">12:00 Siang</option>
+                  <option value="15:00">15:00 Sore</option>
+                  <option value="18:00">18:00 Petang</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-2 border-t border-gray-100">
+              <button
+                onClick={() => setShowConfirmPickup(false)}
+                className="flex-1 py-2.5 bg-gray-50 text-gray-600 border border-gray-200 rounded-xl text-sm font-bold hover:bg-gray-100 transition"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleBookShipping}
+                className="flex-1 py-2.5 bg-emerald-500 text-white rounded-xl text-sm font-bold hover:bg-emerald-600 transition"
+              >
+                Booking Kurir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
