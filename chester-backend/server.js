@@ -1,6 +1,7 @@
 const express = require("express");
 const axios = require("axios");
 const mysql = require("mysql2");
+const Notifier = require("./utils/notifier");
 const crypto = require("crypto");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
@@ -1148,7 +1149,7 @@ app.post("/api/orders", async (req, res) => {
 
     await connection.beginTransaction();
 
-    // 1. Simpan Data ke Tabel Orders (Disesuaikan dengan struktur DB Mas Fandy)
+    // 1. Simpan Data ke Tabel Orders
     const [orderResult] = await connection.query(
       `INSERT INTO orders (
         invoice_number, user_id, 
@@ -1200,6 +1201,43 @@ app.post("/api/orders", async (req, res) => {
 
     await connection.commit();
 
+    // =======================================================================
+    // 🚀 BLOK TRIGGER NOTIFIKASI OTOMATIS (EMAIL & WA)
+    // =======================================================================
+    try {
+      // a. Tarik data profil pembeli untuk tujuan email/WA
+      const [userRows] = await db.query(
+        "SELECT fullname, email, phone FROM users WHERE id = ?",
+        [user_id],
+      );
+      if (userRows.length > 0) {
+        const customerProfile = userRows[0];
+
+        // Kita juga bisa menggunakan nomor HP yang diinput di alamat jika nomor akun kosong
+        if (!customerProfile.phone) customerProfile.phone = address.phone;
+
+        const orderDataForNotif = {
+          invoice_number: invoiceNumber,
+          total_amount: grand_total,
+        };
+
+        // b. Lempar tugas ke Tukang Pos (Berjalan di latar belakang tanpa await!)
+        Notifier.sendNewOrderNotification(
+          db,
+          orderDataForNotif,
+          customerProfile,
+          cart_items,
+        ).catch((err) =>
+          console.error("Gagal menjalankan fungsi Notifier background:", err),
+        );
+      }
+    } catch (notifError) {
+      // Error notifikasi tidak akan membatalkan pesanan yang sudah terbuat
+      console.error("Gagal menarik data untuk notifikasi:", notifError);
+    }
+    // =======================================================================
+
+    // Mengembalikan response sukses segera agar UI Frontend tidak loading lama
     return res.status(201).json({
       success: true,
       orderId: orderId,
@@ -2576,9 +2614,9 @@ app.post("/api/webhook/biteship", async (req, res) => {
         localStatus = "cancelled";
       }
 
-      // 3. SIMPAN KE DATABASE
-      // Jika Biteship sudah mengirimkan nomor resi, kita update kolom airway_bill
+      // 3. SIMPAN KE DATABASE & PICU NOTIFIKASI PENGIRIMAN
       if (resiBaru) {
+        // A. Perbarui data resi di database lokal Anda terlebih dahulu
         await db.query(
           "UPDATE orders SET status = ?, airway_bill = ?, waybill_url = ? WHERE biteship_order_id = ?",
           [localStatus, resiBaru, urlResiBaru, biteshipOrderId],
@@ -2586,6 +2624,51 @@ app.post("/api/webhook/biteship", async (req, res) => {
         console.log(
           `✅ Resi pesanan ${biteshipOrderId} berhasil turun: ${resiBaru}`,
         );
+
+        // =======================================================================
+        // 🚀 TIMING EMAS: TEMBAK NOTIFIKASI PENGIRIMAN KE KONSUMEN (EMAIL & WA)
+        // =======================================================================
+        try {
+          // Tarik profile pembeli dan nomor invoice internal berdasarkan biteshipOrderId
+          const [orderRows] = await db.query(
+            `SELECT o.invoice_number, o.courier_name, o.recipient_name, o.phone, u.email 
+             FROM orders o 
+             JOIN users u ON o.user_id = u.id 
+             WHERE o.biteship_order_id = ?`,
+            [biteshipOrderId],
+          );
+
+          if (orderRows.length > 0) {
+            const orderInfo = orderRows[0];
+
+            // Susun profil pembeli untuk parameter Notifier
+            const customerProfile = {
+              fullname: orderInfo.recipient_name,
+              phone: orderInfo.phone,
+              email: orderInfo.email,
+            };
+
+            // Jalankan tugas pengiriman WA & Email di latar belakang (tanpa await agar respons webhook instant)
+            Notifier.sendShippingNotification(
+              db,
+              orderInfo.invoice_number,
+              customerProfile,
+              orderInfo.courier_name,
+              resiBaru,
+            ).catch((err) =>
+              console.error(
+                "Gagal mengirim notifikasi resi via background:",
+                err,
+              ),
+            );
+          }
+        } catch (notifError) {
+          console.error(
+            "Gagal memproses kueri data notifikasi pengiriman:",
+            notifError,
+          );
+        }
+        // =======================================================================
       } else {
         // Jika belum ada resi (hanya update status proses), update statusnya saja
         await db.query(
