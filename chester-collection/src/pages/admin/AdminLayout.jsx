@@ -12,12 +12,14 @@ import {
   ExternalLink,
   ChevronDown,
   Image as ImageIcon,
+  FileText,
 } from "lucide-react";
 import logo from "../../assets/logo.png";
 
 export default function AdminLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isProductMenuOpen, setIsProductMenuOpen] = useState(false);
+  const [isStaticMenuOpen, setIsStaticMenuOpen] = useState(false);
   const [adminUser, setAdminUser] = useState({ fullname: "Admin", email: "" }); // State Profil Admin
 
   const location = useLocation();
@@ -64,6 +66,11 @@ export default function AdminLayout() {
       name: "Galeri Media",
       icon: <ImageIcon size={20} />,
       path: "/admin/products/gallery",
+    },
+    {
+      name: "Halaman Depan",
+      icon: <LayoutDashboard size={20} />,
+      path: "/admin/homepage-settings",
     },
     {
       name: "Pengaturan",
@@ -159,6 +166,45 @@ export default function AdminLayout() {
                   className="pl-11 pr-4 py-2 text-sm text-gray-500 hover:text-chester-pink hover:bg-pink-50/50 rounded-lg transition-colors font-medium"
                 >
                   Pengaturan Ongkir
+                </Link>
+              </div>
+            </div>
+            <div>
+              <button
+                onClick={() => setIsStaticMenuOpen(!isStaticMenuOpen)}
+                className={`w-full flex items-center justify-between px-4 py-3 rounded-lg transition-colors font-medium ${location.pathname.includes("/admin/pages") ? "text-chester-pink bg-pink-50" : "text-gray-600 hover:bg-gray-100 hover:text-chester-text"}`}
+              >
+                <div className="flex items-center gap-3">
+                  <FileText size={20} /> Halaman Statis
+                </div>
+                <ChevronDown
+                  size={16}
+                  className={`transition-transform duration-300 ${isStaticMenuOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+              <div
+                className={`overflow-hidden transition-all duration-300 flex flex-col gap-1 ${isStaticMenuOpen ? "max-h-48 mt-1 opacity-100" : "max-h-0 opacity-0 pointer-events-none"}`}
+              >
+                <Link
+                  to="/admin/pages/privacy"
+                  onClick={() => setIsSidebarOpen(false)}
+                  className="pl-11 pr-4 py-2 text-sm text-gray-500 hover:text-chester-pink hover:bg-pink-50/50 rounded-lg transition-colors font-medium"
+                >
+                  Kebijakan Privasi
+                </Link>
+                <Link
+                  to="/admin/pages/faq"
+                  onClick={() => setIsSidebarOpen(false)}
+                  className="pl-11 pr-4 py-2 text-sm text-gray-500 hover:text-chester-pink hover:bg-pink-50/50 rounded-lg transition-colors font-medium"
+                >
+                  Tanya Jawab (FAQ)
+                </Link>
+                <Link
+                  to="/admin/pages/terms"
+                  onClick={() => setIsSidebarOpen(false)}
+                  className="pl-11 pr-4 py-2 text-sm text-gray-500 hover:text-chester-pink hover:bg-pink-50/50 rounded-lg transition-colors font-medium"
+                >
+                  Syarat & Ketentuan
                 </Link>
               </div>
             </div>

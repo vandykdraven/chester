@@ -217,6 +217,46 @@ export default function ProductPage() {
     }
   };
 
+  const handleBuyNow = async () => {
+    // 1. Cek apakah pelanggan sudah login
+    if (!customerUser) {
+      showAlert("Silakan login untuk memproses pesanan.", "error");
+      setTimeout(() => navigate("/login"), 2000);
+      return;
+    }
+
+    // 2. Cek apakah produk ini wajib pilih variasi (warna/ukuran) tapi belum dipilih
+    if (product.has_variant === 1 && !selectedVariant) {
+      showAlert("Silakan pilih variasi produk terlebih dahulu.", "error");
+      return;
+    }
+
+    try {
+      const payload = {
+        user_id: customerUser.id,
+        product_id: product.id,
+        variant_id: selectedVariant ? selectedVariant.id : null,
+        quantity: quantity,
+      };
+
+      const res = await axios.post(
+        `${import.meta.env.VITE_API_URL}/carts`,
+        payload,
+      );
+
+      if (res.data.success) {
+        // Memicu sinyal khusus agar App.jsx memperbarui keranjang
+        window.dispatchEvent(new Event("cartUpdated"));
+
+        // LANGSUNG PINDAH KE CHECKOUT
+        navigate("/checkout");
+      }
+    } catch (error) {
+      console.error("Gagal Beli Sekarang:", error);
+      showAlert("Terjadi kesalahan saat memproses Beli Sekarang.", "error");
+    }
+  };
+
   const handleShare = async () => {
     if (!product) return;
     const shareData = {
@@ -471,7 +511,10 @@ export default function ProductPage() {
                 </button>
               </div>
 
-              <button className="w-full bg-white text-chester-text border-2 border-chester-text h-14 rounded-lg font-bold text-sm uppercase tracking-widest hover:bg-gray-50 transition shadow-sm">
+              <button
+                onClick={handleBuyNow}
+                className="w-full bg-white text-chester-text border-2 border-chester-text h-14 rounded-lg font-bold text-sm uppercase tracking-widest hover:bg-gray-50 transition shadow-sm"
+              >
                 Beli Sekarang
               </button>
             </div>

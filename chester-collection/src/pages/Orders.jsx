@@ -14,6 +14,7 @@ import {
   AlertCircle,
   X,
   Star,
+  CreditCard,
 } from "lucide-react";
 import axios from "axios";
 
@@ -299,6 +300,26 @@ export default function Orders() {
             </div>
 
             <div className="p-5 overflow-y-auto flex-1 bg-gray-50/50">
+              {/* TOMBOL PANDUAN PEMBAYARAN JIKA PENDING */}
+              {selectedOrder.status === "pending" && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 flex justify-between items-center">
+                  <div>
+                    <h4 className="text-sm font-bold text-amber-800">
+                      Menunggu Pembayaran
+                    </h4>
+                    <p className="text-xs text-amber-700 mt-1">
+                      Silakan selesaikan pembayaran agar pesanan dapat diproses.
+                    </p>
+                  </div>
+                  <Link
+                    to={`/payment-confirmation/${selectedOrder.id}`}
+                    className="bg-amber-600 text-white px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-1 hover:bg-amber-700 transition shadow-sm"
+                  >
+                    <CreditCard size={14} /> Cara Bayar
+                  </Link>
+                </div>
+              )}
+
               <div className="bg-white border rounded-xl p-4 mb-4">
                 <h4 className="text-xs font-bold uppercase text-gray-400 mb-3 border-b pb-2">
                   Status Logistik
@@ -539,13 +560,26 @@ export default function Orders() {
                                 {formatRupiah(order.total_amount)}
                               </p>
                             </div>
-                            <button
-                              onClick={() => fetchOrderDetail(order.id)}
-                              disabled={loadingDetail}
-                              className="text-sm font-bold text-chester-pink bg-pink-50 hover:bg-pink-100 px-5 py-2.5 rounded-xl flex items-center justify-center gap-1 transition"
-                            >
-                              Lihat Detail <ChevronRight size={16} />
-                            </button>
+
+                            <div className="flex gap-2">
+                              {/* TAUTAN LANGSUNG KE PEMBAYARAN JIKA PENDING */}
+                              {order.status === "pending" && (
+                                <Link
+                                  to={`/payment-confirmation/${order.id}`}
+                                  className="text-sm font-bold text-white bg-amber-500 hover:bg-amber-600 px-5 py-2.5 rounded-xl flex items-center justify-center gap-1 transition shadow-sm"
+                                >
+                                  <CreditCard size={16} /> Cara Bayar
+                                </Link>
+                              )}
+
+                              <button
+                                onClick={() => fetchOrderDetail(order.id)}
+                                disabled={loadingDetail}
+                                className="text-sm font-bold text-chester-pink bg-pink-50 hover:bg-pink-100 px-5 py-2.5 rounded-xl flex items-center justify-center gap-1 transition"
+                              >
+                                Lihat Detail <ChevronRight size={16} />
+                              </button>
+                            </div>
                           </div>
                         </div>
                       );

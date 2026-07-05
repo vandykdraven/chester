@@ -14,9 +14,11 @@ export default function PaymentConfirmation() {
   const navigate = useNavigate();
 
   const [orderData, setOrderData] = useState(null);
-  const [shopPhone, setShopPhone] = useState("");
+  const [storeSettings, setStoreSettings] = useState({});
+  const [storeBankAccounts, setStoreBankAccounts] = useState([]); // State khusus untuk array rekening
+
   const [isLoading, setIsLoading] = useState(true);
-  const [copied, setCopied] = useState(false);
+  const [copiedIndex, setCopiedIndex] = useState(null);
 
   useEffect(() => {
     initConfirmationData();
@@ -25,18 +27,42 @@ export default function PaymentConfirmation() {
   const initConfirmationData = async () => {
     setIsLoading(true);
     try {
-      // 1. Ambil detail pesanan untuk mendapatkan total nominal & nama customer
       const orderRes = await axios.get(
         `${import.meta.env.VITE_API_URL}/orders/${orderId}`,
       );
-      // 2. Ambil nomor HP toko yang sudah Anda atur di halaman Settings Admin
       const settingsRes = await axios.get(
         `${import.meta.env.VITE_API_URL}/settings`,
       );
 
       if (orderRes.data.success) setOrderData(orderRes.data.data);
-      if (settingsRes.data.success)
-        setShopPhone(settingsRes.data.data.shop_phone);
+      if (settingsRes.data.success) {
+        const apiSettings = settingsRes.data.data;
+        setStoreSettings(apiSettings);
+
+        // Parse kembali ke bentuk Array
+        if (apiSettings.payment_accounts) {
+          try {
+            const parsedAccounts = JSON.parse(apiSettings.payment_accounts);
+
+            // LOGIKA FILTER: Ambil nama bank pilihan dari halaman Checkout
+            const chosenBank = localStorage.getItem(`payment_for_${orderId}`);
+
+            if (chosenBank) {
+              // Jika ada pilihan, saring agar hanya bank tersebut yang tampil
+              const filteredAccounts = parsedAccounts.filter(
+                (acc) => acc.bank_name === chosenBank,
+              );
+              setStoreBankAccounts(
+                filteredAccounts.length > 0 ? filteredAccounts : parsedAccounts,
+              );
+            } else {
+              setStoreBankAccounts(parsedAccounts);
+            }
+          } catch (e) {
+            console.error("Gagal parse data rekening toko:", e);
+          }
+        }
+      }
     } catch (error) {
       console.error("Gagal memuat data konfirmasi:", error);
     } finally {
@@ -44,49 +70,48 @@ export default function PaymentConfirmation() {
     }
   };
 
-  const copyToClipboard = (text) => {
+  const copyToClipboard = (text, index) => {
+    if (!text) return;
     navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopiedIndex(index);
+    setTimeout(() => setCopiedIndex(null), 2000);
   };
 
   const handleWhatsAppRedirect = () => {
+    const shopPhone = storeSettings.shop_phone;
     if (!orderData || !shopPhone) {
       alert("Data belum siap, silakan coba sesaat lagi.");
       return;
     }
 
-    // Bersihkan nomor WA dari karakter non-angka (misal spasi atau strip)
-    let formattedPhone = shopPhone.replace(/[^0-60-9]/g, "");
-    // Jika nomor diawali dengan '0', ubah menjadi kode negara '62'
+    let formattedPhone = shopPhone.replace(/[^0-9]/g, "");
     if (formattedPhone.startsWith("0")) {
       formattedPhone = "62" + formattedPhone.substring(1);
     }
 
-    // Format Rupiah untuk teks WA
     const totalRupiah = new Intl.NumberFormat("id-ID", {
       style: "currency",
       currency: "IDR",
       minimumFractionDigits: 0,
     }).format(orderData.total_amount || orderData.grand_total);
 
-    // Susun template teks pesan yang rapi dan profesional untuk Admin
+    // Ambil nama bank yang tampil untuk dimasukkan ke teks laporan WA
+    const bankTujuan =
+      storeBankAccounts.length === 1 ? storeBankAccounts[0].bank_name : "Toko";
+
     const textTemplate =
       `Halo Admin, saya ingin mengonfirmasi pembayaran pesanan saya.\n\n` +
       `*Detail Pesanan:*\n` +
       `• No. Pesanan : #${orderId}\n` +
       `• Nama Pembeli : ${orderData.customer_name || "Pelanggan"}\n` +
+      `• Bank Tujuan  : ${bankTujuan}\n` +
       `• Total Transfer: *${totalRupiah}*\n\n` +
       `Berikut saya lampirkan foto bukti transfernya. Mohon segera diproses ya Min, terima kasih!`;
 
-    // Encode teks agar aman dibaca oleh URL browser
     const encodedText = encodeURIComponent(textTemplate);
     const waUrl = `https://wa.me/${formattedPhone}?text=${encodedText}`;
 
-    // Buka WhatsApp di tab baru
     window.open(waUrl, "_blank");
-
-    // Arahkan halaman user kembali ke daftar pesanan mereka
     navigate("/orders");
   };
 
@@ -121,32 +146,48 @@ export default function PaymentConfirmation() {
             </p>
           </div>
 
-          {/* Rincian Rekening Bank Toko */}
+          {/* MENAMPILKAN REKENING YANG DIPILIH SAJA */}
           <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
             <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
-              Rekening Tujuan
+              Rekening Tujuan Transfer
             </p>
-            <div className="flex justify-between items-center bg-white p-3 rounded-lg border border-gray-100 shadow-xs mb-2">
-              <div>
-                <p className="text-xs font-bold text-gray-400">BANK BCA</p>
-                <p className="text-sm font-black font-mono text-gray-800 tracking-wider">
-                  731 0244 555
-                </p>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  a.n. PT Chester Busana Indonesia
-                </p>
-              </div>
-              <button
-                onClick={() => copyToClipboard("7310244555")}
-                className="p-2 text-gray-400 hover:text-chester-pink hover:bg-pink-50 rounded-lg transition"
-                title="Salin No. Rekening"
-              >
-                {copied ? (
-                  <Check size={18} className="text-emerald-500" />
-                ) : (
-                  <Copy size={18} />
-                )}
-              </button>
+
+            <div className="flex flex-col gap-3">
+              {storeBankAccounts.length > 0 ? (
+                storeBankAccounts.map((acc, index) => (
+                  <div
+                    key={index}
+                    className="flex justify-between items-center bg-white p-3 rounded-lg border border-gray-100 shadow-xs border-l-4 border-l-chester-pink"
+                  >
+                    <div>
+                      <p className="text-xs font-bold text-gray-400">
+                        {acc.bank_name || "NAMA BANK"}
+                      </p>
+                      <p className="text-sm font-black font-mono text-gray-800 tracking-wider">
+                        {acc.bank_account || "000000000"}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        a.n. {acc.bank_owner || "Nama Pemilik"}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => copyToClipboard(acc.bank_account, index)}
+                      className="p-2 text-gray-400 hover:text-chester-pink hover:bg-pink-50 rounded-lg transition"
+                      title="Salin No. Rekening"
+                    >
+                      {copiedIndex === index ? (
+                        <Check size={18} className="text-emerald-500" />
+                      ) : (
+                        <Copy size={18} />
+                      )}
+                    </button>
+                  </div>
+                ))
+              ) : (
+                <div className="text-sm text-gray-500 p-4 text-center bg-white border border-gray-100 rounded-lg">
+                  Data rekening tidak ditemukan.
+                </div>
+              )}
             </div>
           </div>
 
@@ -174,10 +215,10 @@ export default function PaymentConfirmation() {
             <p className="font-bold text-amber-700 mb-1">
               💡 Langkah Selanjutnya:
             </p>
-            Klik tombol hijau di bawah untuk terhubung ke WhatsApp Admin. Sistem
-            kami telah menyiapkan teks pesanan Anda secara otomatis. Anda hanya
-            perlu **mengirimkan teks tersebut dan melampirkan foto bukti
-            transfer Anda** langsung di dalam obrolan WhatsApp.
+            Silakan lakukan transfer ke rekening di atas. Setelah selesai, klik
+            tombol hijau di bawah untuk terhubung ke WhatsApp Admin. Anda hanya
+            perlu **mengirimkan teks pesan dan melampirkan foto bukti transfer
+            Anda** langsung di dalam obrolan WhatsApp.
           </div>
 
           {/* Tombol Eksekusi Menuju WA */}

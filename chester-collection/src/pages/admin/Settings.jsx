@@ -14,7 +14,10 @@ import {
   X,
   Search,
   MapPin,
-  Bell, // Icon baru untuk Notifikasi
+  Bell,
+  Landmark,
+  Hash,
+  User,
 } from "lucide-react";
 import axios from "axios";
 
@@ -28,21 +31,19 @@ export default function Settings() {
     type: "success",
   });
 
-  // --- STATE PENCARIAN AREA BITESHIP ---
   const [areaQuery, setAreaQuery] = useState("");
   const [areaResults, setAreaResults] = useState([]);
   const [isSearchingArea, setIsSearchingArea] = useState(false);
   const [showAreaDropdown, setShowAreaDropdown] = useState(false);
   const dropdownRef = useRef(null);
 
-  // 1. STATE FORM PENGATURAN UMUM & NOTIFIKASI (Telah Ditambahkan)
+  // 1. STATE FORM PENGATURAN UMUM & NOTIFIKASI
   const [formData, setFormData] = useState({
     shop_name: "",
     shop_phone: "",
     store_area_id: "",
     shop_address: "",
     biteship_api_key: "",
-    // Tambahan Notifikasi
     smtp_host: "",
     smtp_port: "",
     smtp_user: "",
@@ -50,7 +51,11 @@ export default function Settings() {
     fonnte_api_key: "",
   });
 
-  // 2. STATE MANAJEMEN STAF (ADMINS)
+  // STATE BARU: Khusus untuk menampung banyak rekening bank (Array of Objects)
+  const [bankAccounts, setBankAccounts] = useState([
+    { bank_name: "", bank_account: "", bank_owner: "" },
+  ]);
+
   const [admins, setAdmins] = useState([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newAdmin, setNewAdmin] = useState({
@@ -60,7 +65,6 @@ export default function Settings() {
     role: "Editor",
   });
 
-  // 3. STATE PROFIL SAYA
   const [profileData, setProfileData] = useState({
     id: "",
     fullname: "",
@@ -73,7 +77,6 @@ export default function Settings() {
     initPage();
   }, []);
 
-  // Menutup dropdown area jika klik di luar area input
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
@@ -98,14 +101,27 @@ export default function Settings() {
         `${import.meta.env.VITE_API_URL}/settings`,
       );
       if (response.data.success) {
-        setFormData((prev) => ({ ...prev, ...response.data.data }));
-        // Jika sudah ada area_id sebelumnya, tampilkan ID-nya sementara
-        if (response.data.data.store_area_id) {
-          setAreaQuery(response.data.data.store_area_id);
+        const apiData = response.data.data;
+
+        // Memasukkan data ke form standar
+        setFormData((prev) => ({ ...prev, ...apiData }));
+
+        // Memproses data rekening bank (jika sudah ada di database)
+        if (apiData.payment_accounts) {
+          try {
+            // Mengubah format string JSON kembali menjadi Array
+            setBankAccounts(JSON.parse(apiData.payment_accounts));
+          } catch (e) {
+            console.error("Gagal parse data rekening:", e);
+          }
+        }
+
+        if (apiData.store_area_id) {
+          setAreaQuery(apiData.store_area_id);
         }
       }
     } catch (e) {
-      console.error(e);
+      console.error("Gagal mengambil pengaturan:", e);
     }
   };
 
@@ -146,12 +162,9 @@ export default function Settings() {
     );
   };
 
-  // --- HANDLER PENCARIAN AREA ---
   const handleAreaSearchChange = async (e) => {
     const keyword = e.target.value;
     setAreaQuery(keyword);
-
-    // Hapus ID dari form jika pengguna mulai mengetik ulang
     setFormData((prev) => ({ ...prev, store_area_id: "" }));
 
     if (keyword.length < 3) {
@@ -178,18 +191,36 @@ export default function Settings() {
   };
 
   const handleSelectArea = (area) => {
-    setFormData({ ...formData, store_area_id: area.id }); // Simpan ID rahasia ke state
-    setAreaQuery(area.name); // Tampilkan nama kota yang indah di input
+    setFormData({ ...formData, store_area_id: area.id });
+    setAreaQuery(area.name);
     setShowAreaDropdown(false);
   };
 
-  // --- STANDARD HANDLERS ---
   const handleChangeSetting = (e) =>
     setFormData({ ...formData, [e.target.name]: e.target.value });
   const handleChangeNewAdmin = (e) =>
     setNewAdmin({ ...newAdmin, [e.target.name]: e.target.value });
   const handleChangeProfile = (e) =>
     setProfileData({ ...profileData, [e.target.name]: e.target.value });
+
+  // --- HANDLER DINAMIS UNTUK REKENING MULTIPLE ---
+  const handleAccountChange = (index, field, value) => {
+    const updatedAccounts = [...bankAccounts];
+    updatedAccounts[index][field] = value;
+    setBankAccounts(updatedAccounts);
+  };
+
+  const addBankAccount = () => {
+    setBankAccounts([
+      ...bankAccounts,
+      { bank_name: "", bank_account: "", bank_owner: "" },
+    ]);
+  };
+
+  const removeBankAccount = (index) => {
+    const updatedAccounts = bankAccounts.filter((_, i) => i !== index);
+    setBankAccounts(updatedAccounts);
+  };
 
   const handleSaveSettings = async (e) => {
     e.preventDefault();
@@ -203,10 +234,15 @@ export default function Settings() {
 
     setIsSaving(true);
     try {
-      // Kita menggunakan endpoint PUT/settings sesuai skrip asli Anda
+      // Gabungkan formData standar dengan Array bankAccounts yang diubah menjadi teks JSON
+      const payloadToSave = {
+        ...formData,
+        payment_accounts: JSON.stringify(bankAccounts),
+      };
+
       const res = await axios.put(
         `${import.meta.env.VITE_API_URL}/settings`,
-        formData,
+        payloadToSave,
       );
       if (res.data.success)
         showAlert("Pengaturan berhasil disimpan!", "success");
@@ -356,7 +392,6 @@ export default function Settings() {
             icon={<Truck size={18} />}
             label="API Logistik"
           />
-          {/* TAB BARU: NOTIFIKASI */}
           <TabButton
             id="notification"
             icon={<Bell size={18} />}
@@ -367,6 +402,7 @@ export default function Settings() {
             icon={<CreditCard size={18} />}
             label="Pembayaran"
           />
+
           <div className="text-xs font-bold text-gray-400 uppercase tracking-wider px-4 mb-2 mt-6">
             Akun & Staf
           </div>
@@ -399,7 +435,6 @@ export default function Settings() {
                   pengiriman (Origin).
                 </p>
               </div>
-
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">
                   Nama Toko
@@ -412,7 +447,6 @@ export default function Settings() {
                   className="w-full border px-4 py-2.5 rounded-lg focus:border-chester-pink outline-none"
                 />
               </div>
-
               <div className="flex flex-col sm:flex-row gap-4">
                 <div className="w-full">
                   <label className="block text-sm font-bold text-gray-700 mb-2">
@@ -426,7 +460,6 @@ export default function Settings() {
                     className="w-full border px-4 py-2.5 rounded-lg focus:border-chester-pink outline-none"
                   />
                 </div>
-
                 {/* FORM PENCARIAN AREA ID BITESHIP */}
                 <div className="w-full relative" ref={dropdownRef}>
                   <label className="block text-sm font-bold text-gray-700 mb-2 text-chester-pink flex items-center gap-1">
@@ -449,8 +482,6 @@ export default function Settings() {
                       size={18}
                     />
                   </div>
-
-                  {/* DROPDOWN HASIL PENCARIAN */}
                   {showAreaDropdown && (
                     <div className="absolute z-10 w-full mt-1 bg-white border rounded-xl shadow-xl max-h-60 overflow-y-auto">
                       {isSearchingArea ? (
@@ -489,18 +520,15 @@ export default function Settings() {
                       )}
                     </div>
                   )}
-                  {/* Peringatan jika belum divalidasi */}
                   {areaQuery &&
                     !formData.store_area_id &&
                     !showAreaDropdown && (
                       <p className="text-[10px] text-red-500 mt-1 font-bold">
-                        ⚠️ Harap pilih lokasi dari daftar rekomendasi yang
-                        muncul.
+                        ⚠️ Harap pilih lokasi dari daftar rekomendasi.
                       </p>
                     )}
                 </div>
               </div>
-
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">
                   Alamat Fisik Toko
@@ -513,12 +541,7 @@ export default function Settings() {
                   className="w-full border px-4 py-3 rounded-lg focus:border-chester-pink outline-none resize-none"
                   placeholder="Nama jalan, gedung, RT/RW..."
                 ></textarea>
-                <p className="text-[10px] text-gray-400 mt-1">
-                  Alamat ini digunakan sebagai informasi di label pengiriman dan
-                  struk pesanan.
-                </p>
               </div>
-
               <button
                 type="submit"
                 disabled={isSaving}
@@ -540,8 +563,7 @@ export default function Settings() {
                   Integrasi Logistik Biteship
                 </h2>
                 <p className="text-xs text-gray-500">
-                  Masukkan API Key dari dashboard Biteship Anda untuk
-                  mengaktifkan perhitungan ongkos kirim otomatis.
+                  Masukkan API Key dari dashboard Biteship Anda.
                 </p>
               </div>
               <div>
@@ -567,7 +589,7 @@ export default function Settings() {
             </form>
           )}
 
-          {/* TAB BARU: NOTIFIKASI (EMAIL & FONNTE) */}
+          {/* TAB 3: NOTIFIKASI */}
           {activeTab === "notification" && (
             <form
               onSubmit={handleSaveSettings}
@@ -578,12 +600,9 @@ export default function Settings() {
                   Gateway Notifikasi
                 </h2>
                 <p className="text-xs text-gray-500">
-                  Pengaturan untuk mengirim email dan WhatsApp otomatis kepada
-                  admin dan pelanggan.
+                  Pengaturan untuk mengirim email dan WhatsApp otomatis.
                 </p>
               </div>
-
-              {/* Fonnte API Key */}
               <div className="pb-6 border-b border-gray-100">
                 <label className="block text-sm font-bold text-gray-700 mb-2">
                   Fonnte API Key (WhatsApp Gateway)
@@ -596,13 +615,7 @@ export default function Settings() {
                   placeholder="Masukkan Token dari Fonnte..."
                   className="w-full border px-4 py-2.5 rounded-lg font-mono text-sm outline-none focus:border-chester-pink bg-gray-50"
                 />
-                <p className="text-[10px] text-gray-400 mt-1">
-                  Token ini digunakan agar website bisa memerintahkan Fonnte
-                  mengirim pesan WA otomatis.
-                </p>
               </div>
-
-              {/* Pengaturan SMTP Email */}
               <div>
                 <h3 className="text-sm font-bold text-gray-700 mb-4 flex items-center gap-2">
                   Konfigurasi Email SMTP
@@ -636,7 +649,7 @@ export default function Settings() {
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-gray-600 mb-2">
-                      Username / Email Pengirim
+                      Username / Email
                     </label>
                     <input
                       type="email"
@@ -662,36 +675,156 @@ export default function Settings() {
                   </div>
                 </div>
               </div>
-
               <button
                 type="submit"
                 disabled={isSaving}
                 className="bg-chester-pink text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 w-max shadow-sm mt-4"
               >
-                <Save size={18} /> Simpan Pengaturan Notifikasi
+                <Save size={18} /> Simpan Pengaturan
               </button>
             </form>
           )}
 
-          {/* TAB 3: PEMBAYARAN */}
+          {/* TAB 4: PEMBAYARAN (REKENING TOKO MULTIPLE) */}
           {activeTab === "payment" && (
-            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm min-h-[400px] animate-fade-in flex flex-col gap-6">
-              <div>
-                <h2 className="text-lg font-bold text-gray-800 mb-1">
-                  Payment Gateway
-                </h2>
-                <p className="text-xs text-gray-500">
-                  Pengaturan integrasi Midtrans/Xendit.
-                </p>
+            <form
+              onSubmit={handleSaveSettings}
+              className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm min-h-[400px] animate-fade-in flex flex-col gap-6"
+            >
+              <div className="flex justify-between items-end">
+                <div>
+                  <h2 className="text-lg font-bold text-gray-800 mb-1">
+                    Rekening Pembayaran Toko
+                  </h2>
+                  <p className="text-xs text-gray-500">
+                    Anda dapat menambahkan lebih dari satu rekening tujuan
+                    transfer untuk pelanggan.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={addBankAccount}
+                  className="bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-black transition"
+                >
+                  <Plus size={16} /> Tambah Rekening
+                </button>
               </div>
-              <div className="flex flex-col items-center justify-center p-10 border-2 border-dashed rounded-xl bg-gray-50 text-center text-gray-400">
-                <CreditCard size={40} className="mb-3" />
-                <p className="font-bold">Modul Pembayaran Belum Diaktifkan</p>
+
+              <div className="space-y-6">
+                {bankAccounts.map((account, index) => (
+                  <div
+                    key={index}
+                    className="p-5 border border-gray-200 rounded-xl bg-gray-50 relative animate-fade-in"
+                  >
+                    {/* Tombol Hapus Rekening */}
+                    {bankAccounts.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeBankAccount(index)}
+                        className="absolute top-4 right-4 p-2 bg-white text-red-500 hover:bg-red-50 rounded-lg shadow-sm transition"
+                        title="Hapus Rekening Ini"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    )}
+
+                    <h3 className="font-bold text-sm text-gray-700 mb-4">
+                      Data Rekening ke-{index + 1}
+                    </h3>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-bold text-gray-500">
+                          Nama Bank Tujuan
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={account.bank_name}
+                            onChange={(e) =>
+                              handleAccountChange(
+                                index,
+                                "bank_name",
+                                e.target.value,
+                              )
+                            }
+                            placeholder="Contoh: BANK BCA, BANK MANDIRI"
+                            className="w-full border px-4 py-2.5 pl-10 rounded-lg outline-none focus:border-chester-pink text-sm uppercase"
+                          />
+                          <Landmark
+                            size={16}
+                            className="absolute left-3.5 top-3 text-gray-400"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="block text-xs font-bold text-gray-500">
+                          Nomor Rekening
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={account.bank_account}
+                            onChange={(e) =>
+                              handleAccountChange(
+                                index,
+                                "bank_account",
+                                e.target.value,
+                              )
+                            }
+                            placeholder="Contoh: 7310244555"
+                            className="w-full border px-4 py-2.5 pl-10 rounded-lg outline-none focus:border-chester-pink text-sm font-mono tracking-wider"
+                          />
+                          <Hash
+                            size={16}
+                            className="absolute left-3.5 top-3 text-gray-400"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5 md:col-span-2">
+                        <label className="block text-xs font-bold text-gray-500">
+                          Atas Nama (Pemilik Rekening)
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={account.bank_owner}
+                            onChange={(e) =>
+                              handleAccountChange(
+                                index,
+                                "bank_owner",
+                                e.target.value,
+                              )
+                            }
+                            placeholder="Contoh: PT Chester Busana Indonesia"
+                            className="w-full border px-4 py-2.5 pl-10 rounded-lg outline-none focus:border-chester-pink text-sm"
+                          />
+                          <User
+                            size={16}
+                            className="absolute left-3.5 top-3 text-gray-400"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
-            </div>
+
+              <div className="border-t border-gray-100 pt-4 mt-2">
+                <button
+                  type="submit"
+                  disabled={isSaving}
+                  className="bg-chester-pink text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 w-max shadow-sm"
+                >
+                  <Save size={18} /> Simpan Data Rekening
+                </button>
+              </div>
+            </form>
           )}
 
-          {/* TAB 4: KELOLA STAF */}
+          {/* TAB 5: KELOLA STAF */}
           {activeTab === "staff" && (
             <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm min-h-[400px] animate-fade-in flex flex-col gap-6">
               <div className="flex justify-between items-end">
@@ -827,7 +960,7 @@ export default function Settings() {
             </div>
           )}
 
-          {/* TAB 5: PROFIL SAYA */}
+          {/* TAB 6: PROFIL SAYA */}
           {activeTab === "profile" && (
             <form
               onSubmit={handleSaveProfile}

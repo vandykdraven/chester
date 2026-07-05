@@ -95,7 +95,7 @@ class Notifier {
       .join("\n");
 
     // --- A. UNTUK KONSUMEN ---
-    const waCustomer = `Halo Kak ${customerData.fullname}, terima kasih sudah berbelanja di ${config.shop_name || "Chester Collection"}! 🛍️\n\nPesanan Kakak dengan nomor *${invoice}* telah berhasil kami terima dan sedang menunggu pembayaran.\n\n*Rincian Belanja:*\n${detailProduk}\n\n*Total Tagihan:* *${totalBayar}*\n\nSilakan lakukan konfirmasi pembayaran melalui halaman akun Kakak. Terima kasih! ✨`;
+    const waCustomer = `Halo Kak ${customerData.fullname}, terima kasih sudah berbelanja di ${config.shop_name || "Chester Collection"}! 🛍️\n\nPesanan Kakak dengan nomor *${invoice}* telah berhasil kami terima dan sedang menunggu pembayaran.\n\n*Rincian Belanja:*\n${detailProduk}\n\n*Total Tagihan:* *${totalBayar}*\n\nJika Kakak belum melakukan transfer, Kakak bisa melihat instruksi pembayaran dan rekening toko melalui tautan berikut:\nhttps://domainanda.com/payment-confirmation/${orderData.id}\n\nTerima kasih! ✨`;
 
     const emailCustomerHtml = `
       <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #f0f0f0; padding: 20px; rounded: 12px;">

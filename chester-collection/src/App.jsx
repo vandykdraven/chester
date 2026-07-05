@@ -45,6 +45,8 @@ import Settings from "./pages/admin/Settings";
 import VoucherList from "./pages/admin/VoucherList";
 import CustomerDetail from "./pages/admin/CustomerDetail";
 import ShippingSettings from "./pages/admin/ShippingSettings";
+import HomepageSettings from "./pages/admin/HomepageSettings";
+import StaticPageEdit from "./pages/admin/StaticPageEdit";
 
 // Import Penjaga Rute
 import AdminGuard from "./components/AdminGuard";
@@ -478,6 +480,8 @@ export default function App() {
             <Route path="size-guides/edit/:id" element={<SizeGuideForm />} />
             <Route path="product-vouchers" element={<VoucherList />} />
             <Route path="product-shipping" element={<ShippingSettings />} />
+            <Route path="homepage-settings" element={<HomepageSettings />} />
+            <Route path="pages/:pageId" element={<StaticPageEdit />} />
           </Route>
         </Route>
 
@@ -592,7 +596,12 @@ export default function App() {
                       <div className="flex flex-col gap-3">
                         <Link
                           to="/checkout"
-                          onClick={() => setIsCartOpen(false)}
+                          onClick={() => {
+                            // Tutup Laci Keranjang
+                            setIsCartOpen(false);
+                            // Gulung halaman ke atas (supaya saat pindah halaman checkout tidak di bawah)
+                            window.scrollTo(0, 0);
+                          }}
                           className="w-full flex items-center justify-center bg-chester-pink text-white h-14 rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-pink-600 transition shadow-sm"
                         >
                           Checkout Sekarang

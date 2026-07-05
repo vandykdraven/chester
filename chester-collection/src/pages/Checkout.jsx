@@ -28,10 +28,12 @@ export default function Checkout() {
 
   const [shippingOptions, setShippingOptions] = useState([]);
   const [selectedShipping, setSelectedShipping] = useState(null);
-  const [paymentMethod, setPaymentMethod] = useState("transfer");
+
+  // STATE BARU: Menampung rekening dari database
+  const [bankAccounts, setBankAccounts] = useState([]);
+  const [selectedPayment, setSelectedPayment] = useState("");
 
   const [isLoading, setIsLoading] = useState(true);
-  // Perbaikan: Standarisasi camelCase untuk isSubmitting
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [shippingLoading, setShippingLoading] = useState(false);
   const [shippingError, setShippingError] = useState(null);
@@ -71,8 +73,8 @@ export default function Checkout() {
           const finalSellingPrice = origP > 0 ? origP : baseP;
 
           return {
-            id: item.id, // Ini ID cart (biarkan saja)
-            product_id: item.product_id, // TAMBAHKAN BARIS INI (ID produk asli dari tabel products)
+            id: item.id,
+            product_id: item.product_id,
             name: item.name,
             price: finalSellingPrice,
             qty: item.quantity,
@@ -103,6 +105,47 @@ export default function Checkout() {
       console.error("Gagal memuat data checkout:", error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // FETCH PEMBAYARAN
+  useEffect(() => {
+    fetchPaymentMethods();
+  }, []);
+
+  const fetchPaymentMethods = async () => {
+    try {
+      const response = await axios.get(
+        `${import.meta.env.VITE_API_URL}/settings`,
+      );
+      if (response.data.success) {
+        // Data dari backend sekarang berupa objek tunggal, kita perlu memastikan cara aksesnya benar
+        // Karena di skrip Anda sebelumnya Anda menggunakan Array.find, mari kita sesuaikan agar aman.
+
+        let paymentStringData = "";
+
+        if (Array.isArray(response.data.data)) {
+          // Jika backend mengembalikan array
+          const paymentSetting = response.data.data.find(
+            (item) => item.setting_key === "payment_accounts",
+          );
+          if (paymentSetting) paymentStringData = paymentSetting.setting_value;
+        } else {
+          // Jika backend mengembalikan object (perbaikan terbaru)
+          paymentStringData = response.data.data.payment_accounts;
+        }
+
+        if (paymentStringData) {
+          const parsedAccounts = JSON.parse(paymentStringData);
+          setBankAccounts(parsedAccounts);
+
+          if (parsedAccounts.length > 0) {
+            setSelectedPayment(parsedAccounts[0].bank_name);
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Gagal memuat metode pembayaran:", error);
     }
   };
 
@@ -152,16 +195,11 @@ export default function Checkout() {
       );
 
       if (res.data.success) {
-        // --- LOGIKA BARU: MENGELOMPOKKAN TARIF PER EKSPEDISI ---
         const rawOptions = res.data.data;
-
-        // Objek sementara untuk mengelompokkan
         const grouped = {};
 
         rawOptions.forEach((opt) => {
-          // Mengambil kata pertama sebagai nama Ekspedisi (Cth: "JNE REG" -> "JNE")
           const courierName = opt.service.split(" ")[0] || "LAINNYA";
-          // Mengambil sisa kata sebagai nama Layanan (Cth: "JNE REG" -> "REG")
           const serviceName = opt.service.substring(courierName.length).trim();
 
           if (!grouped[courierName]) {
@@ -169,22 +207,20 @@ export default function Checkout() {
           }
 
           grouped[courierName].push({
-            fullService: opt.service, // "JNE REG" (untuk dicocokkan dengan selectedShipping)
-            serviceName: serviceName, // "REG"
+            fullService: opt.service,
+            serviceName: serviceName,
             cost: opt.cost,
             etd: opt.etd,
           });
         });
 
-        // Ubah objek grouped menjadi array agar mudah di-render di UI menggunakan .map()
         const groupedArray = Object.keys(grouped).map((courier) => ({
           courierName: courier,
           services: grouped[courier],
         }));
 
-        setShippingOptions(groupedArray); // Sekarang state ini berisi data berkelompok
+        setShippingOptions(groupedArray);
 
-        // Set default pilihan pertama dari ekspedisi pertama (jika ada data)
         if (groupedArray.length > 0 && groupedArray[0].services.length > 0) {
           setSelectedShipping(groupedArray[0].services[0]);
         }
@@ -204,20 +240,20 @@ export default function Checkout() {
   const handlePlaceOrder = async () => {
     if (!selectedAddress) return alert("Silakan pilih alamat pengiriman!");
     if (!selectedShipping) return alert("Opsi pengiriman belum tersedia!");
+    if (!selectedPayment)
+      return alert("Silakan pilih metode pembayaran terlebih dahulu!");
 
     setIsSubmitting(true);
 
-    // Payload yang sudah diperbaiki variabel pembacanya
     const orderPayload = {
       user_id: customerUser.id,
       address: selectedAddress,
       shipping_option: {
-        // PERBAIKAN: Menggunakan .fullService bukan .service
         courierName: selectedShipping.fullService.split(" ")[0],
         serviceName: selectedShipping.serviceName,
       },
       cart_items: cartItems.map((item) => ({
-        product_id: item.product_id, // PERBAIKAN: Gunakan item.product_id, BUKAN item.id
+        product_id: item.product_id,
         name: item.name,
         variant: item.variant,
         price: item.price,
@@ -237,13 +273,21 @@ export default function Checkout() {
       );
 
       if (response.data.success) {
-        // Berhasil! Langsung ke halaman konfirmasi yang ada tombol WA-nya
+        // RESET KERANJANG BELANJA
+        window.dispatchEvent(new Event("cartUpdated"));
+
+        localStorage.setItem(
+          `payment_for_${response.data.orderId}`,
+          selectedPayment,
+        );
+
+        // PINDAH HALAMAN
         navigate(`/payment-confirmation/${response.data.orderId}`);
       }
     } catch (error) {
       console.error("Gagal men-checkout pesanan:", error);
       alert("Gagal memproses pesanan. Periksa koneksi Anda.");
-      setIsSubmitting(false); // Matikan loading jika gagal
+      setIsSubmitting(false);
     }
   };
 
@@ -338,7 +382,6 @@ export default function Checkout() {
                     <p className="text-xs text-gray-600 leading-relaxed max-w-md">
                       {selectedAddress.full_address}, {selectedAddress.district}
                       , {selectedAddress.city}, {selectedAddress.province}
-                      {/* Perbaikan: Fallback jika kodepos bernilai null */}
                       {selectedAddress.postal_code
                         ? `, ${selectedAddress.postal_code}`
                         : ""}
@@ -394,10 +437,8 @@ export default function Checkout() {
                   )}
                 </div>
               ) : (
-                // --- TAMPILAN BARU: DROPDOWN PER EKSPEDISI ---
                 <div className="flex flex-col gap-4">
                   {shippingOptions.map((group, groupIdx) => {
-                    // Cari tahu apakah ada salah satu layanan dari ekspedisi ini yang sedang dipilih aktif
                     const currentSelectedInGroup = group.services.find(
                       (s) => s.fullService === selectedShipping?.fullService,
                     );
@@ -412,7 +453,6 @@ export default function Checkout() {
                         }`}
                       >
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                          {/* Nama Utama Ekspedisi */}
                           <div>
                             <p className="text-sm font-black text-gray-800 uppercase tracking-wide">
                               {group.courierName} Express
@@ -425,7 +465,6 @@ export default function Checkout() {
                             )}
                           </div>
 
-                          {/* Dropdown Pilihan Layanan di Dalam Ekspedisi Tersebut */}
                           <div className="flex items-center gap-3 w-full sm:w-auto">
                             <select
                               value={
@@ -443,7 +482,6 @@ export default function Checkout() {
                               }}
                               className="w-full sm:w-56 px-3 py-2 border border-gray-200 rounded-lg text-xs font-bold text-gray-700 bg-white outline-none focus:border-chester-pink"
                             >
-                              {/* Opsi default pembantu jika pengguna belum memilih apa pun di kelompok ini */}
                               <option value="" disabled>
                                 -- Pilih Layanan {group.courierName} --
                               </option>
@@ -454,7 +492,6 @@ export default function Checkout() {
                               ))}
                             </select>
 
-                            {/* Tampilan Harga di Samping Dropdown (Hanya muncul jika ekspedisi ini yang aktif dipilih) */}
                             <span className="text-sm font-extrabold text-gray-900 shrink-0 min-w-[80px] text-right">
                               {currentSelectedInGroup
                                 ? formatRupiah(selectedShipping.cost)
@@ -470,7 +507,7 @@ export default function Checkout() {
             </div>
 
             {/* SECTION 3: METODE PEMBAYARAN */}
-            <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
+            <div className="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm mt-6">
               <div className="flex items-center gap-3 mb-4 border-b border-gray-50 pb-3">
                 <div className="w-8 h-8 rounded-lg bg-pink-50 text-chester-pink flex items-center justify-center">
                   <CreditCard size={18} />
@@ -480,41 +517,42 @@ export default function Checkout() {
                 </h2>
               </div>
 
-              <div className="flex flex-col gap-2">
-                <label
-                  className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer ${
-                    paymentMethod === "transfer"
-                      ? "border-chester-pink bg-pink-50/20"
-                      : "border-gray-100"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    checked={paymentMethod === "transfer"}
-                    onChange={() => setPaymentMethod("transfer")}
-                    className="accent-chester-pink w-4 h-4"
-                  />
-                  <span className="text-xs font-bold text-chester-text">
-                    Manual Bank Transfer (BCA / Mandiri)
-                  </span>
-                </label>
-                <label
-                  className={`flex items-center gap-3 p-4 border rounded-xl cursor-pointer ${
-                    paymentMethod === "qris"
-                      ? "border-chester-pink bg-pink-50/20"
-                      : "border-gray-100"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    checked={paymentMethod === "qris"}
-                    onChange={() => setPaymentMethod("qris")}
-                    className="accent-chester-pink w-4 h-4"
-                  />
-                  <span className="text-xs font-bold text-chester-text">
-                    Instant QRIS (OVO, Dana, GoPay, ShopeePay)
-                  </span>
-                </label>
+              <div className="flex flex-col gap-3">
+                {bankAccounts.length > 0 ? (
+                  bankAccounts.map((bank, index) => (
+                    <label
+                      key={index}
+                      className={`flex items-center justify-between p-4 border rounded-xl cursor-pointer transition-all ${
+                        selectedPayment === bank.bank_name
+                          ? "border-pink-500 bg-pink-50"
+                          : "border-gray-200 hover:border-pink-300"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="radio"
+                          name="payment_method"
+                          value={bank.bank_name}
+                          checked={selectedPayment === bank.bank_name}
+                          onChange={(e) => setSelectedPayment(e.target.value)}
+                          className="w-4 h-4 text-pink-600 focus:ring-pink-500 cursor-pointer"
+                        />
+                        <div>
+                          <p className="text-sm font-bold text-gray-800">
+                            Transfer {bank.bank_name}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            a.n. {bank.bank_owner}
+                          </p>
+                        </div>
+                      </div>
+                    </label>
+                  ))
+                ) : (
+                  <div className="text-sm text-gray-500 text-center py-6 bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                    Sistem belum mengatur rekening pembayaran.
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -605,7 +643,10 @@ export default function Checkout() {
                 <button
                   onClick={handlePlaceOrder}
                   disabled={
-                    isSubmitting || !selectedShipping || shippingLoading
+                    isSubmitting ||
+                    !selectedShipping ||
+                    shippingLoading ||
+                    !selectedPayment
                   }
                   className="w-full bg-chester-pink text-white h-14 font-bold rounded-xl text-sm uppercase tracking-widest hover:bg-pink-600 transition shadow-md flex items-center justify-center gap-2 disabled:bg-gray-300"
                 >

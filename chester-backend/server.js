@@ -1128,7 +1128,7 @@ app.put("/api/orders/:id/status", async (req, res) => {
 });
 
 // =======================================================================
-// ENDPOINT: MEMBUAT PESANAN BARU (CHECKOUT)
+// ENDPOINT: MEMBUAT PESANAN (CHECKOUT) DENGAN PENGURANGAN STOK OTOMATIS
 // =======================================================================
 app.post("/api/orders", async (req, res) => {
   const connection = await db.getConnection();
@@ -1179,8 +1179,9 @@ app.post("/api/orders", async (req, res) => {
 
     const orderId = orderResult.insertId;
 
-    // 2. Simpan Item ke Tabel order_items (Ubah 'variant' menjadi 'variant_key')
+    // 2. Simpan Item ke Tabel order_items & KURANGI STOK PRODUK
     for (const item of cart_items) {
+      // A. Simpan history item yang dibeli
       await connection.query(
         `INSERT INTO order_items (order_id, product_id, product_name, variant_key, price, quantity, weight) 
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -1194,6 +1195,41 @@ app.post("/api/orders", async (req, res) => {
           item.weight,
         ],
       );
+
+      // B. LOGIKA PENGURANGAN STOK
+      const quantityToDeduct = parseInt(item.qty, 10);
+
+      // Jika produk tidak memiliki varian atau varian dianggap "Standar"
+      if (!item.variant || item.variant === "Standar") {
+        await connection.query(
+          `UPDATE products 
+           SET stock = GREATEST(stock - ?, 0) 
+           WHERE id = ?`,
+          [quantityToDeduct, item.product_id],
+        );
+      } else {
+        // Jika produk memiliki variasi spesifik (misal: "Merah, L")
+        // Kurangi stok di tabel product_variants terlebih dahulu
+        await connection.query(
+          `UPDATE product_variants 
+           SET stock = GREATEST(stock - ?, 0) 
+           WHERE product_id = ? AND variant_key = ?`,
+          [quantityToDeduct, item.product_id, item.variant],
+        );
+
+        // Setelah stok varian berkurang, kita juga sebaiknya mengupdate total stok gabungan
+        // di tabel products agar tampilan ProductList.jsx admin tetap sinkron
+        await connection.query(
+          `UPDATE products p
+           SET p.stock = (
+             SELECT COALESCE(SUM(v.stock), 0) 
+             FROM product_variants v 
+             WHERE v.product_id = p.id
+           )
+           WHERE p.id = ?`,
+          [item.product_id],
+        );
+      }
     }
 
     // 3. Kosongkan Keranjang
@@ -1205,15 +1241,12 @@ app.post("/api/orders", async (req, res) => {
     // 🚀 BLOK TRIGGER NOTIFIKASI OTOMATIS (EMAIL & WA)
     // =======================================================================
     try {
-      // a. Tarik data profil pembeli untuk tujuan email/WA
       const [userRows] = await db.query(
         "SELECT fullname, email, phone FROM users WHERE id = ?",
         [user_id],
       );
       if (userRows.length > 0) {
         const customerProfile = userRows[0];
-
-        // Kita juga bisa menggunakan nomor HP yang diinput di alamat jika nomor akun kosong
         if (!customerProfile.phone) customerProfile.phone = address.phone;
 
         const orderDataForNotif = {
@@ -1221,7 +1254,6 @@ app.post("/api/orders", async (req, res) => {
           total_amount: grand_total,
         };
 
-        // b. Lempar tugas ke Tukang Pos (Berjalan di latar belakang tanpa await!)
         Notifier.sendNewOrderNotification(
           db,
           orderDataForNotif,
@@ -1232,12 +1264,10 @@ app.post("/api/orders", async (req, res) => {
         );
       }
     } catch (notifError) {
-      // Error notifikasi tidak akan membatalkan pesanan yang sudah terbuat
       console.error("Gagal menarik data untuk notifikasi:", notifError);
     }
     // =======================================================================
 
-    // Mengembalikan response sukses segera agar UI Frontend tidak loading lama
     return res.status(201).json({
       success: true,
       orderId: orderId,
