@@ -18,6 +18,8 @@ import {
   Landmark,
   Hash,
   User,
+  Share2,
+  Menu as MenuIcon, // Icon untuk tab Navigasi Website
 } from "lucide-react";
 import axios from "axios";
 
@@ -49,12 +51,21 @@ export default function Settings() {
     smtp_user: "",
     smtp_password: "",
     fonnte_api_key: "",
+    // Field Media Sosial
+    social_facebook: "",
+    social_instagram: "",
+    social_tiktok: "",
+    social_twitter: "",
   });
 
-  // STATE BARU: Khusus untuk menampung banyak rekening bank (Array of Objects)
+  // STATE: Rekening Bank Multiple
   const [bankAccounts, setBankAccounts] = useState([
     { bank_name: "", bank_account: "", bank_owner: "" },
   ]);
+
+  // STATE BARU: Khusus untuk Navigasi (Daftar Kategori & Pilihan Centang)
+  const [categories, setCategories] = useState([]);
+  const [activeMenus, setActiveMenus] = useState([]);
 
   const [admins, setAdmins] = useState([]);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -89,10 +100,23 @@ export default function Settings() {
 
   const initPage = async () => {
     setIsLoading(true);
-    await fetchSettings();
-    await fetchAdmins();
+    // Jalankan semua fetch secara paralel agar lebih cepat
+    await Promise.all([fetchSettings(), fetchAdmins(), fetchCategories()]);
     loadCurrentLoggedInAdmin();
     setIsLoading(false);
+  };
+
+  const fetchCategories = async () => {
+    try {
+      const response = await axios.get(
+        `${import.meta.env.VITE_API_URL}/categories`,
+      );
+      if (response.data.success) {
+        setCategories(response.data.data);
+      }
+    } catch (e) {
+      console.error("Gagal mengambil data kategori:", e);
+    }
   };
 
   const fetchSettings = async () => {
@@ -106,13 +130,21 @@ export default function Settings() {
         // Memasukkan data ke form standar
         setFormData((prev) => ({ ...prev, ...apiData }));
 
-        // Memproses data rekening bank (jika sudah ada di database)
+        // Parsing data rekening bank
         if (apiData.payment_accounts) {
           try {
-            // Mengubah format string JSON kembali menjadi Array
             setBankAccounts(JSON.parse(apiData.payment_accounts));
           } catch (e) {
             console.error("Gagal parse data rekening:", e);
+          }
+        }
+
+        // Parsing data navigasi menu frontend
+        if (apiData.frontend_active_menus) {
+          try {
+            setActiveMenus(JSON.parse(apiData.frontend_active_menus));
+          } catch (e) {
+            console.error("Gagal parse data navigasi:", e);
           }
         }
 
@@ -203,7 +235,7 @@ export default function Settings() {
   const handleChangeProfile = (e) =>
     setProfileData({ ...profileData, [e.target.name]: e.target.value });
 
-  // --- HANDLER DINAMIS UNTUK REKENING MULTIPLE ---
+  // HANDLER REKENING MULTIPLE
   const handleAccountChange = (index, field, value) => {
     const updatedAccounts = [...bankAccounts];
     updatedAccounts[index][field] = value;
@@ -222,6 +254,15 @@ export default function Settings() {
     setBankAccounts(updatedAccounts);
   };
 
+  // HANDLER NAVIGASI MENU (CHECKBOX)
+  const toggleActiveMenu = (categoryId) => {
+    setActiveMenus((prev) =>
+      prev.includes(categoryId)
+        ? prev.filter((id) => id !== categoryId)
+        : [...prev, categoryId],
+    );
+  };
+
   const handleSaveSettings = async (e) => {
     e.preventDefault();
     if (activeTab === "general" && !formData.store_area_id) {
@@ -234,10 +275,11 @@ export default function Settings() {
 
     setIsSaving(true);
     try {
-      // Gabungkan formData standar dengan Array bankAccounts yang diubah menjadi teks JSON
+      // Gabungkan semua data, termasuk JSON dari bankAccounts dan activeMenus
       const payloadToSave = {
         ...formData,
         payment_accounts: JSON.stringify(bankAccounts),
+        frontend_active_menus: JSON.stringify(activeMenus),
       };
 
       const res = await axios.put(
@@ -386,6 +428,11 @@ export default function Settings() {
             id="general"
             icon={<Store size={18} />}
             label="Informasi Toko"
+          />
+          <TabButton
+            id="navigation"
+            icon={<MenuIcon size={18} />}
+            label="Navigasi Website"
           />
           <TabButton
             id="shipping"
@@ -542,17 +589,146 @@ export default function Settings() {
                   placeholder="Nama jalan, gedung, RT/RW..."
                 ></textarea>
               </div>
+
+              {/* INPUT MEDIA SOSIAL */}
+              <div className="pt-6 border-t border-gray-100">
+                <div className="flex items-center gap-2 mb-4">
+                  <Share2 className="text-gray-400" size={18} />
+                  <h3 className="text-sm font-bold text-gray-800">
+                    Tautan Media Sosial
+                  </h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-1">
+                      Facebook URL
+                    </label>
+                    <input
+                      type="url"
+                      name="social_facebook"
+                      value={formData.social_facebook || ""}
+                      onChange={handleChangeSetting}
+                      placeholder="https://facebook.com/..."
+                      className="w-full border px-3 py-2 rounded-lg text-sm outline-none focus:border-chester-pink"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-1">
+                      Instagram URL
+                    </label>
+                    <input
+                      type="url"
+                      name="social_instagram"
+                      value={formData.social_instagram || ""}
+                      onChange={handleChangeSetting}
+                      placeholder="https://instagram.com/..."
+                      className="w-full border px-3 py-2 rounded-lg text-sm outline-none focus:border-chester-pink"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-1">
+                      TikTok URL
+                    </label>
+                    <input
+                      type="url"
+                      name="social_tiktok"
+                      value={formData.social_tiktok || ""}
+                      onChange={handleChangeSetting}
+                      placeholder="https://tiktok.com/@..."
+                      className="w-full border px-3 py-2 rounded-lg text-sm outline-none focus:border-chester-pink"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-1">
+                      Twitter / X URL
+                    </label>
+                    <input
+                      type="url"
+                      name="social_twitter"
+                      value={formData.social_twitter || ""}
+                      onChange={handleChangeSetting}
+                      placeholder="https://twitter.com/..."
+                      className="w-full border px-3 py-2 rounded-lg text-sm outline-none focus:border-chester-pink"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <button
                 type="submit"
                 disabled={isSaving}
-                className="bg-chester-pink text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 w-max shadow-sm"
+                className="bg-chester-pink text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 w-max shadow-sm mt-2"
               >
                 <Save size={18} /> Simpan Pengaturan
               </button>
             </form>
           )}
 
-          {/* TAB 2: BITESHIP */}
+          {/* TAB BARU: NAVIGASI WEBSITE */}
+          {activeTab === "navigation" && (
+            <form
+              onSubmit={handleSaveSettings}
+              className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm min-h-[400px] animate-fade-in flex flex-col gap-6"
+            >
+              <div>
+                <h2 className="text-lg font-bold text-gray-800 mb-1">
+                  Navigasi Website (Menu Frontend)
+                </h2>
+                <p className="text-xs text-gray-500">
+                  Centang kategori produk yang ingin Anda tampilkan sebagai menu
+                  di header (navbar) pengunjung. Menu "Beranda" dan "Katalog"
+                  akan selalu tampil secara default.
+                </p>
+              </div>
+
+              <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+                <div className="bg-gray-50 px-5 py-3 border-b border-gray-200 flex justify-between items-center">
+                  <span className="text-sm font-bold text-gray-700">
+                    Daftar Kategori Tersedia
+                  </span>
+                  <span className="text-xs text-chester-pink font-bold bg-pink-50 px-2 py-1 rounded">
+                    {activeMenus.length} Menu Terpilih
+                  </span>
+                </div>
+                <div className="p-5 flex flex-col gap-4">
+                  {categories.length === 0 ? (
+                    <p className="text-sm text-gray-500 italic text-center py-4">
+                      Belum ada kategori produk yang dibuat.
+                    </p>
+                  ) : (
+                    categories.map((cat) => (
+                      <label
+                        key={cat.id}
+                        className="flex items-center gap-3 cursor-pointer group w-max"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={activeMenus.includes(cat.id)}
+                          onChange={() => toggleActiveMenu(cat.id)}
+                          className="w-4 h-4 accent-chester-pink cursor-pointer rounded border-gray-300"
+                        />
+                        <span
+                          className={`text-sm font-medium transition ${activeMenus.includes(cat.id) ? "text-chester-pink font-bold" : "text-gray-700 group-hover:text-chester-pink"}`}
+                        >
+                          {cat.name}
+                        </span>
+                      </label>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSaving}
+                className="bg-chester-pink text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 w-max shadow-sm"
+              >
+                <Save size={18} /> Simpan Navigasi
+              </button>
+            </form>
+          )}
+
+          {/* TAB 3: BITESHIP */}
           {activeTab === "shipping" && (
             <form
               onSubmit={handleSaveSettings}
@@ -589,7 +765,7 @@ export default function Settings() {
             </form>
           )}
 
-          {/* TAB 3: NOTIFIKASI */}
+          {/* TAB 4: NOTIFIKASI */}
           {activeTab === "notification" && (
             <form
               onSubmit={handleSaveSettings}
@@ -685,7 +861,7 @@ export default function Settings() {
             </form>
           )}
 
-          {/* TAB 4: PEMBAYARAN (REKENING TOKO MULTIPLE) */}
+          {/* TAB 5: PEMBAYARAN */}
           {activeTab === "payment" && (
             <form
               onSubmit={handleSaveSettings}
@@ -716,7 +892,6 @@ export default function Settings() {
                     key={index}
                     className="p-5 border border-gray-200 rounded-xl bg-gray-50 relative animate-fade-in"
                   >
-                    {/* Tombol Hapus Rekening */}
                     {bankAccounts.length > 1 && (
                       <button
                         type="button"
@@ -824,7 +999,7 @@ export default function Settings() {
             </form>
           )}
 
-          {/* TAB 5: KELOLA STAF */}
+          {/* TAB 6: KELOLA STAF */}
           {activeTab === "staff" && (
             <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm min-h-[400px] animate-fade-in flex flex-col gap-6">
               <div className="flex justify-between items-end">
@@ -960,7 +1135,7 @@ export default function Settings() {
             </div>
           )}
 
-          {/* TAB 6: PROFIL SAYA */}
+          {/* TAB 7: PROFIL SAYA */}
           {activeTab === "profile" && (
             <form
               onSubmit={handleSaveProfile}
