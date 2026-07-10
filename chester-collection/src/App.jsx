@@ -25,6 +25,7 @@ import Orders from "./pages/Orders";
 import Vouchers from "./pages/Vouchers";
 import Wishlist from "./pages/Wishlist";
 import Checkout from "./pages/Checkout";
+import StaticPage from "./pages/StaticPage"; // Halaman Statis
 
 // Import Halaman Admin
 import AdminLayout from "./pages/admin/AdminLayout";
@@ -59,10 +60,18 @@ const formatRupiah = (angka) => {
   }).format(angka);
 };
 
+// =======================================================================
+// KOMPONEN HEADER
+// =======================================================================
 const Header = ({ setIsCartOpen, cartCount }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [customerName, setCustomerName] = useState("");
+
+  const [activeVouchers, setActiveVouchers] = useState([]);
+  const [currentVoucherIndex, setCurrentVoucherIndex] = useState(0);
+
+  const [dynamicMenus, setDynamicMenus] = useState([]);
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -85,6 +94,85 @@ const Header = ({ setIsCartOpen, cartCount }) => {
     }
   }, [location.pathname]);
 
+  useEffect(() => {
+    const fetchHeaderData = async () => {
+      try {
+        const voucherRes = await axios.get(
+          `${import.meta.env.VITE_API_URL}/vouchers`,
+        );
+        if (voucherRes.data.success && voucherRes.data.data.length > 0) {
+          const now = new Date();
+
+          const validVouchers = voucherRes.data.data.filter((v) => {
+            const isActive =
+              v.status === "active" ||
+              v.is_active === 1 ||
+              v.is_active === true;
+            const expiryDateStr = v.end_date || v.valid_until || v.expired_at;
+            const isNotExpired = expiryDateStr
+              ? new Date(expiryDateStr) >= now
+              : true;
+
+            return isActive && isNotExpired;
+          });
+
+          setActiveVouchers(validVouchers);
+        }
+
+        const [catRes, setRes] = await Promise.all([
+          axios.get(`${import.meta.env.VITE_API_URL}/categories`),
+          axios.get(`${import.meta.env.VITE_API_URL}/settings`),
+        ]);
+
+        let activeMenuIds = [];
+        if (setRes.data.success) {
+          const apiData = setRes.data.data;
+          let settingsMap = {};
+          if (Array.isArray(apiData)) {
+            apiData.forEach(
+              (i) => (settingsMap[i.setting_key] = i.setting_value),
+            );
+          } else {
+            settingsMap = apiData;
+          }
+
+          if (settingsMap.frontend_active_menus) {
+            try {
+              const parsedMenus = JSON.parse(settingsMap.frontend_active_menus);
+              if (Array.isArray(parsedMenus)) {
+                activeMenuIds = parsedMenus.map(String);
+              }
+            } catch (e) {
+              console.error("Gagal parse pengaturan menu", e);
+            }
+          }
+        }
+
+        if (catRes.data.success && activeMenuIds.length > 0) {
+          const allCategories = catRes.data.data;
+          const filteredMenus = allCategories.filter((cat) =>
+            activeMenuIds.includes(String(cat.id)),
+          );
+          setDynamicMenus(filteredMenus);
+        }
+      } catch (error) {
+        console.error("Gagal menarik data Header:", error);
+      }
+    };
+
+    fetchHeaderData();
+  }, []);
+
+  useEffect(() => {
+    if (activeVouchers.length <= 1) return;
+
+    const interval = setInterval(() => {
+      setCurrentVoucherIndex((prev) => (prev + 1) % activeVouchers.length);
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [activeVouchers.length]);
+
   const handleProfileClick = () => {
     if (isLoggedIn) {
       navigate("/profile");
@@ -96,9 +184,35 @@ const Header = ({ setIsCartOpen, cartCount }) => {
   return (
     <>
       <header className="bg-white border-b border-gray-100 font-lora sticky top-0 z-40">
-        <div className="bg-chester-pink text-white text-xs py-2 px-4 text-center">
-          Gratis ongkir untuk pesanan di atas Rp 500.000
-        </div>
+        {/* VOUCHER BAR: Hanya dirender (ditampilkan) jika ada voucher aktif */}
+        {activeVouchers.length > 0 && (
+          <div className="bg-chester-pink text-white text-xs py-2 px-4 relative overflow-hidden min-h-[36px] flex justify-center items-center">
+            {activeVouchers.map((voucher, index) => (
+              <div
+                key={voucher.id || index}
+                className={`absolute flex justify-center items-center gap-2 w-full transition-all duration-700 ease-in-out ${
+                  index === currentVoucherIndex
+                    ? "opacity-100 translate-y-0"
+                    : "opacity-0 -translate-y-full pointer-events-none"
+                }`}
+              >
+                <span>
+                  Spesial! Gunakan kode voucher{" "}
+                  <b className="bg-white/20 px-2 py-0.5 rounded tracking-wider">
+                    {voucher.code}
+                  </b>
+                </span>
+                <Link
+                  to="/vouchers"
+                  className="underline font-bold hover:text-pink-200 transition bg-white text-chester-pink px-2 py-0.5 rounded-full ml-2"
+                >
+                  Klaim Voucher
+                </Link>
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="container mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center">
             <button
@@ -119,28 +233,27 @@ const Header = ({ setIsCartOpen, cartCount }) => {
           <nav className="hidden lg:flex flex-grow justify-center items-center gap-8">
             <Link
               to="/"
-              className="text-sm font-medium text-chester-text hover:text-chester-pink transition"
+              className="text-sm font-bold text-chester-text hover:text-chester-pink transition"
             >
               Beranda
             </Link>
             <Link
               to="/products"
-              className="text-sm font-medium text-chester-text hover:text-chester-pink transition"
+              className="text-sm font-bold text-chester-text hover:text-chester-pink transition"
             >
               Katalog
             </Link>
-            <a
-              href="#"
-              className="text-sm font-medium text-chester-text hover:text-chester-pink transition"
-            >
-              Wanita
-            </a>
-            <a
-              href="#"
-              className="text-sm font-medium text-chester-text hover:text-chester-pink transition"
-            >
-              Diskon
-            </a>
+
+            {/* MENU KATEGORI DINAMIS DARI DATABASE */}
+            {dynamicMenus.map((menu) => (
+              <Link
+                key={menu.id}
+                to={`/products?category=${menu.id}`}
+                className="text-sm font-bold text-chester-text hover:text-chester-pink transition"
+              >
+                {menu.name}
+              </Link>
+            ))}
           </nav>
 
           <div className="flex items-center gap-4 lg:gap-5">
@@ -164,7 +277,7 @@ const Header = ({ setIsCartOpen, cartCount }) => {
               className="flex items-center gap-1 group relative"
             >
               <ShoppingBag className="h-5 w-5 text-chester-text group-hover:text-chester-pink transition" />
-              <span className="absolute -top-1.5 -right-2 bg-chester-pink text-white text-[10px] font-bold h-4 w-4 rounded-full flex items-center justify-center">
+              <span className="absolute -top-1.5 -right-2 bg-chester-pink text-white text-[10px] font-bold h-4 w-4 rounded-full flex items-center justify-center shadow">
                 {cartCount}
               </span>
             </button>
@@ -172,6 +285,7 @@ const Header = ({ setIsCartOpen, cartCount }) => {
         </div>
       </header>
 
+      {/* MOBILE MENU */}
       <div
         className={`fixed inset-0 z-50 bg-black/50 lg:hidden transition-opacity duration-300 ${isMobileMenuOpen ? "opacity-100 visible" : "opacity-0 invisible"}`}
         onClick={() => setIsMobileMenuOpen(false)}
@@ -201,18 +315,18 @@ const Header = ({ setIsCartOpen, cartCount }) => {
             >
               Katalog
             </Link>
-            <a
-              href="#"
-              className="text-lg font-bold text-chester-text hover:text-chester-pink"
-            >
-              Wanita
-            </a>
-            <a
-              href="#"
-              className="text-lg font-bold text-chester-text hover:text-chester-pink"
-            >
-              Diskon
-            </a>
+
+            {dynamicMenus.map((menu) => (
+              <Link
+                key={menu.id}
+                to={`/products?category=${menu.id}`}
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="text-lg font-bold text-chester-text hover:text-chester-pink"
+              >
+                {menu.name}
+              </Link>
+            ))}
+
             <button
               onClick={() => {
                 setIsMobileMenuOpen(false);
@@ -229,11 +343,45 @@ const Header = ({ setIsCartOpen, cartCount }) => {
   );
 };
 
+// =======================================================================
+// KOMPONEN FOOTER (KEMBALI KE STRUKTUR AWAL)
+// =======================================================================
 const Footer = () => {
+  const [socials, setSocials] = useState({});
+
+  useEffect(() => {
+    const fetchFooterSettings = async () => {
+      try {
+        const response = await axios.get(
+          `${import.meta.env.VITE_API_URL}/settings`,
+        );
+        if (response.data.success) {
+          let apiData = response.data.data;
+          if (Array.isArray(apiData)) {
+            const mapped = {};
+            apiData.forEach((i) => (mapped[i.setting_key] = i.setting_value));
+            apiData = mapped;
+          }
+          setSocials({
+            facebook: apiData.social_facebook || "",
+            instagram: apiData.social_instagram || "",
+            tiktok: apiData.social_tiktok || "",
+            twitter: apiData.social_twitter || "",
+          });
+        }
+      } catch (e) {
+        console.error("Gagal menarik pengaturan footer");
+      }
+    };
+    fetchFooterSettings();
+  }, []);
+
   return (
     <footer className="bg-chester-pink text-white py-8 font-lora mt-auto">
       <div className="container mx-auto px-4">
+        {/* Struktur Orisinal: Terpusat secara horizontal */}
         <div className="flex flex-col md:flex-row flex-wrap justify-center items-center gap-6 md:gap-10 mb-8">
+          {/* 1. Bagian Logo */}
           <div className="bg-white rounded-full p-1.5 shadow-sm">
             <img
               src={logo}
@@ -241,107 +389,140 @@ const Footer = () => {
               className="h-10 w-10 object-contain"
             />
           </div>
+
+          {/* 2. Bagian Menu Statis */}
           <div className="flex flex-wrap justify-center gap-6 text-sm font-medium opacity-90">
-            <a
-              href="#"
+            <Link
+              to="/page/privacy"
               className="hover:opacity-100 hover:scale-105 transition-all duration-300"
             >
               Kebijakan Privasi
-            </a>
-            <a
-              href="#"
+            </Link>
+            <Link
+              to="/page/faq"
               className="hover:opacity-100 hover:scale-105 transition-all duration-300"
             >
               FAQ
-            </a>
-            <a
-              href="#"
+            </Link>
+            <Link
+              to="/page/terms"
               className="hover:opacity-100 hover:scale-105 transition-all duration-300"
             >
               Syarat & Ketentuan
-            </a>
+            </Link>
           </div>
+
+          {/* 3. Bagian Ikon Media Sosial (Dengan data dinamis) */}
           <div className="flex items-center gap-5 md:ml-4">
-            <a
-              href="#"
-              className="opacity-80 hover:opacity-100 hover:scale-110 transition-all duration-300"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+            {socials.facebook && (
+              <a
+                href={socials.facebook}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="opacity-80 hover:opacity-100 hover:scale-110 transition-all duration-300"
               >
-                <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path>
-              </svg>
-            </a>
-            <a
-              href="#"
-              className="opacity-80 hover:opacity-100 hover:scale-110 transition-all duration-300"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path>
+                </svg>
+              </a>
+            )}
+            {socials.instagram && (
+              <a
+                href={socials.instagram}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="opacity-80 hover:opacity-100 hover:scale-110 transition-all duration-300"
               >
-                <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
-                <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
-                <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
-              </svg>
-            </a>
-            <a
-              href="#"
-              className="opacity-80 hover:opacity-100 hover:scale-110 transition-all duration-300"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+                  <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+                  <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+                </svg>
+              </a>
+            )}
+            {socials.tiktok && (
+              <a
+                href={socials.tiktok}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="opacity-80 hover:opacity-100 hover:scale-110 transition-all duration-300"
               >
-                <path d="M22 4s-.7 2.1-2 3.4c1.6 10-9.4 17.3-18 11.6 2.2.1 4.4-.6 6-2C3 15.5.5 9.6 3 5c2.2 2.6 5.6 4.1 9 4-.9-4.2 4-6.6 7-3.8 1.1 0 3-1.2 3-1.2z"></path>
-              </svg>
-            </a>
-            <a
-              href="#"
-              className="opacity-80 hover:opacity-100 hover:scale-110 transition-all duration-300"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M22 4s-.7 2.1-2 3.4c1.6 10-9.4 17.3-18 11.6 2.2.1 4.4-.6 6-2C3 15.5.5 9.6 3 5c2.2 2.6 5.6 4.1 9 4-.9-4.2 4-6.6 7-3.8 1.1 0 3-1.2 3-1.2z"></path>
+                </svg>
+              </a>
+            )}
+            {socials.twitter && (
+              <a
+                href={socials.twitter}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="opacity-80 hover:opacity-100 hover:scale-110 transition-all duration-300"
               >
-                <path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5v3a3 3 0 0 1-3-3v11a7 7 0 1 1-7-7v3"></path>
-              </svg>
-            </a>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5v3a3 3 0 0 1-3-3v11a7 7 0 1 1-7-7v3"></path>
+                </svg>
+              </a>
+            )}
           </div>
         </div>
-        <div className="text-center text-xs opacity-80 border-t border-white/20 pt-6 max-w-5xl mx-auto">
+
+        {/* 4. Bagian Copyright dan Template by ServerMaya */}
+        <div className="text-center text-xs opacity-80 border-t border-white/20 pt-6 max-w-5xl mx-auto flex flex-col items-center gap-1">
           <p>
             &copy; {new Date().getFullYear()} Chester Collection. Hak Cipta
             Dilindungi.
+          </p>
+          <p>
+            Template by{" "}
+            <a
+              href="https://servermaya.web.id"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-bold hover:underline hover:text-white transition"
+            >
+              ServerMaya
+            </a>
           </p>
         </div>
       </div>
@@ -350,9 +531,8 @@ const Footer = () => {
 };
 
 // =======================================================================
-// PERBAIKAN: KOMPONEN TRACKER BACKGROUND
+// KOMPONEN TRACKER BACKGROUND
 // =======================================================================
-// Diubah menjadi function komponen biasa dan tidak menggunakan `export default`
 function PageTracker() {
   const location = useLocation();
 
@@ -361,8 +541,6 @@ function PageTracker() {
       try {
         let productId = null;
 
-        // Kita menggunakan manipulasi string (split) karena komponen ini berada
-        // di level tertinggi Router, sehingga useParams() belum bisa menangkap id
         if (location.pathname.startsWith("/product/")) {
           const pathParts = location.pathname.split("/");
           productId = pathParts[pathParts.length - 1];
@@ -380,7 +558,7 @@ function PageTracker() {
     sendTrackingData();
   }, [location.pathname]);
 
-  return null; // Komponen ini berjalan secara gaib (tidak merender tampilan apa-apa)
+  return null;
 }
 
 // =======================================================================
@@ -455,7 +633,6 @@ export default function App() {
 
   return (
     <Router>
-      {/* PERBAIKAN: Memanggil Komponen Tracker di dalam lingkungan Router */}
       <PageTracker />
 
       <Routes>
@@ -500,6 +677,9 @@ export default function App() {
                   <Route path="/vouchers" element={<Vouchers />} />
                   <Route path="/wishlist" element={<Wishlist />} />
 
+                  {/* ROUTE HALAMAN STATIS */}
+                  <Route path="/page/:pageId" element={<StaticPage />} />
+
                   <Route path="/login" element={<Login />} />
                   <Route path="/register" element={<Register />} />
                   <Route path="/forgot-password" element={<ForgotPassword />} />
@@ -515,6 +695,7 @@ export default function App() {
 
               <Footer />
 
+              {/* Laci Keranjang */}
               <div
                 className={`fixed inset-0 z-50 bg-black/40 transition-opacity duration-300 ${isCartOpen ? "opacity-100 visible" : "opacity-0 invisible"}`}
                 onClick={() => setIsCartOpen(false)}
@@ -535,7 +716,7 @@ export default function App() {
                     </button>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6">
+                  <div className="flex-1 overflow-y-auto p-6 flex flex-col gap-6 custom-scrollbar">
                     {cartItems.length === 0 ? (
                       <div className="text-center text-gray-500 mt-10">
                         Keranjang Anda masih kosong.
@@ -597,9 +778,7 @@ export default function App() {
                         <Link
                           to="/checkout"
                           onClick={() => {
-                            // Tutup Laci Keranjang
                             setIsCartOpen(false);
-                            // Gulung halaman ke atas (supaya saat pindah halaman checkout tidak di bawah)
                             window.scrollTo(0, 0);
                           }}
                           className="w-full flex items-center justify-center bg-chester-pink text-white h-14 rounded-xl font-bold text-sm uppercase tracking-widest hover:bg-pink-600 transition shadow-sm"
