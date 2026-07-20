@@ -2962,7 +2962,7 @@ app.get("/sitemap.xml", async (req, res) => {
     // PENTING: Perhatikan variabel 'db' di bawah ini.
     // Sesuaikan dengan nama variabel koneksi database yang Anda gunakan di atas server.js (misalnya: db, pool, atau connection).
     const [products] = await db.query(
-      "SELECT id, updated_at FROM products WHERE status = 'available'",
+      "SELECT id, slug, updated_at FROM products WHERE status = 'available'",
     );
     const [categories] = await db.query("SELECT id FROM product_categories");
 
@@ -2998,7 +2998,7 @@ app.get("/sitemap.xml", async (req, res) => {
 
       urls += `
         <url>
-          <loc>${domain}/product/${product.id}</loc>
+          <loc>${domain}/product/${product.slug}</loc>
           <lastmod>${lastMod}</lastmod>
           <changefreq>weekly</changefreq>
           <priority>0.9</priority>
