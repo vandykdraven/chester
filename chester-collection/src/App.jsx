@@ -26,6 +26,7 @@ import Vouchers from "./pages/Vouchers";
 import Wishlist from "./pages/Wishlist";
 import Checkout from "./pages/Checkout";
 import StaticPage from "./pages/StaticPage"; // Halaman Statis
+import SEOTracker from "./components/SEOTracker";
 
 // Import Halaman Admin
 import AdminLayout from "./pages/admin/AdminLayout";
@@ -634,6 +635,7 @@ export default function App() {
   return (
     <Router>
       <PageTracker />
+      <SEOTracker />
 
       <Routes>
         <Route path="/admin-login" element={<AdminLogin />} />

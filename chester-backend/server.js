@@ -2934,6 +2934,93 @@ app.get("/api/dashboard/stats", async (req, res) => {
 });
 
 // =======================================================================
+// ENDPOINT: SEO (ROBOTS.TXT & SITEMAP.XML)
+// =======================================================================
+
+// 1. Endpoint untuk robots.txt
+app.get("/robots.txt", (req, res) => {
+  // Mengambil URL dari .env sesuai aturan (tanpa hardcode)
+  const domain = process.env.FRONTEND_URL;
+
+  const robotsText = `User-agent: *
+Allow: /
+Disallow: /admin-login
+Disallow: /admin/
+
+Sitemap: ${domain}/sitemap.xml`;
+
+  // Memberitahu browser bahwa ini adalah file teks biasa
+  res.header("Content-Type", "text/plain");
+  res.send(robotsText);
+});
+
+// 2. Endpoint untuk sitemap.xml
+app.get("/sitemap.xml", async (req, res) => {
+  const domain = process.env.FRONTEND_URL;
+
+  try {
+    // PENTING: Perhatikan variabel 'db' di bawah ini.
+    // Sesuaikan dengan nama variabel koneksi database yang Anda gunakan di atas server.js (misalnya: db, pool, atau connection).
+    const [products] = await db.query(
+      "SELECT id, updated_at FROM products WHERE status = 'available'",
+    );
+    const [categories] = await db.query("SELECT id FROM product_categories");
+
+    let urls = `
+      <url>
+        <loc>${domain}/</loc>
+        <changefreq>daily</changefreq>
+        <priority>1.0</priority>
+      </url>
+      <url>
+        <loc>${domain}/products</loc>
+        <changefreq>daily</changefreq>
+        <priority>0.8</priority>
+      </url>
+    `;
+
+    // Looping kategori
+    categories.forEach((category) => {
+      urls += `
+        <url>
+          <loc>${domain}/products?category=${category.id}</loc>
+          <changefreq>weekly</changefreq>
+          <priority>0.7</priority>
+        </url>
+      `;
+    });
+
+    // Looping produk
+    products.forEach((product) => {
+      const lastMod = product.updated_at
+        ? new Date(product.updated_at).toISOString().split("T")[0]
+        : new Date().toISOString().split("T")[0];
+
+      urls += `
+        <url>
+          <loc>${domain}/product/${product.id}</loc>
+          <lastmod>${lastMod}</lastmod>
+          <changefreq>weekly</changefreq>
+          <priority>0.9</priority>
+        </url>
+      `;
+    });
+
+    const sitemapXML = `<?xml version="1.0" encoding="UTF-8"?>
+      <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+        ${urls}
+      </urlset>`;
+
+    // Memberitahu browser bahwa ini adalah format XML
+    res.header("Content-Type", "application/xml");
+    res.send(sitemapXML);
+  } catch (error) {
+    console.error("Gagal membuat sitemap:", error);
+    res.status(500).send("Terjadi kesalahan pada server saat membuat sitemap.");
+  }
+});
+
+// =======================================================================
 // MENYALAKAN MESIN SERVER (WAJIB DI PALING BAWAH FILE)
 // =======================================================================
 const PORT = process.env.PORT || 5000;

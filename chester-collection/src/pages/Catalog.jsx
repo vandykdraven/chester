@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom"; // <-- TAMBAHAN: Import useLocation
 import {
   SlidersHorizontal,
   ChevronDown,
@@ -142,12 +142,29 @@ export default function Catalog() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategories, setSelectedCategories] = useState([]);
 
+  const location = useLocation(); // <-- TAMBAHAN: Memanggil useLocation
+
   // Load Kategori Sekali Saja
   useEffect(() => {
     axios.get(`${import.meta.env.VITE_API_URL}/categories`).then((res) => {
       if (res.data.success) setCategories(res.data.data);
     });
   }, []);
+
+  // <-- TAMBAHAN: Efek untuk membaca parameter URL setiap kali URL berubah
+  useEffect(() => {
+    const searchParams = new URLSearchParams(location.search);
+    const categoryParam = searchParams.get("category");
+
+    if (categoryParam) {
+      // Jika URL memiliki ?category=X, ubah state checkbox kategori dan kembali ke halaman 1
+      setSelectedCategories([Number(categoryParam)]);
+      setPage(1);
+    } else {
+      // Jika URL tidak memiliki parameter (misal klik menu Katalog biasa), kosongkan filter
+      setSelectedCategories([]);
+    }
+  }, [location.search]);
 
   // Fetch Data Produk (Merespon Perubahan Filter & Page)
   useEffect(() => {
