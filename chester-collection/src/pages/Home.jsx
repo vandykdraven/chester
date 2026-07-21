@@ -10,8 +10,13 @@ const formatRupiah = (angka) => {
   }).format(angka);
 };
 
-const ProductCard = ({ id, image, name, price, original_price }) => (
-  <Link to={`/product/${id}`} className="group font-lora block cursor-pointer">
+// DIPERBARUI: Mengganti parameter 'id' menjadi 'slug'
+const ProductCard = ({ slug, image, name, price, original_price }) => (
+  // DIPERBARUI: Tautan sekarang mengarah ke /product/nama-slug-produk
+  <Link
+    to={`/product/${slug}`}
+    className="group font-lora block cursor-pointer"
+  >
     <div className="aspect-[4/5] overflow-hidden mb-4 bg-gray-100 rounded-lg">
       <img
         src={image}
@@ -122,7 +127,6 @@ const NewArrivals = () => {
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
             {products.map((p) => {
-              // Sesuaikan pembacaan harga & gambar dengan arsitektur database kita
               const image = p.primary_image
                 ? `${BASE_URL}${p.primary_image}`
                 : "/placeholder.png";
@@ -135,8 +139,8 @@ const NewArrivals = () => {
 
               return (
                 <ProductCard
-                  key={p.id}
-                  id={p.id}
+                  key={p.id} // Key tetap menggunakan ID karena ini aturan internal React
+                  slug={p.slug} // DIPERBARUI: Mengirimkan data slug produk
                   image={image}
                   name={p.name}
                   price={price}

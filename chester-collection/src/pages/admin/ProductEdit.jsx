@@ -18,10 +18,18 @@ import "quill/dist/quill.snow.css";
 import { quillModules } from "../../utils/quillConfig";
 
 export default function ProductEdit() {
-  const { id } = useParams();
+  // DIPERBARUI: Menangkap 'slug' dari URL (asumsi route-nya sudah /admin/products/edit/:slug)
+  // Namun, jika route Anda di App.jsx untuk halaman edit ini masih /admin/products/edit/:id,
+  // Anda harus mengubah variabel ini menyesuaikan nama parameter di App.jsx Anda.
+  // Untuk amannya, kita asumsikan namanya sudah diubah menjadi :slug.
+  const { slug } = useParams();
+
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+
+  // DIPERBARUI: State untuk menyimpan ID asli produk agar bisa digunakan saat proses Simpan (PUT)
+  const [originalProductId, setOriginalProductId] = useState(null);
 
   const editorRef = useRef(null);
   const quillInstance = useRef(null);
@@ -81,7 +89,7 @@ export default function ProductEdit() {
 
   const BASE_URL = import.meta.env.VITE_API_URL.replace("/api", "");
 
-  // --- 1. AMBIL MASTER DATA (PANDUAN UKURAN, KATEGORI, TAG) DARI DB ---
+  // --- 1. AMBIL MASTER DATA ---
   useEffect(() => {
     const fetchMasterData = async () => {
       try {
@@ -101,15 +109,19 @@ export default function ProductEdit() {
     fetchMasterData();
   }, []);
 
-  // --- 2. AMBIL DATA PRODUK UNTUK DIEDIT ---
+  // --- 2. AMBIL DATA PRODUK (Berdasarkan Slug) ---
   useEffect(() => {
     const loadProductData = async () => {
       try {
+        // DIPERBARUI: Memanggil data menggunakan slug, bukan ID
         const response = await axios.get(
-          `${import.meta.env.VITE_API_URL}/products/${id}`,
+          `${import.meta.env.VITE_API_URL}/products/${slug}`,
         );
         if (response.data.success) {
           const p = response.data.data;
+
+          // DIPERBARUI: Simpan ID aslinya untuk kebutuhan penyimpanan nanti
+          setOriginalProductId(p.id);
 
           setFormData({
             name: p.name || "",
@@ -176,7 +188,7 @@ export default function ProductEdit() {
       }
     };
     loadProductData();
-  }, [id]);
+  }, [slug]); // <-- Pastikan ini bergantung pada slug
 
   // --- 3. INITIALIZE QUILL ---
   useEffect(() => {
@@ -256,7 +268,7 @@ export default function ProductEdit() {
   };
 
   // =======================================================================
-  // LOGIKA SMART TAGGING (AUTOCOMPLETE & AUTO-SAVE)
+  // LOGIKA SMART TAGGING
   // =======================================================================
   const [tagInput, setTagInput] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -326,6 +338,13 @@ export default function ProductEdit() {
   // --- 5. SUBMIT HANDLER ---
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // DIPERBARUI: Tambahkan pengaman agar data tidak disimpan sebelum ID asli didapatkan
+    if (!originalProductId) {
+      showAlert("Data produk belum selesai dimuat.", "error");
+      return;
+    }
+
     if (!images[0]) {
       showAlert("Foto utama produk wajib diisi!", "error");
       return;
@@ -363,8 +382,9 @@ export default function ProductEdit() {
       };
       dataToSend.append("data", JSON.stringify(payload));
 
+      // DIPERBARUI: Mengirimkan data (PUT) menggunakan originalProductId, BUKAN slug
       const response = await axios.put(
-        `${import.meta.env.VITE_API_URL}/products/${id}`,
+        `${import.meta.env.VITE_API_URL}/products/${originalProductId}`,
         dataToSend,
         {
           headers: { "Content-Type": "multipart/form-data" },

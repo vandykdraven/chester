@@ -34,7 +34,40 @@ export default function PaymentConfirmation() {
         `${import.meta.env.VITE_API_URL}/settings`,
       );
 
-      if (orderRes.data.success) setOrderData(orderRes.data.data);
+      if (orderRes.data.success) {
+        const orderData = orderRes.data.data;
+        setOrderData(orderData);
+
+        // ---> TAMBAHAN META PIXEL: Purchase <---
+        // Merekam pembelian yang berhasil dengan total Rupiah yang tepat
+        try {
+          if (window.fbq) {
+            // Mencegah konversi dicatat berulang kali jika user me-refresh halaman (opsional,
+            // tapi praktik baik untuk data yang lebih akurat). Kita gunakan localStorage
+            const pixelRecorded = localStorage.getItem(
+              `pixel_purchase_recorded_${orderId}`,
+            );
+
+            if (!pixelRecorded) {
+              window.fbq("track", "Purchase", {
+                value: orderData.total_amount || orderData.grand_total,
+                currency: "IDR",
+                content_ids: [orderId], // Opsional: ID pesanan
+                content_type: "product_group",
+              });
+              // Tandai agar tidak tercatat ganda jika di refresh
+              localStorage.setItem(
+                `pixel_purchase_recorded_${orderId}`,
+                "true",
+              );
+            }
+          }
+        } catch (fbqError) {
+          console.error("Meta Pixel Error (Purchase):", fbqError);
+        }
+        // ----------------------------------------
+      }
+
       if (settingsRes.data.success) {
         const apiSettings = settingsRes.data.data;
         setStoreSettings(apiSettings);

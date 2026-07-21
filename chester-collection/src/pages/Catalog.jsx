@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Link, useLocation } from "react-router-dom"; // <-- TAMBAHAN: Import useLocation
+import { Link, useLocation } from "react-router-dom";
 import {
   SlidersHorizontal,
   ChevronDown,
@@ -17,7 +17,6 @@ const formatRupiah = (angka) => {
   }).format(angka);
 };
 
-// Komponen Kartu Produk Khusus dengan Logika Hover Slider Kiri
 const ProductCard = ({ product }) => {
   const [currentImgIndex, setCurrentImgIndex] = useState(0);
   const timeoutRef = useRef(null);
@@ -50,7 +49,6 @@ const ProductCard = ({ product }) => {
   if (totalStock === 0) stockStatus = "sold";
   else if (totalStock > 0 && totalStock <= 5) stockStatus = "low";
 
-  // LOGIKA HARGA (Disesuaikan dengan halaman ProductPage)
   const currentPrice =
     product.has_variant === 1
       ? Number(product.min_v_price || 0)
@@ -62,7 +60,7 @@ const ProductCard = ({ product }) => {
 
   return (
     <Link
-      to={`/product/${product.id}`}
+      to={`/product/${product.slug}`}
       className="group font-lora block cursor-pointer"
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
@@ -106,7 +104,6 @@ const ProductCard = ({ product }) => {
         {product.name}
       </h3>
 
-      {/* TAMPILAN HARGA CORET */}
       <div className="flex flex-wrap items-center gap-2 mt-1">
         <p className="text-sm font-semibold text-chester-pink">
           {currentOriginalPrice > 0
@@ -129,12 +126,10 @@ export default function Catalog() {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // State untuk Server-Side Pagination
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalItems, setTotalItems] = useState(0);
 
-  // State untuk Filter (Terkirim ke Server)
   const [sortBy, setSortBy] = useState("terbaru");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [priceRange, setPriceRange] = useState(3000000);
@@ -142,44 +137,40 @@ export default function Catalog() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategories, setSelectedCategories] = useState([]);
 
-  const location = useLocation(); // <-- TAMBAHAN: Memanggil useLocation
+  const location = useLocation();
 
-  // Load Kategori Sekali Saja
   useEffect(() => {
     axios.get(`${import.meta.env.VITE_API_URL}/categories`).then((res) => {
       if (res.data.success) setCategories(res.data.data);
     });
   }, []);
 
-  // <-- TAMBAHAN: Efek untuk membaca parameter URL setiap kali URL berubah
+  // --- DIPERBARUI: Menangkap slug kategori dari URL ---
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search);
     const categoryParam = searchParams.get("category");
 
     if (categoryParam) {
-      // Jika URL memiliki ?category=X, ubah state checkbox kategori dan kembali ke halaman 1
-      setSelectedCategories([Number(categoryParam)]);
+      // Karena sekarang menggunakan slug (teks), kita bisa langsung menggunakannya.
+      // Jika URL adalah ?category=tops,pants maka kita pisahkan dengan koma
+      const slugs = categoryParam.split(",");
+      setSelectedCategories(slugs);
       setPage(1);
     } else {
-      // Jika URL tidak memiliki parameter (misal klik menu Katalog biasa), kosongkan filter
       setSelectedCategories([]);
     }
   }, [location.search]);
 
-  // Fetch Data Produk (Merespon Perubahan Filter & Page)
   useEffect(() => {
-    // Memberi jeda (Debounce) agar tidak spamming server saat user mengetik cepat atau menggeser slider harga
     const delayDebounceFn = setTimeout(() => {
       fetchProducts();
     }, 400);
-
     return () => clearTimeout(delayDebounceFn);
   }, [page, sortBy, availability, selectedCategories, priceRange, searchQuery]);
 
   const fetchProducts = async () => {
     setLoading(true);
     try {
-      // Menyusun parameter URL ke Server
       const params = new URLSearchParams({
         page: page,
         limit: 12,
@@ -189,6 +180,7 @@ export default function Catalog() {
         search: searchQuery,
       });
 
+      // selectedCategories sekarang berisi array slug (contoh: ['tops', 'pants'])
       if (selectedCategories.length > 0) {
         params.append("category", selectedCategories.join(","));
       }
@@ -208,23 +200,22 @@ export default function Catalog() {
     }
   };
 
-  // Reset ke halaman 1 jika ada filter yang diubah pengguna (kecuali ganti halaman)
   const handleFilterChange = (setter, value) => {
     setter(value);
     setPage(1);
   };
 
-  const handleCategoryToggle = (categoryId) => {
+  // --- DIPERBARUI: Menerima categorySlug, bukan lagi categoryId ---
+  const handleCategoryToggle = (categorySlug) => {
     setSelectedCategories((prev) => {
-      const isExist = prev.includes(categoryId);
+      const isExist = prev.includes(categorySlug);
       setPage(1);
       return isExist
-        ? prev.filter((id) => id !== categoryId)
-        : [...prev, categoryId];
+        ? prev.filter((slug) => slug !== categorySlug)
+        : [...prev, categorySlug];
     });
   };
 
-  // Logika Render UI Angka Pagination (Misal: 1 2 3 ... 12)
   const renderPaginationNumbers = () => {
     let pages = [];
     for (let i = 1; i <= totalPages; i++) {
@@ -263,7 +254,6 @@ export default function Catalog() {
   return (
     <div className="bg-white min-h-screen font-lora py-8">
       <div className="container mx-auto px-4 relative max-w-7xl">
-        {/* HEADER */}
         <div className="mb-8 text-center md:text-left flex flex-col md:flex-row justify-between items-center gap-4">
           <div>
             <h1 className="text-3xl md:text-4xl font-bold text-chester-text mb-3">
@@ -302,7 +292,6 @@ export default function Catalog() {
         </button>
 
         <div className="flex flex-col md:flex-row gap-8 lg:gap-12 relative items-start">
-          {/* SIDEBAR FILTER */}
           <aside
             className={`w-full md:w-64 lg:w-72 flex-shrink-0 self-start md:sticky md:top-32 ${isFilterOpen ? "block" : "hidden md:block"}`}
           >
@@ -316,10 +305,11 @@ export default function Catalog() {
                     key={cat.id}
                     className="flex items-center gap-3 cursor-pointer group"
                   >
+                    {/* DIPERBARUI: Menggunakan cat.slug bukan cat.id */}
                     <input
                       type="checkbox"
-                      checked={selectedCategories.includes(cat.id)}
-                      onChange={() => handleCategoryToggle(cat.id)}
+                      checked={selectedCategories.includes(cat.slug)}
+                      onChange={() => handleCategoryToggle(cat.slug)}
                       className="w-4 h-4 rounded-none border-gray-300 accent-chester-pink"
                     />
                     <span className="text-sm text-gray-600 group-hover:text-chester-pink transition">
@@ -390,7 +380,6 @@ export default function Catalog() {
             </div>
           </aside>
 
-          {/* AREA PRODUK & PAGINATION */}
           <main className="flex-1 min-w-0">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-gray-100 mb-6 gap-4">
               <p className="text-sm text-gray-500">
@@ -437,12 +426,11 @@ export default function Catalog() {
             ) : (
               <div className="grid grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-8 md:gap-x-6 md:gap-y-10 mb-16">
                 {products.map((product) => (
-                  <ProductCard key={product.id} product={product} />
+                  <ProductCard key={product.slug} product={product} />
                 ))}
               </div>
             )}
 
-            {/* UI Pagination Dinamis (Aktif & Berjalan!) */}
             {totalPages > 1 && (
               <div className="flex justify-center items-center gap-2 pt-8 border-t border-gray-100 font-lora">
                 <button

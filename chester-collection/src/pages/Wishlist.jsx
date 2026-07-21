@@ -227,49 +227,63 @@ export default function Wishlist() {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {wishlists.map((item) => (
-                    <div
-                      key={item.wishlist_id}
-                      className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow group"
-                    >
-                      <div className="relative aspect-[4/5] bg-gray-100 overflow-hidden">
-                        <img
-                          src={
-                            item.primary_image
-                              ? `${BASE_URL}${item.primary_image}`
-                              : "/placeholder.png"
-                          }
-                          alt={item.name}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                        />
-                        <button
-                          onClick={() => removeWishlist(item.wishlist_id)}
-                          className="absolute top-3 right-3 bg-white/90 backdrop-blur p-2 rounded-full text-gray-400 hover:text-red-500 hover:bg-white shadow-sm transition-all"
-                          title="Hapus dari Wishlist"
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      </div>
+                  {wishlists.map((item) => {
+                    // DIPERBARUI: Kalkulasi harga seperti di Home/Catalog
+                    const displayPrice =
+                      item.has_variant === 1
+                        ? Number(item.min_v_price || item.price || 0)
+                        : Number(item.price || 0);
 
-                      <div className="p-4 flex flex-col justify-between h-36">
-                        <div>
-                          <h4 className="font-bold text-gray-900 text-sm line-clamp-2">
-                            {item.name}
-                          </h4>
-                          <p className="font-black text-chester-pink mt-1">
-                            {formatRupiah(item.price)}
-                          </p>
+                    // DIPERBARUI: Fallback ke product_id jika slug kosong
+                    const targetLink = item.slug
+                      ? `/product/${item.slug}`
+                      : `/product/${item.product_id}`;
+
+                    return (
+                      <div
+                        key={item.wishlist_id}
+                        className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow group"
+                      >
+                        <div className="relative aspect-[4/5] bg-gray-100 overflow-hidden">
+                          <img
+                            src={
+                              item.primary_image
+                                ? `${BASE_URL}${item.primary_image}`
+                                : "/placeholder.png"
+                            }
+                            alt={item.name}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                          />
+                          <button
+                            onClick={() => removeWishlist(item.wishlist_id)}
+                            className="absolute top-3 right-3 bg-white/90 backdrop-blur p-2 rounded-full text-gray-400 hover:text-red-500 hover:bg-white shadow-sm transition-all"
+                            title="Hapus dari Wishlist"
+                          >
+                            <Trash2 size={18} />
+                          </button>
                         </div>
 
-                        <Link
-                          to={`/product/${item.product_id}`}
-                          className="w-full flex items-center justify-center gap-2 bg-pink-50 hover:bg-pink-100 text-chester-pink py-2.5 rounded-xl text-xs font-bold transition-colors mt-3"
-                        >
-                          <ShoppingCart size={14} /> Lihat Produk
-                        </Link>
+                        <div className="p-4 flex flex-col justify-between h-36">
+                          <div>
+                            <h4 className="font-bold text-gray-900 text-sm line-clamp-2">
+                              {item.name}
+                            </h4>
+                            <p className="font-black text-chester-pink mt-1">
+                              {/* DIPERBARUI: Memanggil displayPrice */}
+                              {formatRupiah(displayPrice)}
+                            </p>
+                          </div>
+
+                          <Link
+                            to={targetLink}
+                            className="w-full flex items-center justify-center gap-2 bg-pink-50 hover:bg-pink-100 text-chester-pink py-2.5 rounded-xl text-xs font-bold transition-colors mt-3"
+                          >
+                            <ShoppingCart size={14} /> Lihat Produk
+                          </Link>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

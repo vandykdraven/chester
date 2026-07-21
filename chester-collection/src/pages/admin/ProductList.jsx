@@ -254,12 +254,12 @@ export default function ProductList() {
           </div>
 
           <div className="flex w-full md:w-auto gap-3">
-            {/* Tombol Filter Spesifik (Kosong untuk UI Saat ini) */}
+            {/* Tombol Filter Spesifik */}
             <button className="flex items-center gap-2 px-4 py-2 border border-gray-200 text-sm font-semibold text-gray-600 rounded-lg hover:bg-gray-50 transition w-full md:w-auto justify-center">
               <Filter size={16} /> Filter
             </button>
 
-            {/* Dropdown Pengurutan (Tersambung ke State sortBy) */}
+            {/* Dropdown Pengurutan */}
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
@@ -317,7 +317,7 @@ export default function ProductList() {
 
                   const currentStatus = getDerivedStatus(product, actualStock);
 
-                  // LOGIKA HARGA BARU (Disesuaikan untuk mendukung Harga Coret)
+                  // LOGIKA HARGA
                   let currentPrice = 0;
                   let currentOriginalPrice = 0;
                   let isRange = false;
@@ -388,8 +388,9 @@ export default function ProductList() {
                             )}
                           </div>
                           <div>
+                            {/* PEMBARUAN: Menggunakan product.slug untuk nama yang diklik */}
                             <Link
-                              to={`/admin/products/edit/${product.id}`}
+                              to={`/admin/products/edit/${product.slug}`}
                               className="font-bold text-chester-text hover:text-chester-pink transition line-clamp-1"
                             >
                               {product.name}
@@ -413,7 +414,9 @@ export default function ProductList() {
 
                       <td className="p-5 align-middle">
                         <span
-                          className={`font-semibold ${actualStock <= 5 ? "text-red-500" : "text-gray-600"}`}
+                          className={`font-semibold ${
+                            actualStock <= 5 ? "text-red-500" : "text-gray-600"
+                          }`}
                         >
                           {actualStock} pcs
                         </span>
@@ -421,7 +424,9 @@ export default function ProductList() {
 
                       <td className="p-5 align-middle">
                         <span
-                          className={`inline-flex px-3 py-1 rounded-full text-xs font-bold border ${getStatusStyle(currentStatus)}`}
+                          className={`inline-flex px-3 py-1 rounded-full text-xs font-bold border ${getStatusStyle(
+                            currentStatus,
+                          )}`}
                         >
                           {currentStatus}
                         </span>
@@ -429,8 +434,9 @@ export default function ProductList() {
 
                       <td className="p-5 text-right align-middle">
                         <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {/* PEMBARUAN: Menggunakan product.slug untuk tombol pensil/edit */}
                           <Link
-                            to={`/admin/products/edit/${product.id}`}
+                            to={`/admin/products/edit/${product.slug}`}
                             className="w-8 h-8 rounded bg-gray-50 text-gray-600 hover:text-blue-600 hover:bg-blue-50 flex items-center justify-center transition border border-gray-200"
                           >
                             <Edit size={16} />

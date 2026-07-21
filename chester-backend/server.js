@@ -113,14 +113,22 @@ app.post("/api/products", cpUpload, async (req, res) => {
         .status(400)
         .json({ success: false, message: "Nama produk wajib diisi!" });
 
+    // Membuat slug otomatis dari nama produk
+    const slug = name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)+/g, "");
+
     const connection = await db.getConnection();
     await connection.beginTransaction();
 
     try {
+      // Menambahkan kolom "slug" pada query INSERT
       const [productResult] = await connection.query(
-        `INSERT INTO products (name, category_id, size_guide_id, description, video_url, status, price, original_price, stock, weight, sku, has_variant, variant_types_json, seo_title, seo_description, seo_keywords) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO products (name, slug, category_id, size_guide_id, description, video_url, status, price, original_price, stock, weight, sku, has_variant, variant_types_json, seo_title, seo_description, seo_keywords) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           name,
+          slug, // Memasukkan variabel slug ke database
           category || null,
           size_guide_id || null,
           description || null,
@@ -237,10 +245,10 @@ app.post("/api/products", cpUpload, async (req, res) => {
 
 app.get("/api/products", async (req, res) => {
   try {
-    // 1. Tangkap parameter dari URL (Frontend)
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 12; // Menampilkan 12 produk per halaman
+    const limit = parseInt(req.query.limit) || 12;
     const search = req.query.search || "";
+    // Menangkap parameter category (kini berupa slug, contoh: "tops,pants")
     const category = req.query.category || "";
     const maxPrice = req.query.maxPrice || 3000000;
     const availability = req.query.availability || "all";
@@ -248,9 +256,10 @@ app.get("/api/products", async (req, res) => {
 
     const offset = (page - 1) * limit;
 
-    // 2. Susun kerangka dasar Query SQL
+    // DIPERBARUI: Menambahkan LEFT JOIN ke tabel product_categories
     let baseQuery = `
       FROM products p
+      LEFT JOIN product_categories pc ON p.category_id = pc.id
       LEFT JOIN product_images pi ON p.id = pi.product_id AND pi.is_primary = 1
       LEFT JOIN product_variants pv ON p.id = pv.product_id
     `;
@@ -258,28 +267,28 @@ app.get("/api/products", async (req, res) => {
     let whereClauses = [];
     let queryParams = [];
 
-    // Filter Pencarian
     if (search) {
       whereClauses.push("p.name LIKE ?");
       queryParams.push(`%${search}%`);
     }
 
-    // Filter Kategori (Menerima format "1,2,3")
+    // DIPERBARUI: Logika filter menggunakan array slug (string)
     if (category) {
       const catArray = category
         .split(",")
-        .map((id) => parseInt(id))
-        .filter((id) => !isNaN(id));
+        .map((slug) => slug.trim()) // Membersihkan spasi di sekitar slug
+        .filter((slug) => slug.length > 0); // Memastikan slug tidak kosong
+
       if (catArray.length > 0) {
-        whereClauses.push(
-          `p.category_id IN (${catArray.map(() => "?").join(",")})`,
-        );
+        // Menggunakan kolom pc.slug dari tabel product_categories
+        whereClauses.push(`pc.slug IN (${catArray.map(() => "?").join(",")})`);
         queryParams.push(...catArray);
       }
     }
 
+    // Menambahkan p.slug agar frontend bisa memakai data slug
     let selectClause = `
-      SELECT p.id, p.name, p.category_id, p.price, p.original_price, p.stock, p.status, p.has_variant, p.sku, p.created_at, 
+      SELECT p.id, p.name, p.slug, p.category_id, p.price, p.original_price, p.stock, p.status, p.has_variant, p.sku, p.created_at, 
       pi.image_url AS primary_image, 
       MIN(pv.price) AS min_v_price, MAX(pv.price) AS max_v_price, 
       MIN(pv.original_price) AS min_v_original_price, SUM(pv.stock) AS total_v_stock
@@ -289,7 +298,6 @@ app.get("/api/products", async (req, res) => {
       whereClauses.length > 0 ? " WHERE " + whereClauses.join(" AND ") : "";
     let groupByString = " GROUP BY p.id, pi.image_url";
 
-    // Filter Harga & Stok menggunakan HAVING (karena kita pakai data Agregat/Group)
     let havingClauses = [];
     havingClauses.push(`(IF(p.has_variant = 1, min_v_price, p.price) <= ?)`);
     queryParams.push(maxPrice);
@@ -300,7 +308,6 @@ app.get("/api/products", async (req, res) => {
     let havingString =
       havingClauses.length > 0 ? " HAVING " + havingClauses.join(" AND ") : "";
 
-    // Logika Sortir/Urutkan
     let orderString = " ORDER BY p.created_at DESC";
     if (sortBy === "termurah") {
       orderString = " ORDER BY IF(p.has_variant = 1, min_v_price, p.price) ASC";
@@ -311,13 +318,11 @@ app.get("/api/products", async (req, res) => {
       orderString = " ORDER BY p.name ASC";
     }
 
-    // 3. Eksekusi Query untuk Hitung Total Halaman (Pagination)
     let countQuery = `SELECT COUNT(*) as total FROM (${selectClause} ${baseQuery} ${whereString} ${groupByString} ${havingString}) as count_table`;
     const [countResult] = await db.query(countQuery, queryParams);
     const totalItems = countResult[0].total;
     const totalPages = Math.ceil(totalItems / limit);
 
-    // 4. Eksekusi Query Pengambilan Data sesuai Halaman
     let dataQuery = `${selectClause} ${baseQuery} ${whereString} ${groupByString} ${havingString} ${orderString} LIMIT ? OFFSET ?`;
     queryParams.push(limit, offset);
     const [rows] = await db.query(dataQuery, queryParams);
@@ -357,26 +362,32 @@ app.delete("/api/products/:id", async (req, res) => {
   }
 });
 
-app.get("/api/products/:id", async (req, res) => {
+// Merubah parameter dari :id menjadi :slug untuk detail produk
+app.get("/api/products/:slug", async (req, res) => {
   try {
-    const [products] = await db.query("SELECT * FROM products WHERE id = ?", [
-      req.params.id,
+    // Cari berdasarkan kolom slug
+    const [products] = await db.query("SELECT * FROM products WHERE slug = ?", [
+      req.params.slug, // Menangkap parameter slug
     ]);
     if (products.length === 0)
       return res
         .status(404)
         .json({ success: false, message: "Produk tidak ditemukan!" });
+
+    // Ambil ID aslinya untuk mencari relasi gambar dan varian
+    const productId = products[0].id;
+
     const [images] = await db.query(
       "SELECT id, image_url, is_primary FROM product_images WHERE product_id = ?",
-      [req.params.id],
+      [productId], // Gunakan productId
     );
     const [variants] = await db.query(
       "SELECT * FROM product_variants WHERE product_id = ?",
-      [req.params.id],
+      [productId], // Gunakan productId
     );
     const [wholesales] = await db.query(
       "SELECT * FROM product_wholesales WHERE product_id = ?",
-      [req.params.id],
+      [productId], // Gunakan productId
     );
     return res.status(200).json({
       success: true,
@@ -423,13 +434,21 @@ app.put(
       imagesConfig,
     } = JSON.parse(req.body.data);
 
+    // Otomatis memperbarui slug jika nama produk diganti di halaman admin
+    const slug = name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)+/g, "");
+
     const connection = await db.getConnection();
     try {
       await connection.beginTransaction();
+      // Menambahkan update untuk kolom slug
       await connection.query(
-        `UPDATE products SET name = ?, category_id = ?, size_guide_id = ?, description = ?, video_url = ?, status = ?, price = ?, original_price = ?, stock = ?, weight = ?, sku = ?, has_variant = ?, variant_types_json = ?, seo_title = ?, seo_description = ?, seo_keywords = ? WHERE id = ?`,
+        `UPDATE products SET name = ?, slug = ?, category_id = ?, size_guide_id = ?, description = ?, video_url = ?, status = ?, price = ?, original_price = ?, stock = ?, weight = ?, sku = ?, has_variant = ?, variant_types_json = ?, seo_title = ?, seo_description = ?, seo_keywords = ? WHERE id = ?`,
         [
           name,
+          slug, // Memasukkan pembaruan slug
           category_id || null,
           size_guide_id || null,
           description,
@@ -2278,14 +2297,24 @@ app.get("/api/users/:id/wishlists", async (req, res) => {
   try {
     const userId = req.params.id;
 
-    // Query penggabungan (JOIN) untuk mengambil data wishlist sekaligus gambar dan harga produknya
+    // DIPERBARUI: Menambahkan p.slug, LEFT JOIN ke product_variants, dan MIN(pv.price)
     const [rows] = await db.query(
       `
-      SELECT w.id as wishlist_id, p.id as product_id, p.name, p.price, p.status, p.has_variant,
-             (SELECT image_url FROM product_images WHERE product_id = p.id AND is_primary = 1 LIMIT 1) as primary_image
+      SELECT 
+        w.id as wishlist_id, 
+        p.id as product_id, 
+        p.name, 
+        p.slug, 
+        p.price, 
+        p.status, 
+        p.has_variant,
+        (SELECT image_url FROM product_images WHERE product_id = p.id AND is_primary = 1 LIMIT 1) as primary_image,
+        MIN(pv.price) as min_v_price
       FROM wishlists w
       JOIN products p ON w.product_id = p.id
+      LEFT JOIN product_variants pv ON p.id = pv.product_id
       WHERE w.user_id = ?
+      GROUP BY w.id, p.id
       ORDER BY w.created_at DESC
     `,
       [userId],

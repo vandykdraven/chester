@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import {
-  HashRouter as Router,
+  BrowserRouter as Router,
   Routes,
   Route,
   Link,
@@ -248,8 +248,8 @@ const Header = ({ setIsCartOpen, cartCount }) => {
             {/* MENU KATEGORI DINAMIS DARI DATABASE */}
             {dynamicMenus.map((menu) => (
               <Link
-                key={menu.id}
-                to={`/products?category=${menu.id}`}
+                key={menu.slug}
+                to={`/products?category=${menu.slug}`}
                 className="text-sm font-bold text-chester-text hover:text-chester-pink transition"
               >
                 {menu.name}
@@ -563,6 +563,84 @@ function PageTracker() {
 }
 
 // =======================================================================
+// KOMPONEN BARU: PENYUNTIK SCRIPT MARKETING (GA4, PIXEL, GSC)
+// =======================================================================
+function MarketingScripts() {
+  useEffect(() => {
+    const injectScripts = async () => {
+      try {
+        const response = await axios.get(
+          `${import.meta.env.VITE_API_URL}/settings`,
+        );
+        if (response.data.success) {
+          let settingsMap = {};
+          response.data.data.forEach(
+            (i) => (settingsMap[i.setting_key] = i.setting_value),
+          );
+
+          const gaId = settingsMap.google_analytics_id;
+          const pixelId = settingsMap.meta_pixel_id;
+          const gscTag = settingsMap.gsc_verification_tag;
+
+          // 1. Google Analytics (GA4) Injection
+          if (gaId && !document.getElementById("ga-script-manager")) {
+            const script1 = document.createElement("script");
+            script1.id = "ga-script-manager";
+            script1.async = true;
+            script1.src = `https://www.googletagmanager.com/gtag/js?id=${gaId}`;
+            document.head.appendChild(script1);
+
+            const script2 = document.createElement("script");
+            script2.id = "ga-script-config";
+            script2.innerHTML = `
+              window.dataLayer = window.dataLayer || [];
+              function gtag(){dataLayer.push(arguments);}
+              gtag('js', new Date());
+              gtag('config', '${gaId}');
+            `;
+            document.head.appendChild(script2);
+          }
+
+          // 2. Meta Pixel Injection
+          if (pixelId && !document.getElementById("meta-pixel-script")) {
+            const script3 = document.createElement("script");
+            script3.id = "meta-pixel-script";
+            script3.innerHTML = `
+              !function(f,b,e,v,n,t,s)
+              {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+              n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+              if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+              n.queue=[];t=b.createElement(e);t.async=!0;
+              t.src=v;s=b.getElementsByTagName(e)[0];
+              s.parentNode.insertBefore(t,s)}(window, document,'script',
+              'https://connect.facebook.net/en_US/fbevents.js');
+              fbq('init', '${pixelId}');
+              fbq('track', 'PageView');
+            `;
+            document.head.appendChild(script3);
+          }
+
+          // 3. Google Search Console Verification Tag Injection
+          if (gscTag && !document.getElementById("gsc-verification-meta")) {
+            const meta = document.createElement("meta");
+            meta.id = "gsc-verification-meta";
+            meta.name = "google-site-verification";
+            meta.content = gscTag;
+            document.head.appendChild(meta);
+          }
+        }
+      } catch (error) {
+        console.error("Gagal menarik konfigurasi skrip marketing:", error);
+      }
+    };
+
+    injectScripts();
+  }, []); // Hanya dieksekusi sekali saat website pertama kali dibuka
+
+  return null; // Komponen ini bekerja di latar belakang, tidak menampilkan apa-apa di layar
+}
+
+// =======================================================================
 // KOMPONEN UTAMA (APP)
 // =======================================================================
 export default function App() {
@@ -636,6 +714,8 @@ export default function App() {
     <Router>
       <PageTracker />
       <SEOTracker />
+      {/* MENGAKTIFKAN INJEKTOR SCRIPT MARKETING */}
+      <MarketingScripts />
 
       <Routes>
         <Route path="/admin-login" element={<AdminLogin />} />
@@ -652,7 +732,7 @@ export default function App() {
             <Route path="orders/:id" element={<OrderDetail />} />
             <Route path="settings" element={<Settings />} />
             <Route path="product-categories" element={<ProductCategory />} />
-            <Route path="products/edit/:id" element={<ProductEdit />} />
+            <Route path="products/edit/:slug" element={<ProductEdit />} />
             <Route path="products/gallery" element={<GalleryList />} />
             <Route path="size-guides" element={<SizeGuideList />} />
             <Route path="size-guides/add" element={<SizeGuideForm />} />
@@ -674,7 +754,7 @@ export default function App() {
                 <Routes>
                   <Route path="/" element={<Home />} />
                   <Route path="/products" element={<Catalog />} />
-                  <Route path="/product/:id" element={<ProductPage />} />
+                  <Route path="/product/:slug" element={<ProductPage />} />
                   <Route path="/orders" element={<Orders />} />
                   <Route path="/vouchers" element={<Vouchers />} />
                   <Route path="/wishlist" element={<Wishlist />} />

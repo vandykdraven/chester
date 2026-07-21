@@ -20,7 +20,6 @@ const formatRupiah = (angka) => {
   }).format(angka);
 };
 
-// Fungsi Cerdas untuk Mengubah Link YouTube Biasa menjadi Link Embed Autoplay
 const getYouTubeEmbedUrl = (url) => {
   if (!url) return null;
   const ytRegex =
@@ -33,7 +32,8 @@ const getYouTubeEmbedUrl = (url) => {
 };
 
 export default function ProductPage() {
-  const { id } = useParams();
+  // DIPERBARUI: Menangkap 'slug' dari URL, bukan lagi 'id'
+  const { slug } = useParams();
   const navigate = useNavigate();
 
   const [product, setProduct] = useState(null);
@@ -62,12 +62,11 @@ export default function ProductPage() {
       sessionStorage.getItem("customerUser"),
   );
 
+  // DIPERBARUI: Memantau perubahan 'slug'
   useEffect(() => {
     fetchProductDetails();
-    if (customerUser) {
-      checkWishlistStatus();
-    }
-  }, [id]);
+    // checkWishlistStatus dipanggil dari dalam fetchProductDetails setelah ID asli didapatkan
+  }, [slug]);
 
   const showAlert = (message, type = "success") => {
     setCustomAlert({ show: true, message, type });
@@ -80,8 +79,9 @@ export default function ProductPage() {
   const fetchProductDetails = async () => {
     setLoading(true);
     try {
+      // DIPERBARUI: Memanggil backend dengan parameter 'slug'
       const res = await axios.get(
-        `${import.meta.env.VITE_API_URL}/products/${id}`,
+        `${import.meta.env.VITE_API_URL}/products/${slug}`,
       );
       if (res.data.success) {
         const prodData = res.data.data;
@@ -100,7 +100,13 @@ export default function ProductPage() {
           setSelectedVariant(prodData.variants[0]);
         }
 
-        fetchRelatedProducts(prodData.category_id);
+        // DIPERBARUI: Meneruskan ID produk asli agar tidak muncul di produk terkait
+        fetchRelatedProducts(prodData.category_id, prodData.id);
+
+        // DIPERBARUI: Mengecek wishlist menggunakan ID produk asli
+        if (customerUser) {
+          checkWishlistStatus(prodData.id);
+        }
       }
     } catch (error) {
       console.error("Gagal memuat produk:", error);
@@ -109,11 +115,13 @@ export default function ProductPage() {
     }
   };
 
-  const fetchRelatedProducts = async (categoryId) => {
+  // DIPERBARUI: Menerima parameter currentProductId
+  const fetchRelatedProducts = async (categoryId, currentProductId) => {
     try {
       const res = await axios.get(`${import.meta.env.VITE_API_URL}/products`);
       if (res.data.success) {
-        let filtered = res.data.data.filter((p) => p.id !== parseInt(id));
+        // Hindari menampilkan produk yang sedang dibuka menggunakan ID asli
+        let filtered = res.data.data.filter((p) => p.id !== currentProductId);
         if (categoryId) {
           const sameCat = filtered.filter((p) => p.category_id === categoryId);
           if (sameCat.length > 0) filtered = sameCat;
@@ -125,14 +133,15 @@ export default function ProductPage() {
     }
   };
 
-  const checkWishlistStatus = async () => {
+  // DIPERBARUI: Menerima parameter currentProductId
+  const checkWishlistStatus = async (currentProductId) => {
     try {
       const res = await axios.get(
         `${import.meta.env.VITE_API_URL}/users/${customerUser.id}/wishlists`,
       );
       if (res.data.success) {
         const isExist = res.data.data.some(
-          (w) => w.product_id === parseInt(id),
+          (w) => w.product_id === currentProductId,
         );
         setIsWishlisted(isExist);
       }
@@ -156,7 +165,7 @@ export default function ProductPage() {
           `${import.meta.env.VITE_API_URL}/wishlists`,
           {
             user_id: customerUser.id,
-            product_id: parseInt(id),
+            product_id: product.id, // DIPERBARUI: Menggunakan ID dari state
           },
         );
         if (res.data.success) {
@@ -178,20 +187,17 @@ export default function ProductPage() {
   };
 
   const handleAddToCart = async () => {
-    // 1. Cek apakah pelanggan sudah login
     if (!customerUser) {
       showAlert("Silakan login untuk menambahkan ke keranjang.", "error");
       setTimeout(() => navigate("/login"), 2000);
       return;
     }
 
-    // 2. Cek apakah produk ini wajib pilih variasi (warna/ukuran) tapi belum dipilih
     if (product.has_variant === 1 && !selectedVariant) {
       showAlert("Silakan pilih variasi produk terlebih dahulu.", "error");
       return;
     }
 
-    // 3. Kirim data ke API Backend
     try {
       const payload = {
         user_id: customerUser.id,
@@ -207,9 +213,27 @@ export default function ProductPage() {
 
       if (res.data.success) {
         showAlert("Berhasil ditambahkan ke keranjang!", "success");
-
-        // Memicu sinyal khusus agar App.jsx memperbarui laci keranjang tanpa refresh halaman!
         window.dispatchEvent(new Event("cartUpdated"));
+
+        // ---> TAMBAHAN META PIXEL: AddToCart <---
+        try {
+          if (window.fbq) {
+            const trackPrice = selectedVariant
+              ? Number(selectedVariant.price || 0)
+              : Number(product.price || 0);
+
+            window.fbq("track", "AddToCart", {
+              content_name: product.name,
+              content_ids: [product.id],
+              content_type: "product",
+              value: trackPrice * quantity, // Total harga item x jumlah
+              currency: "IDR",
+            });
+          }
+        } catch (fbqError) {
+          console.error("Meta Pixel Error (AddToCart):", fbqError);
+        }
+        // ----------------------------------------
       }
     } catch (error) {
       console.error("Gagal tambah keranjang:", error);
@@ -218,14 +242,12 @@ export default function ProductPage() {
   };
 
   const handleBuyNow = async () => {
-    // 1. Cek apakah pelanggan sudah login
     if (!customerUser) {
       showAlert("Silakan login untuk memproses pesanan.", "error");
       setTimeout(() => navigate("/login"), 2000);
       return;
     }
 
-    // 2. Cek apakah produk ini wajib pilih variasi (warna/ukuran) tapi belum dipilih
     if (product.has_variant === 1 && !selectedVariant) {
       showAlert("Silakan pilih variasi produk terlebih dahulu.", "error");
       return;
@@ -243,12 +265,25 @@ export default function ProductPage() {
         `${import.meta.env.VITE_API_URL}/carts`,
         payload,
       );
+      try {
+        if (window.fbq) {
+          const trackPrice = selectedVariant
+            ? Number(selectedVariant.price || 0)
+            : Number(product.price || 0);
 
+          window.fbq("track", "AddToCart", {
+            content_name: product.name,
+            content_ids: [product.id],
+            content_type: "product",
+            value: trackPrice * quantity, // Total harga item x jumlah
+            currency: "IDR",
+          });
+        }
+      } catch (fbqError) {
+        console.error("Meta Pixel Error (AddToCart):", fbqError);
+      }
       if (res.data.success) {
-        // Memicu sinyal khusus agar App.jsx memperbarui keranjang
         window.dispatchEvent(new Event("cartUpdated"));
-
-        // LANGSUNG PINDAH KE CHECKOUT
         navigate("/checkout");
       }
     } catch (error) {
@@ -315,7 +350,6 @@ export default function ProductPage() {
     );
   }
 
-  // MENGAMBIL HARGA DARI VARIASI (Memastikan format Number agar > dan < bekerja)
   const currentPrice = selectedVariant
     ? Number(selectedVariant.price || 0)
     : Number(product.price || 0);
@@ -429,16 +463,13 @@ export default function ProductPage() {
               {product.name}
             </h1>
 
-            {/* AREA HARGA CORET */}
             <div className="flex items-end gap-3 mb-8">
-              {/* Menampilkan original_price sebagai Harga Jual (Utama) */}
               <p className="text-2xl text-chester-pink font-medium">
                 {currentOriginalPrice > 0
                   ? formatRupiah(currentOriginalPrice)
                   : formatRupiah(currentPrice)}
               </p>
 
-              {/* Menampilkan price sebagai Harga Lama (Dicoret) HANYA jika original_price ada nilainya */}
               {currentOriginalPrice > 0 && (
                 <p className="text-lg text-gray-400 line-through decoration-gray-300 font-medium pb-0.5">
                   {formatRupiah(currentPrice)}
@@ -524,10 +555,6 @@ export default function ProductPage() {
                 <h3 className="text-sm font-bold text-chester-text uppercase tracking-wider mb-3">
                   Deskripsi Produk
                 </h3>
-                {/* 
-                  Perbaikan: Mengubah [&_ol]:!list-decimal menjadi [&_ol]:!list-disc 
-                  sehingga semua daftar angka paksa diubah menjadi titik bullet.
-                */}
                 <div
                   className="text-sm text-gray-600 leading-relaxed [&_ul]:!list-disc [&_ul]:!pl-5 [&_ol]:!list-disc [&_ol]:!pl-5 [&_li]:!mb-2 [&_li]:!ml-4"
                   dangerouslySetInnerHTML={{
@@ -547,7 +574,6 @@ export default function ProductPage() {
           </div>
         </div>
 
-        {/* --- BAGIAN PRODUK TERKAIT --- */}
         {relatedProducts.length > 0 && (
           <div className="mt-24 pt-16 border-t border-gray-100">
             <div className="flex justify-between items-end mb-10">
@@ -564,7 +590,6 @@ export default function ProductPage() {
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
               {relatedProducts.map((rel) => {
-                // 1. Logika untuk menentukan harga produk terkait (memperhitungkan variasi)
                 const relPrice =
                   rel.has_variant === 1
                     ? Number(rel.min_v_price || 0)
@@ -577,10 +602,9 @@ export default function ProductPage() {
                 return (
                   <Link
                     key={rel.id}
-                    to={`/product/${rel.id}`}
+                    to={`/product/${rel.slug}`} // <-- DIPERBARUI: Menggunakan SLUG
                     className="group font-lora block cursor-pointer"
                   >
-                    {/* Area Gambar Produk */}
                     <div className="aspect-[4/5] overflow-hidden mb-4 bg-gray-100 relative rounded-lg">
                       <img
                         src={
@@ -598,12 +622,10 @@ export default function ProductPage() {
                       )}
                     </div>
 
-                    {/* Area Nama Produk */}
                     <h3 className="text-sm font-medium text-chester-text group-hover:text-chester-pink transition mb-1 line-clamp-1">
                       {rel.name}
                     </h3>
 
-                    {/* Area Harga (Diperbarui dengan logika Harga Coret) */}
                     <div className="flex flex-wrap items-center gap-2 mt-1">
                       <p className="text-sm font-semibold text-chester-pink">
                         {relOriginalPrice > 0

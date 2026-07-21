@@ -19,7 +19,8 @@ import {
   Hash,
   User,
   Share2,
-  Menu as MenuIcon, // Icon untuk tab Navigasi Website
+  Menu as MenuIcon,
+  BarChart, // <-- TAMBAHAN: Ikon untuk Menu Integrasi
 } from "lucide-react";
 import axios from "axios";
 
@@ -51,11 +52,14 @@ export default function Settings() {
     smtp_user: "",
     smtp_password: "",
     fonnte_api_key: "",
-    // Field Media Sosial
     social_facebook: "",
     social_instagram: "",
     social_tiktok: "",
     social_twitter: "",
+    // --- TAMBAHAN: Field untuk Integrasi Tracking ---
+    meta_pixel_id: "",
+    google_analytics_id: "",
+    gsc_verification_tag: "",
   });
 
   // STATE: Rekening Bank Multiple
@@ -63,7 +67,7 @@ export default function Settings() {
     { bank_name: "", bank_account: "", bank_owner: "" },
   ]);
 
-  // STATE BARU: Khusus untuk Navigasi (Daftar Kategori & Pilihan Centang)
+  // STATE BARU: Khusus untuk Navigasi
   const [categories, setCategories] = useState([]);
   const [activeMenus, setActiveMenus] = useState([]);
 
@@ -100,7 +104,6 @@ export default function Settings() {
 
   const initPage = async () => {
     setIsLoading(true);
-    // Jalankan semua fetch secara paralel agar lebih cepat
     await Promise.all([fetchSettings(), fetchAdmins(), fetchCategories()]);
     loadCurrentLoggedInAdmin();
     setIsLoading(false);
@@ -254,7 +257,7 @@ export default function Settings() {
     setBankAccounts(updatedAccounts);
   };
 
-  // HANDLER NAVIGASI MENU (CHECKBOX)
+  // HANDLER NAVIGASI MENU
   const toggleActiveMenu = (categoryId) => {
     setActiveMenus((prev) =>
       prev.includes(categoryId)
@@ -275,7 +278,6 @@ export default function Settings() {
 
     setIsSaving(true);
     try {
-      // Gabungkan semua data, termasuk JSON dari bankAccounts dan activeMenus
       const payloadToSave = {
         ...formData,
         payment_accounts: JSON.stringify(bankAccounts),
@@ -448,6 +450,16 @@ export default function Settings() {
             id="payment"
             icon={<CreditCard size={18} />}
             label="Pembayaran"
+          />
+
+          {/* --- TAMBAHAN: TAB INTEGRASI & TRACKING --- */}
+          <div className="text-xs font-bold text-gray-400 uppercase tracking-wider px-4 mb-2 mt-6">
+            Marketing & SEO
+          </div>
+          <TabButton
+            id="integration"
+            icon={<BarChart size={18} />}
+            label="Integrasi & Pelacakan"
           />
 
           <div className="text-xs font-bold text-gray-400 uppercase tracking-wider px-4 mb-2 mt-6">
@@ -994,6 +1006,93 @@ export default function Settings() {
                   className="bg-chester-pink text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 w-max shadow-sm"
                 >
                   <Save size={18} /> Simpan Data Rekening
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* --- TAMBAHAN: TAB 8 INTEGRASI & PELACAKAN --- */}
+          {activeTab === "integration" && (
+            <form
+              onSubmit={handleSaveSettings}
+              className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm min-h-[400px] animate-fade-in flex flex-col gap-6"
+            >
+              <div>
+                <h2 className="text-lg font-bold text-gray-800 mb-1">
+                  Integrasi Marketing & SEO
+                </h2>
+                <p className="text-xs text-gray-500">
+                  Masukkan ID atau Tag verifikasi Anda di sini. Script akan
+                  secara otomatis ditambahkan ke toko online Anda tanpa perlu
+                  mengubah kode secara manual.
+                </p>
+              </div>
+
+              {/* Meta Pixel */}
+              <div className="p-5 border border-gray-200 rounded-xl bg-gray-50">
+                <label className="block text-sm font-bold text-gray-800 mb-2">
+                  Meta Pixel ID
+                </label>
+                <input
+                  type="text"
+                  name="meta_pixel_id"
+                  value={formData.meta_pixel_id || ""}
+                  onChange={handleChangeSetting}
+                  placeholder="Contoh: 123456789012345"
+                  className="w-full border px-4 py-2.5 rounded-lg font-mono text-sm outline-none focus:border-chester-pink bg-white"
+                />
+                <p className="text-[11px] text-gray-500 mt-2">
+                  Digunakan untuk melacak pengunjung dari Facebook dan Instagram
+                  Ads. Hanya masukkan angka ID-nya saja, bukan seluruh kodenya.
+                </p>
+              </div>
+
+              {/* Google Analytics */}
+              <div className="p-5 border border-gray-200 rounded-xl bg-gray-50">
+                <label className="block text-sm font-bold text-gray-800 mb-2">
+                  Google Analytics Measurement ID (GA4)
+                </label>
+                <input
+                  type="text"
+                  name="google_analytics_id"
+                  value={formData.google_analytics_id || ""}
+                  onChange={handleChangeSetting}
+                  placeholder="Contoh: G-XXXXXXXXXX"
+                  className="w-full border px-4 py-2.5 rounded-lg font-mono text-sm outline-none focus:border-chester-pink bg-white uppercase"
+                />
+                <p className="text-[11px] text-gray-500 mt-2">
+                  Digunakan untuk Google Ads dan Analitik. Masukkan kode yang
+                  diawali dengan awalan 'G-' atau 'AW-'.
+                </p>
+              </div>
+
+              {/* Google Search Console */}
+              <div className="p-5 border border-gray-200 rounded-xl bg-gray-50">
+                <label className="block text-sm font-bold text-gray-800 mb-2">
+                  Google Search Console (Tag Verifikasi HTML)
+                </label>
+                <input
+                  type="text"
+                  name="gsc_verification_tag"
+                  value={formData.gsc_verification_tag || ""}
+                  onChange={handleChangeSetting}
+                  placeholder="Contoh: abcdefghijklmnopqrstuvwxyz123456789"
+                  className="w-full border px-4 py-2.5 rounded-lg font-mono text-sm outline-none focus:border-chester-pink bg-white"
+                />
+                <p className="text-[11px] text-gray-500 mt-2">
+                  Digunakan untuk verifikasi kepemilikan domain di Google Search
+                  Console. Copy bagian &lt;content="..."&gt; dari tag meta yang
+                  diberikan Google.
+                </p>
+              </div>
+
+              <div className="border-t border-gray-100 pt-4 mt-2">
+                <button
+                  type="submit"
+                  disabled={isSaving}
+                  className="bg-chester-pink text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 w-max shadow-sm"
+                >
+                  <Save size={18} /> Simpan Integrasi
                 </button>
               </div>
             </form>

@@ -89,6 +89,22 @@ export default function Checkout() {
           return;
         }
 
+        try {
+          if (window.fbq) {
+            const initialCartValue = formatted.reduce(
+              (total, item) => total + item.price * item.qty,
+              0,
+            );
+            window.fbq("track", "InitiateCheckout", {
+              num_items: formatted.length,
+              value: initialCartValue,
+              currency: "IDR",
+            });
+          }
+        } catch (fbqError) {
+          console.error("Meta Pixel Error (InitiateCheckout):", fbqError);
+        }
+
         const voucherRes = await axios.get(
           `${import.meta.env.VITE_API_URL}/vouchers/storefront/${customerUser.id}`,
         );
