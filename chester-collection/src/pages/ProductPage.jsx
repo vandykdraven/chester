@@ -9,6 +9,7 @@ import {
   Heart,
   CheckCircle,
   AlertCircle,
+  Star,
 } from "lucide-react";
 import axios from "axios";
 
@@ -32,9 +33,16 @@ const getYouTubeEmbedUrl = (url) => {
 };
 
 export default function ProductPage() {
-  // DIPERBARUI: Menangkap 'slug' dari URL, bukan lagi 'id'
   const { slug } = useParams();
   const navigate = useNavigate();
+
+  const [reviews, setReviews] = useState([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [reviewSummary, setReviewSummary] = useState({
+    averageRating: 0,
+    totalReviews: 0,
+  });
 
   const [product, setProduct] = useState(null);
   const [relatedProducts, setRelatedProducts] = useState([]);
@@ -62,11 +70,37 @@ export default function ProductPage() {
       sessionStorage.getItem("customerUser"),
   );
 
-  // DIPERBARUI: Memantau perubahan 'slug'
   useEffect(() => {
     fetchProductDetails();
-    // checkWishlistStatus dipanggil dari dalam fetchProductDetails setelah ID asli didapatkan
   }, [slug]);
+
+  // ---> TAMBAHAN 1: Menambahkan parameter "page" dengan nilai default 1
+  const fetchProductReviews = async (productId, page = 1) => {
+    try {
+      const res = await axios.get(
+        `${import.meta.env.VITE_API_URL}/products/${productId}/reviews?page=${page}&limit=5`,
+      );
+
+      if (res.data.success) {
+        setReviews(res.data.data);
+
+        if (res.data.pagination) {
+          setCurrentPage(res.data.pagination.current_page);
+          setTotalPages(res.data.pagination.total_pages);
+        }
+
+        // ---> PERBAIKAN: Menangkap summary langsung dari response backend dengan aman
+        if (res.data.summary) {
+          setReviewSummary({
+            averageRating: res.data.summary.averageRating,
+            totalReviews: res.data.summary.totalReviews,
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Gagal memuat ulasan produk.");
+    }
+  };
 
   const showAlert = (message, type = "success") => {
     setCustomAlert({ show: true, message, type });
@@ -79,7 +113,6 @@ export default function ProductPage() {
   const fetchProductDetails = async () => {
     setLoading(true);
     try {
-      // DIPERBARUI: Memanggil backend dengan parameter 'slug'
       const res = await axios.get(
         `${import.meta.env.VITE_API_URL}/products/${slug}`,
       );
@@ -100,13 +133,14 @@ export default function ProductPage() {
           setSelectedVariant(prodData.variants[0]);
         }
 
-        // DIPERBARUI: Meneruskan ID produk asli agar tidak muncul di produk terkait
         fetchRelatedProducts(prodData.category_id, prodData.id);
 
-        // DIPERBARUI: Mengecek wishlist menggunakan ID produk asli
         if (customerUser) {
           checkWishlistStatus(prodData.id);
         }
+
+        // Memanggil ulasan halaman 1 saat produk pertama kali dimuat
+        fetchProductReviews(prodData.id, 1);
       }
     } catch (error) {
       console.error("Gagal memuat produk:", error);
@@ -115,12 +149,10 @@ export default function ProductPage() {
     }
   };
 
-  // DIPERBARUI: Menerima parameter currentProductId
   const fetchRelatedProducts = async (categoryId, currentProductId) => {
     try {
       const res = await axios.get(`${import.meta.env.VITE_API_URL}/products`);
       if (res.data.success) {
-        // Hindari menampilkan produk yang sedang dibuka menggunakan ID asli
         let filtered = res.data.data.filter((p) => p.id !== currentProductId);
         if (categoryId) {
           const sameCat = filtered.filter((p) => p.category_id === categoryId);
@@ -133,7 +165,6 @@ export default function ProductPage() {
     }
   };
 
-  // DIPERBARUI: Menerima parameter currentProductId
   const checkWishlistStatus = async (currentProductId) => {
     try {
       const res = await axios.get(
@@ -165,7 +196,7 @@ export default function ProductPage() {
           `${import.meta.env.VITE_API_URL}/wishlists`,
           {
             user_id: customerUser.id,
-            product_id: product.id, // DIPERBARUI: Menggunakan ID dari state
+            product_id: product.id,
           },
         );
         if (res.data.success) {
@@ -215,7 +246,6 @@ export default function ProductPage() {
         showAlert("Berhasil ditambahkan ke keranjang!", "success");
         window.dispatchEvent(new Event("cartUpdated"));
 
-        // ---> TAMBAHAN META PIXEL: AddToCart <---
         try {
           if (window.fbq) {
             const trackPrice = selectedVariant
@@ -226,14 +256,13 @@ export default function ProductPage() {
               content_name: product.name,
               content_ids: [product.id],
               content_type: "product",
-              value: trackPrice * quantity, // Total harga item x jumlah
+              value: trackPrice * quantity,
               currency: "IDR",
             });
           }
         } catch (fbqError) {
           console.error("Meta Pixel Error (AddToCart):", fbqError);
         }
-        // ----------------------------------------
       }
     } catch (error) {
       console.error("Gagal tambah keranjang:", error);
@@ -275,7 +304,7 @@ export default function ProductPage() {
             content_name: product.name,
             content_ids: [product.id],
             content_type: "product",
-            value: trackPrice * quantity, // Total harga item x jumlah
+            value: trackPrice * quantity,
             currency: "IDR",
           });
         }
@@ -389,6 +418,9 @@ export default function ProductPage() {
           </span>
         </nav>
 
+        {/* ========================================= */}
+        {/* BAGIAN ATAS: DETAIL PRODUK                */}
+        {/* ========================================= */}
         <div className="flex flex-col md:flex-row gap-10 lg:gap-16 items-start">
           <div className="w-full md:w-1/2 flex flex-col gap-4">
             <div
@@ -573,9 +605,167 @@ export default function ProductPage() {
             </div>
           </div>
         </div>
+        {/* AKHIR DARI BAGIAN DETAIL PRODUK */}
 
+        {/* ========================================= */}
+        {/* BAGIAN TENGAH: AREA UI ULASAN PEMBELI     */}
+        {/* ========================================= */}
+        <div className="mt-16 pt-10 border-t border-gray-100">
+          <h3 className="text-xl font-bold text-chester-text mb-6">
+            Ulasan Pelanggan ({reviewSummary.totalReviews})
+          </h3>
+
+          {reviews.length === 0 ? (
+            <div className="bg-gray-50 rounded-xl p-8 text-center text-gray-500 text-sm">
+              Belum ada ulasan untuk produk ini. Jadilah yang pertama memberikan
+              penilaian setelah membeli!
+            </div>
+          ) : (
+            <div className="flex flex-col gap-6">
+              {/* Tampilkan Rata-rata Bintang */}
+              <div className="flex items-center gap-4 bg-pink-50/50 p-4 rounded-xl border border-pink-100 w-max mb-2">
+                <div className="text-3xl font-black text-chester-pink">
+                  {Number(reviewSummary.averageRating).toFixed(1)}
+                </div>
+                <div>
+                  <div className="flex text-yellow-400 mb-1">
+                    {[...Array(5)].map((_, i) => (
+                      <Star
+                        key={i}
+                        size={16}
+                        fill={
+                          i < Math.round(reviewSummary.averageRating)
+                            ? "currentColor"
+                            : "none"
+                        }
+                      />
+                    ))}
+                  </div>
+                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                    Dari {reviewSummary.totalReviews} Penilaian
+                  </p>
+                </div>
+              </div>
+
+              {/* Daftar Ulasan */}
+              <div className="divide-y divide-gray-100">
+                {reviews.map((rev) => (
+                  <div key={rev.id} className="py-6 first:pt-0">
+                    <div className="flex justify-between items-start mb-2">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center font-bold text-gray-500 overflow-hidden">
+                          {rev.avatar ? (
+                            <img
+                              src={`${BASE_URL}${rev.avatar}`}
+                              alt="Avatar"
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            rev.customer_name?.charAt(0) || "U"
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-gray-800">
+                            {rev.customer_name || "Pengguna"}
+                          </p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <div className="flex text-yellow-400">
+                              {[...Array(5)].map((_, i) => (
+                                <Star
+                                  key={i}
+                                  size={12}
+                                  fill={
+                                    i < rev.rating ? "currentColor" : "none"
+                                  }
+                                  strokeWidth={2}
+                                />
+                              ))}
+                            </div>
+                            <span className="text-[10px] text-gray-400">
+                              {new Date(rev.created_at).toLocaleDateString(
+                                "id-ID",
+                                {
+                                  year: "numeric",
+                                  month: "long",
+                                  day: "numeric",
+                                },
+                              )}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {rev.variant_name && (
+                      <p className="text-[11px] text-gray-500 font-medium mb-3 mt-2 bg-gray-50 inline-block px-2 py-1 rounded">
+                        Varian: {rev.variant_name}
+                      </p>
+                    )}
+
+                    <p className="text-sm text-gray-700 leading-relaxed mt-2">
+                      {rev.comment ? (
+                        rev.comment
+                      ) : (
+                        <span className="italic text-gray-400">
+                          Pengguna tidak meninggalkan teks ulasan.
+                        </span>
+                      )}
+                    </p>
+
+                    {/* Balasan Admin */}
+                    {rev.admin_reply && (
+                      <div className="mt-4 bg-gray-50 p-4 rounded-xl border-l-4 border-l-chester-pink">
+                        <p className="text-xs font-bold text-chester-pink mb-1 flex items-center gap-1">
+                          <CheckCircle size={12} /> Balasan Admin Mroblong
+                        </p>
+                        <p className="text-sm text-gray-600 leading-relaxed">
+                          {rev.admin_reply}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* ---> TAMBAHAN 3: Kontrol Navigasi Paginasi (Tombol Sebelumnya / Selanjutnya) */}
+              {totalPages > 1 && (
+                <div className="flex justify-center items-center gap-4 mt-4 pt-6 border-t border-gray-100">
+                  <button
+                    onClick={() =>
+                      fetchProductReviews(product.id, currentPage - 1)
+                    }
+                    disabled={currentPage === 1}
+                    className="flex items-center justify-center p-2 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 hover:text-chester-pink transition disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+                    title="Halaman Sebelumnya"
+                  >
+                    <ChevronLeft size={20} />
+                  </button>
+
+                  <span className="text-sm font-bold text-gray-600 bg-gray-50 px-4 py-2 rounded-lg border border-gray-100">
+                    Halaman {currentPage} dari {totalPages}
+                  </span>
+
+                  <button
+                    onClick={() =>
+                      fetchProductReviews(product.id, currentPage + 1)
+                    }
+                    disabled={currentPage === totalPages}
+                    className="flex items-center justify-center p-2 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 hover:text-chester-pink transition disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+                    title="Halaman Selanjutnya"
+                  >
+                    <ChevronRight size={20} />
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ========================================= */}
+        {/* BAGIAN BAWAH: PRODUK TERKAIT              */}
+        {/* ========================================= */}
         {relatedProducts.length > 0 && (
-          <div className="mt-24 pt-16 border-t border-gray-100">
+          <div className="mt-16 pt-10 border-t border-gray-100">
             <div className="flex justify-between items-end mb-10">
               <h2 className="text-2xl lg:text-3xl font-bold text-chester-text">
                 Produk Terkait
@@ -602,7 +792,7 @@ export default function ProductPage() {
                 return (
                   <Link
                     key={rel.id}
-                    to={`/product/${rel.slug}`} // <-- DIPERBARUI: Menggunakan SLUG
+                    to={`/product/${rel.slug}`}
                     className="group font-lora block cursor-pointer"
                   >
                     <div className="aspect-[4/5] overflow-hidden mb-4 bg-gray-100 relative rounded-lg">

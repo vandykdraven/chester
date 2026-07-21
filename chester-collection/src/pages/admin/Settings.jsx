@@ -20,7 +20,8 @@ import {
   User,
   Share2,
   Menu as MenuIcon,
-  BarChart, // <-- TAMBAHAN: Ikon untuk Menu Integrasi
+  BarChart,
+  ShieldAlert, // <-- TAMBAHAN IKON UNTUK MODERASI
 } from "lucide-react";
 import axios from "axios";
 
@@ -56,10 +57,11 @@ export default function Settings() {
     social_instagram: "",
     social_tiktok: "",
     social_twitter: "",
-    // --- TAMBAHAN: Field untuk Integrasi Tracking ---
     meta_pixel_id: "",
     google_analytics_id: "",
     gsc_verification_tag: "",
+    // --- TAMBAHAN: Field untuk Filter Kata Kotor Ulasan ---
+    profanity_filter_words: "",
   });
 
   // STATE: Rekening Bank Multiple
@@ -666,6 +668,34 @@ export default function Settings() {
                 </div>
               </div>
 
+              {/* --- TAMBAHAN: FORM FILTER KATA KOTOR --- */}
+              <div className="pt-6 border-t border-gray-100">
+                <div className="flex items-center gap-2 mb-4">
+                  <ShieldAlert className="text-gray-400" size={18} />
+                  <h3 className="text-sm font-bold text-gray-800">
+                    Moderasi Konten (Ulasan Pembeli)
+                  </h3>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-600 mb-1">
+                    Daftar Kata Kotor (Profanity Filter)
+                  </label>
+                  <textarea
+                    name="profanity_filter_words"
+                    value={formData.profanity_filter_words || ""}
+                    onChange={handleChangeSetting}
+                    rows="3"
+                    className="w-full border px-4 py-3 rounded-lg focus:border-chester-pink outline-none resize-none text-sm"
+                    placeholder="Contoh: jelek, penipu, cacat, bangsat"
+                  ></textarea>
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    Pisahkan kata dengan <b>koma (,)</b>. Sistem akan otomatis
+                    menyensor kata-kata ini menjadi tanda bintang (***) pada
+                    ulasan produk.
+                  </p>
+                </div>
+              </div>
+
               <button
                 type="submit"
                 disabled={isSaving}
@@ -1011,7 +1041,7 @@ export default function Settings() {
             </form>
           )}
 
-          {/* --- TAMBAHAN: TAB 8 INTEGRASI & PELACAKAN --- */}
+          {/* --- TAB 8 INTEGRASI & PELACAKAN --- */}
           {activeTab === "integration" && (
             <form
               onSubmit={handleSaveSettings}

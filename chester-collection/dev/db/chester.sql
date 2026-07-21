@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1:3306
--- Waktu pembuatan: 20 Jul 2026 pada 23.46
+-- Waktu pembuatan: 21 Jul 2026 pada 16.17
 -- Versi server: 8.0.31
 -- Versi PHP: 8.0.26
 
@@ -80,6 +80,23 @@ CREATE TABLE IF NOT EXISTS `admins` (
 
 INSERT INTO `admins` (`id`, `fullname`, `email`, `password`, `role`, `created_at`) VALUES
 (1, 'Super Admin', 'admin@chester.com', '$2a$12$uewyRwnoJlIsqoAgIRVQ1.uZliqUVxs67yW32eY832MFRwmIZwZ62', 'Superadmin', '2026-06-10 17:54:27');
+
+-- --------------------------------------------------------
+
+--
+-- Struktur dari tabel `admin_notifications`
+--
+
+DROP TABLE IF EXISTS `admin_notifications`;
+CREATE TABLE IF NOT EXISTS `admin_notifications` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `type` varchar(50) NOT NULL,
+  `reference_id` int NOT NULL,
+  `message` text NOT NULL,
+  `is_read` tinyint(1) DEFAULT '0',
+  `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- --------------------------------------------------------
 
@@ -288,6 +305,8 @@ CREATE TABLE IF NOT EXISTS `products` (
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `slug` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `rating` decimal(3,1) DEFAULT '0.0',
+  `review_count` int DEFAULT '0',
   PRIMARY KEY (`id`),
   UNIQUE KEY `slug` (`slug`),
   KEY `size_guide_id` (`size_guide_id`)
@@ -297,11 +316,11 @@ CREATE TABLE IF NOT EXISTS `products` (
 -- Dumping data untuk tabel `products`
 --
 
-INSERT INTO `products` (`id`, `name`, `category_id`, `size_guide_id`, `description`, `video_url`, `status`, `price`, `original_price`, `stock`, `weight`, `sku`, `has_variant`, `variant_types_json`, `seo_title`, `seo_description`, `seo_keywords`, `created_at`, `updated_at`, `slug`) VALUES
-(1, 'Celia Stripe Shirt', '1', 1, '<p>Celia Shirt - Premium Cotton Material</p><p><br></p><p> The CELIA Shirt is made from premium cotton that is soft, lightweight, and exceptionally comfortable for everyday wear. This breathable cotton fabric absorbs moisture well, feels cool on the skin, and has a smooth, neat drape. Perfect for anyone seeking maximum comfort without sacrificing style.</p><p><br></p><p>Size Chart</p><p>Bust: 120 cm</p><p>Upper Arm: 50 cm</p><p>Length: 68 cm</p><p>Sleeve Length: 51 cm</p><p><br></p><p>Perfect For</p><p>Designed as a versatile everyday top, the CELIA Shirt is suitable for many occasions, including:</p><p><br></p><ol><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Comfortable and effortless daily outfits</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Work or meetings, thanks to its clean and polished look</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Hangouts, casual strolls, or brunch</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Semi-formal events such as gatherings or office occasions</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Traveling, as the material is lightweight and keeps you cool</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>With its modern oversized cut and premium material, the CELIA Shirt is the perfect choice if you\'re looking for a breathable, simple, and elegant women’s top.</li></ol><p><br></p><p>[KINDLY READ THIS POINT]</p><p><br></p><ol><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Orders paid before 14.00 WIB will be shipped on the same day.</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Product colors may vary slightly due to lighting and device settings.</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>1000% Guaranteed! Claims are valid with an unboxing video.</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Fast shipping every 12.00–15.00 WIB.</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Size exchange is available within 24 hours after the package is received.</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Size tolerance of 1–3 cm for each product.</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>[CUSTOMER SERVICE]</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>For any questions, concerns, or product issues, please contact our Customer Service via chat (online 09.00–16.00 WIB).</li></ol><p><br></p><p>With love,</p><p><br></p><p>Ody teams</p>', NULL, 'available', '259000.00', '229510.00', 90, 200, 'CEL-SHR-AL', 0, NULL, 'Celia Shirt - Premium Cotton Material', 'The CELIA Shirt is made from premium cotton that is soft, lightweight, and exceptionally comfortable for everyday wear. This breathable cotton fabric absorbs moisture well, feels cool on the skin, and has a smooth, neat drape. Perfect for anyone seeking m', 'chester', '2026-06-10 20:07:40', '2026-07-20 01:46:46', 'celia-stripe-shirt'),
-(2, 'Daisy Bloom Cardigan', '9', 1, '<p>DAISY BLOOM CARDIGAN </p><p><br></p><p>– MATERAL PREMIUM KNIT</p><p><br></p><p><br></p><p><br></p><p>SIZE CHART</p><p><br></p><p>Bust : 100 cm</p><p>Length : 52 cm</p><p>Sleeve length : 55 cm</p><p><br></p><p><br></p><p>[KINDLY READ THIS POINTS]</p><p><br></p><ol><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Paid before 15.00 WIB for same day shio ping</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>There might be a bit different color consider the angle/ lighting/ tone of each device</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>1000% GUARANTEED! Claim with unboxing video only</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Instant shipment process on 12.00-16.00 WIB</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Size changing are allowed within 1x24 hours after receiving package</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Size difference tolerance estimated in 1-3 cm for each product</li></ol><p><br></p><p><br></p><p>[CUSTOMER SERVICE]</p><p><br></p><ol><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>If there’s any obstacle or complain about our products kindly contact us on chat [online 09.00-17.00]</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>INSTANT delivery can only processed [Monday until Saturday, 09.00 - 15.00 WIB]</li></ol><p><br></p><p><br></p><p>With love,</p><p><br></p><p>Ody teams</p>', 'https://www.youtube.com/watch?v=iLwmLaqHVF0', 'available', '0.00', '0.00', 0, 0, '', 1, '[{\"name\":\"Warna\",\"options\":[\"Brown\",\"Pink\"]}]', 'DAISY BLOOM CARDIGAN', 'PREMIUM KNIT', 'cardigan, casual', '2026-06-11 16:31:33', '2026-07-20 15:05:27', 'daisy-bloom-cardigan'),
-(5, 'Polky Barrel Pants', '8', NULL, '<p>POLKY BARREL PANTS</p><p>– MATERAL COTTON GLASSE DOTS</p><p><br></p><p>SIZE CHART</p><p>*Polky M*</p><p>LING PING: 70-88</p><p>LING PAHA : 63</p><p>PJG CLN: 100</p><p><br></p><p>*Polky L*</p><p>LING PING: 74-94</p><p>LING PAHA: 68</p><p>PJG LGN: 106</p><p><br></p><p>[KINDLY READ THIS POINTS]</p><p>- Paid before 15.00 WIB for same day shiping</p><p>- There might be a bit different color consider the angle/ lighting/ tone of each device</p><p>- 1000% GUARANTEED! Claim with unboxing video only</p><p>- Instant shipment process on 12.00-16.00 WIB</p><p>- Size changing are allowed within 1x24 hours after receiving package</p><p>- Size difference tolerance estimated in 1-3 cm for each product</p><p><br></p><p>[CUSTOMER SERVICE]</p><p>If there’s any obstacle or complain about our products kindly contact us on chat [online 09.00-17.00]</p><p><br></p><p>With love,</p><p>Ody teams</p><p><br></p>', NULL, 'available', '0.00', '0.00', 0, 0, '', 1, '[{\"name\":\"Ukuran\",\"options\":[\"M\",\"L\"]}]', NULL, NULL, NULL, '2026-06-22 17:01:32', '2026-07-20 15:04:21', 'polky-barrel-pants'),
-(6, 'Miyu Layer Top Jeans', '9', 1, '<p>MIYU LAYER TOP JEANS</p><p><br></p><p>– MATERAL JEANS</p><p><br></p><p><br></p><p><br></p><p>SIZE CHART</p><p><br></p><p>SIZE M</p><p><br></p><p>• Bust : 110 cm</p><p><br></p><p>• Length : 60 cm</p><p><br></p><p>• Sleeve length : 55 cm</p><p><br></p><p><br></p><p><br></p><p>SIZE L</p><p><br></p><p>• Bust : 120 cm</p><p><br></p><p>• Length : 61 cm</p><p><br></p><p>• Sleeve length : 55 cm</p><p><br></p><p><br></p><p><br></p><p>[KINDLY READ THIS POINTS]</p><p><br></p><p>- Paid before 15.00 WIB for same day shipping</p><p><br></p><p>- There might be a bit different color consider the angle/ lighting/ tone of each device</p><p><br></p><p>- 1000% GUARANTEED! Claim with unboxing video only</p><p><br></p><p>- Instant shipment process on 12.00-16.00 WIB</p><p><br></p><p>- Size changing are allowed within 1x24 hours after receiving package</p><p><br></p><p>- Size difference tolerance estimated in 1-3 cm for each product</p><p><br></p><p><br></p><p><br></p><p>[CUSTOMER SERVICE]</p><p><br></p><p>- If there’s any obstacle or complain about our products kindly contact us on chat [online 09.00-17.00]</p><p><br></p><p><br></p><p><br></p><p>With love,</p><p><br></p><p>Ody teams</p>', NULL, 'available', '0.00', '0.00', 0, 0, '', 1, '[{\"name\":\"Variasi\",\"options\":[\"Light Blue\",\"Navy\"]},{\"name\":\"Size\",\"options\":[\"M\",\"L\"]}]', 'MIYU LAYER TOP JEANS', 'MIYU LAYER TOP JEANS\n\n– MATERAL JEANS', 'Shirts', '2026-07-04 17:42:10', '2026-07-20 15:05:03', 'miyu-layer-top-jeans');
+INSERT INTO `products` (`id`, `name`, `category_id`, `size_guide_id`, `description`, `video_url`, `status`, `price`, `original_price`, `stock`, `weight`, `sku`, `has_variant`, `variant_types_json`, `seo_title`, `seo_description`, `seo_keywords`, `created_at`, `updated_at`, `slug`, `rating`, `review_count`) VALUES
+(1, 'Celia Stripe Shirt', '1', 1, '<p>Celia Shirt - Premium Cotton Material</p><p><br></p><p> The CELIA Shirt is made from premium cotton that is soft, lightweight, and exceptionally comfortable for everyday wear. This breathable cotton fabric absorbs moisture well, feels cool on the skin, and has a smooth, neat drape. Perfect for anyone seeking maximum comfort without sacrificing style.</p><p><br></p><p>Size Chart</p><p>Bust: 120 cm</p><p>Upper Arm: 50 cm</p><p>Length: 68 cm</p><p>Sleeve Length: 51 cm</p><p><br></p><p>Perfect For</p><p>Designed as a versatile everyday top, the CELIA Shirt is suitable for many occasions, including:</p><p><br></p><ol><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Comfortable and effortless daily outfits</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Work or meetings, thanks to its clean and polished look</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Hangouts, casual strolls, or brunch</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Semi-formal events such as gatherings or office occasions</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Traveling, as the material is lightweight and keeps you cool</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>With its modern oversized cut and premium material, the CELIA Shirt is the perfect choice if you\'re looking for a breathable, simple, and elegant women’s top.</li></ol><p><br></p><p>[KINDLY READ THIS POINT]</p><p><br></p><ol><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Orders paid before 14.00 WIB will be shipped on the same day.</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Product colors may vary slightly due to lighting and device settings.</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>1000% Guaranteed! Claims are valid with an unboxing video.</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Fast shipping every 12.00–15.00 WIB.</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Size exchange is available within 24 hours after the package is received.</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Size tolerance of 1–3 cm for each product.</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>[CUSTOMER SERVICE]</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>For any questions, concerns, or product issues, please contact our Customer Service via chat (online 09.00–16.00 WIB).</li></ol><p><br></p><p>With love,</p><p><br></p><p>Ody teams</p>', NULL, 'available', '259000.00', '229510.00', 90, 200, 'CEL-SHR-AL', 0, NULL, 'Celia Shirt - Premium Cotton Material', 'The CELIA Shirt is made from premium cotton that is soft, lightweight, and exceptionally comfortable for everyday wear. This breathable cotton fabric absorbs moisture well, feels cool on the skin, and has a smooth, neat drape. Perfect for anyone seeking m', 'chester', '2026-06-10 20:07:40', '2026-07-20 01:46:46', 'celia-stripe-shirt', '0.0', 0),
+(2, 'Daisy Bloom Cardigan', '9', 1, '<p>DAISY BLOOM CARDIGAN </p><p><br></p><p>– MATERAL PREMIUM KNIT</p><p><br></p><p><br></p><p><br></p><p>SIZE CHART</p><p><br></p><p>Bust : 100 cm</p><p>Length : 52 cm</p><p>Sleeve length : 55 cm</p><p><br></p><p><br></p><p>[KINDLY READ THIS POINTS]</p><p><br></p><ol><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Paid before 15.00 WIB for same day shio ping</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>There might be a bit different color consider the angle/ lighting/ tone of each device</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>1000% GUARANTEED! Claim with unboxing video only</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Instant shipment process on 12.00-16.00 WIB</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Size changing are allowed within 1x24 hours after receiving package</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>Size difference tolerance estimated in 1-3 cm for each product</li></ol><p><br></p><p><br></p><p>[CUSTOMER SERVICE]</p><p><br></p><ol><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>If there’s any obstacle or complain about our products kindly contact us on chat [online 09.00-17.00]</li><li data-list=\"bullet\"><span class=\"ql-ui\" contenteditable=\"false\"></span>INSTANT delivery can only processed [Monday until Saturday, 09.00 - 15.00 WIB]</li></ol><p><br></p><p><br></p><p>With love,</p><p><br></p><p>Ody teams</p>', 'https://www.youtube.com/watch?v=iLwmLaqHVF0', 'available', '0.00', '0.00', 0, 0, '', 1, '[{\"name\":\"Warna\",\"options\":[\"Brown\",\"Pink\"]}]', 'DAISY BLOOM CARDIGAN', 'PREMIUM KNIT', 'cardigan, casual', '2026-06-11 16:31:33', '2026-07-20 15:05:27', 'daisy-bloom-cardigan', '0.0', 0),
+(5, 'Polky Barrel Pants', '8', NULL, '<p>POLKY BARREL PANTS</p><p>– MATERAL COTTON GLASSE DOTS</p><p><br></p><p>SIZE CHART</p><p>*Polky M*</p><p>LING PING: 70-88</p><p>LING PAHA : 63</p><p>PJG CLN: 100</p><p><br></p><p>*Polky L*</p><p>LING PING: 74-94</p><p>LING PAHA: 68</p><p>PJG LGN: 106</p><p><br></p><p>[KINDLY READ THIS POINTS]</p><p>- Paid before 15.00 WIB for same day shiping</p><p>- There might be a bit different color consider the angle/ lighting/ tone of each device</p><p>- 1000% GUARANTEED! Claim with unboxing video only</p><p>- Instant shipment process on 12.00-16.00 WIB</p><p>- Size changing are allowed within 1x24 hours after receiving package</p><p>- Size difference tolerance estimated in 1-3 cm for each product</p><p><br></p><p>[CUSTOMER SERVICE]</p><p>If there’s any obstacle or complain about our products kindly contact us on chat [online 09.00-17.00]</p><p><br></p><p>With love,</p><p>Ody teams</p><p><br></p>', NULL, 'available', '0.00', '0.00', 0, 0, '', 1, '[{\"name\":\"Ukuran\",\"options\":[\"M\",\"L\"]}]', NULL, NULL, NULL, '2026-06-22 17:01:32', '2026-07-21 15:39:35', 'polky-barrel-pants', '4.0', 2),
+(6, 'Miyu Layer Top Jeans', '9', 1, '<p>MIYU LAYER TOP JEANS</p><p><br></p><p>– MATERAL JEANS</p><p><br></p><p><br></p><p><br></p><p>SIZE CHART</p><p><br></p><p>SIZE M</p><p><br></p><p>• Bust : 110 cm</p><p><br></p><p>• Length : 60 cm</p><p><br></p><p>• Sleeve length : 55 cm</p><p><br></p><p><br></p><p><br></p><p>SIZE L</p><p><br></p><p>• Bust : 120 cm</p><p><br></p><p>• Length : 61 cm</p><p><br></p><p>• Sleeve length : 55 cm</p><p><br></p><p><br></p><p><br></p><p>[KINDLY READ THIS POINTS]</p><p><br></p><p>- Paid before 15.00 WIB for same day shipping</p><p><br></p><p>- There might be a bit different color consider the angle/ lighting/ tone of each device</p><p><br></p><p>- 1000% GUARANTEED! Claim with unboxing video only</p><p><br></p><p>- Instant shipment process on 12.00-16.00 WIB</p><p><br></p><p>- Size changing are allowed within 1x24 hours after receiving package</p><p><br></p><p>- Size difference tolerance estimated in 1-3 cm for each product</p><p><br></p><p><br></p><p><br></p><p>[CUSTOMER SERVICE]</p><p><br></p><p>- If there’s any obstacle or complain about our products kindly contact us on chat [online 09.00-17.00]</p><p><br></p><p><br></p><p><br></p><p>With love,</p><p><br></p><p>Ody teams</p>', NULL, 'available', '0.00', '0.00', 0, 0, '', 1, '[{\"name\":\"Variasi\",\"options\":[\"Light Blue\",\"Navy\"]},{\"name\":\"Size\",\"options\":[\"M\",\"L\"]}]', 'MIYU LAYER TOP JEANS', 'MIYU LAYER TOP JEANS\n\n– MATERAL JEANS', 'Shirts', '2026-07-04 17:42:10', '2026-07-20 15:05:03', 'miyu-layer-top-jeans', '0.0', 0);
 
 -- --------------------------------------------------------
 
@@ -386,15 +405,27 @@ CREATE TABLE IF NOT EXISTS `product_reviews` (
   `id` int NOT NULL AUTO_INCREMENT,
   `order_id` int NOT NULL,
   `product_id` int NOT NULL,
+  `variant_name` varchar(255) DEFAULT NULL,
   `user_id` int NOT NULL,
   `rating` int NOT NULL,
   `comment` text,
+  `admin_reply` text,
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `order_id` (`order_id`),
   KEY `product_id` (`product_id`),
   KEY `user_id` (`user_id`)
 ) ;
+
+--
+-- Dumping data untuk tabel `product_reviews`
+--
+
+INSERT INTO `product_reviews` (`id`, `order_id`, `product_id`, `variant_name`, `user_id`, `rating`, `comment`, `admin_reply`, `created_at`, `updated_at`) VALUES
+(15, 12, 5, 'L', 102, 5, 'Suka', NULL, '2026-07-21 14:35:46', '2026-07-21 14:35:46'),
+(14, 10, 1, 'Standar', 102, 5, 'Tes Komen', NULL, '2026-07-21 14:35:17', '2026-07-21 14:35:17'),
+(17, 11, 5, 'L', 102, 3, 'pembelian ke 2 bahannya beda', NULL, '2026-07-21 15:39:35', '2026-07-21 15:39:35');
 
 -- --------------------------------------------------------
 
@@ -532,7 +563,7 @@ CREATE TABLE IF NOT EXISTS `site_analytics` (
   `viewed_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   `ip_address` varchar(45) DEFAULT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=MyISAM AUTO_INCREMENT=686 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=MyISAM AUTO_INCREMENT=855 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 --
 -- Dumping data untuk tabel `site_analytics`
@@ -1223,7 +1254,176 @@ INSERT INTO `site_analytics` (`id`, `page_url`, `product_id`, `viewed_at`, `ip_a
 (682, '/', NULL, '2026-07-20 23:45:11', '::1'),
 (683, '/', NULL, '2026-07-20 23:45:11', '::1'),
 (684, '/admin/settings', NULL, '2026-07-20 23:45:36', '::1'),
-(685, '/admin/settings', NULL, '2026-07-20 23:45:36', '::1');
+(685, '/admin/settings', NULL, '2026-07-20 23:45:36', '::1'),
+(686, '/sitemap.xml', NULL, '2026-07-20 23:46:46', '::1'),
+(687, '/sitemap.xml', NULL, '2026-07-20 23:46:46', '::1'),
+(688, '/admin/orders', NULL, '2026-07-20 23:47:39', '::1'),
+(689, '/profile', NULL, '2026-07-20 23:47:46', '::1'),
+(690, '/orders', NULL, '2026-07-20 23:47:48', '::1'),
+(691, '/', NULL, '2026-07-20 23:48:23', '::1'),
+(692, '/products', NULL, '2026-07-20 23:48:25', '::1'),
+(693, '/product/miyu-layer-top-jeans', 0, '2026-07-20 23:48:28', '::1'),
+(694, '/products', NULL, '2026-07-20 23:48:33', '::1'),
+(695, '/product/polky-barrel-pants', 0, '2026-07-20 23:48:35', '::1'),
+(696, '/products', NULL, '2026-07-20 23:48:38', '::1'),
+(697, '/product/daisy-bloom-cardigan', 0, '2026-07-20 23:48:40', '::1'),
+(698, '/products', NULL, '2026-07-20 23:48:47', '::1'),
+(699, '/product/celia-stripe-shirt', 0, '2026-07-20 23:48:48', '::1'),
+(700, '/products', NULL, '2026-07-20 23:48:55', '::1'),
+(701, '/admin/customers', NULL, '2026-07-20 23:49:08', '::1'),
+(702, '/admin/orders', NULL, '2026-07-20 23:49:10', '::1'),
+(703, '/admin/customers', NULL, '2026-07-20 23:49:22', '::1'),
+(704, '/admin/products/gallery', NULL, '2026-07-20 23:49:24', '::1'),
+(705, '/admin/homepage-settings', NULL, '2026-07-20 23:49:26', '::1'),
+(706, '/admin/orders', NULL, '2026-07-20 23:49:30', '::1'),
+(707, '/admin/products/gallery', NULL, '2026-07-20 23:49:54', '::1'),
+(708, '/admin/homepage-settings', NULL, '2026-07-20 23:49:55', '::1'),
+(709, '/admin/settings', NULL, '2026-07-20 23:49:57', '::1'),
+(710, '/', NULL, '2026-07-20 23:50:09', '::1'),
+(711, '/product/miyu-layer-top-jeans', 0, '2026-07-20 23:50:11', '::1'),
+(712, '/profile', NULL, '2026-07-20 23:50:52', '::1'),
+(713, '/wishlist', NULL, '2026-07-20 23:50:54', '::1'),
+(714, '/product/6', 6, '2026-07-20 23:51:00', '::1'),
+(715, '/products', NULL, '2026-07-20 23:51:03', '::1'),
+(716, '/profile', NULL, '2026-07-20 23:51:05', '::1'),
+(717, '/wishlist', NULL, '2026-07-20 23:51:07', '::1'),
+(718, '/vouchers', NULL, '2026-07-20 23:53:28', '::1'),
+(719, '/orders', NULL, '2026-07-20 23:53:29', '::1'),
+(720, '/wishlist', NULL, '2026-07-20 23:54:04', '::1'),
+(721, '/wishlist', NULL, '2026-07-20 23:54:54', '::1'),
+(722, '/wishlist', NULL, '2026-07-20 23:54:54', '::1'),
+(723, '/wishlist', NULL, '2026-07-20 23:55:16', '::1'),
+(724, '/wishlist', NULL, '2026-07-20 23:55:16', '::1'),
+(725, '/wishlist', NULL, '2026-07-20 23:56:33', '::1'),
+(726, '/wishlist', NULL, '2026-07-20 23:56:33', '::1'),
+(727, '/wishlist', NULL, '2026-07-21 00:12:41', '::1'),
+(728, '/wishlist', NULL, '2026-07-21 00:12:41', '::1'),
+(729, '/', NULL, '2026-07-21 00:12:46', '::1'),
+(730, '/profile', NULL, '2026-07-21 00:12:50', '::1'),
+(731, '/wishlist', NULL, '2026-07-21 00:12:53', '::1'),
+(732, '/product/6', 6, '2026-07-21 00:12:58', '::1'),
+(733, '/wishlist', NULL, '2026-07-21 00:13:01', '::1'),
+(734, '/wishlist', NULL, '2026-07-21 00:13:02', '::1'),
+(735, '/wishlist', NULL, '2026-07-21 00:13:02', '::1'),
+(736, '/wishlist', NULL, '2026-07-21 00:13:05', '::1'),
+(737, '/wishlist', NULL, '2026-07-21 00:13:05', '::1'),
+(738, '/wishlist', NULL, '2026-07-21 00:13:41', '::1'),
+(739, '/wishlist', NULL, '2026-07-21 00:13:41', '::1'),
+(740, '/wishlist', NULL, '2026-07-21 00:13:48', '::1'),
+(741, '/wishlist', NULL, '2026-07-21 00:13:48', '::1'),
+(742, '/wishlist', NULL, '2026-07-21 00:24:18', '::1'),
+(743, '/wishlist', NULL, '2026-07-21 00:24:18', '::1'),
+(744, '/product/miyu-layer-top-jeans', 0, '2026-07-21 00:24:23', '::1'),
+(745, '/sitemap.xml', NULL, '2026-07-21 00:24:44', '::1'),
+(746, '/sitemap.xml', NULL, '2026-07-21 00:24:44', '::1'),
+(747, '/', NULL, '2026-07-21 10:39:39', '::1'),
+(748, '/', NULL, '2026-07-21 10:39:39', '::1'),
+(749, '/admin', NULL, '2026-07-21 10:39:50', '::1'),
+(750, '/admin', NULL, '2026-07-21 10:39:50', '::1'),
+(751, '/sitemap.xml', NULL, '2026-07-21 10:39:55', '::1'),
+(752, '/sitemap.xml', NULL, '2026-07-21 10:39:55', '::1'),
+(753, '/', NULL, '2026-07-21 12:14:33', '::1'),
+(754, '/', NULL, '2026-07-21 12:14:33', '::1'),
+(755, '/profile', NULL, '2026-07-21 12:14:34', '::1'),
+(756, '/orders', NULL, '2026-07-21 12:14:38', '::1'),
+(757, '/admin', NULL, '2026-07-21 12:15:29', '::1'),
+(758, '/admin', NULL, '2026-07-21 12:15:29', '::1'),
+(759, '/admin/orders', NULL, '2026-07-21 12:15:31', '::1'),
+(760, '/admin/orders/18', NULL, '2026-07-21 12:15:49', '::1'),
+(761, '/admin/orders', NULL, '2026-07-21 12:15:51', '::1'),
+(762, '/orders', NULL, '2026-07-21 12:40:14', '::1'),
+(763, '/orders', NULL, '2026-07-21 12:40:14', '::1'),
+(764, '/payment-confirmation/18', NULL, '2026-07-21 12:40:23', '::1'),
+(765, '/orders', NULL, '2026-07-21 12:40:25', '::1'),
+(766, '/orders', NULL, '2026-07-21 13:02:23', '::1'),
+(767, '/orders', NULL, '2026-07-21 13:02:23', '::1'),
+(768, '/products', NULL, '2026-07-21 13:02:26', '::1'),
+(769, '/product/miyu-layer-top-jeans', 0, '2026-07-21 13:02:28', '::1'),
+(770, '/products', NULL, '2026-07-21 13:06:31', '::1'),
+(771, '/product/celia-stripe-shirt', 0, '2026-07-21 13:06:32', '::1'),
+(772, '/products', NULL, '2026-07-21 13:06:35', '::1'),
+(773, '/product/daisy-bloom-cardigan', 0, '2026-07-21 13:06:36', '::1'),
+(774, '/products', NULL, '2026-07-21 13:06:40', '::1'),
+(775, '/product/polky-barrel-pants', 0, '2026-07-21 13:06:41', '::1'),
+(776, '/profile', NULL, '2026-07-21 13:07:04', '::1'),
+(777, '/orders', NULL, '2026-07-21 13:07:06', '::1'),
+(778, '/admin/orders', NULL, '2026-07-21 13:07:57', '::1'),
+(779, '/admin/orders', NULL, '2026-07-21 13:07:57', '::1'),
+(780, '/products', NULL, '2026-07-21 13:08:02', '::1'),
+(781, '/product/polky-barrel-pants', 0, '2026-07-21 13:08:03', '::1'),
+(782, '/profile', NULL, '2026-07-21 13:08:20', '::1'),
+(783, '/orders', NULL, '2026-07-21 13:08:24', '::1'),
+(784, '/products', NULL, '2026-07-21 13:09:07', '::1'),
+(785, '/product/polky-barrel-pants', 0, '2026-07-21 13:09:09', '::1'),
+(786, '/product/polky-barrel-pants', 0, '2026-07-21 13:46:19', '::1'),
+(787, '/product/polky-barrel-pants', 0, '2026-07-21 13:46:19', '::1'),
+(788, '/profile', NULL, '2026-07-21 13:46:29', '::1'),
+(789, '/wishlist', NULL, '2026-07-21 13:46:33', '::1'),
+(790, '/vouchers', NULL, '2026-07-21 13:46:34', '::1'),
+(791, '/orders', NULL, '2026-07-21 13:46:36', '::1'),
+(792, '/orders', NULL, '2026-07-21 13:47:47', '::1'),
+(793, '/orders', NULL, '2026-07-21 13:47:47', '::1'),
+(794, '/products', NULL, '2026-07-21 13:48:04', '::1'),
+(795, '/product/polky-barrel-pants', 0, '2026-07-21 13:48:05', '::1'),
+(796, '/profile', NULL, '2026-07-21 13:48:44', '::1'),
+(797, '/vouchers', NULL, '2026-07-21 13:48:46', '::1'),
+(798, '/orders', NULL, '2026-07-21 13:48:47', '::1'),
+(799, '/orders', NULL, '2026-07-21 14:00:57', '::1'),
+(800, '/orders', NULL, '2026-07-21 14:00:57', '::1'),
+(801, '/orders', NULL, '2026-07-21 14:05:20', '::1'),
+(802, '/orders', NULL, '2026-07-21 14:05:20', '::1'),
+(803, '/orders', NULL, '2026-07-21 14:05:24', '::1'),
+(804, '/orders', NULL, '2026-07-21 14:05:24', '::1'),
+(805, '/orders', NULL, '2026-07-21 14:05:58', '::1'),
+(806, '/orders', NULL, '2026-07-21 14:05:58', '::1'),
+(807, '/orders', NULL, '2026-07-21 14:06:01', '::1'),
+(808, '/orders', NULL, '2026-07-21 14:06:01', '::1'),
+(809, '/orders', NULL, '2026-07-21 14:10:21', '::1'),
+(810, '/orders', NULL, '2026-07-21 14:10:21', '::1'),
+(811, '/orders', NULL, '2026-07-21 14:11:10', '::1'),
+(812, '/orders', NULL, '2026-07-21 14:11:10', '::1'),
+(813, '/orders', NULL, '2026-07-21 14:14:06', '::1'),
+(814, '/orders', NULL, '2026-07-21 14:14:06', '::1'),
+(815, '/', NULL, '2026-07-21 14:14:07', '::1'),
+(816, '/profile', NULL, '2026-07-21 14:14:11', '::1'),
+(817, '/orders', NULL, '2026-07-21 14:14:14', '::1'),
+(818, '/orders', NULL, '2026-07-21 14:22:53', '::1'),
+(819, '/orders', NULL, '2026-07-21 14:22:53', '::1'),
+(820, '/orders', NULL, '2026-07-21 14:23:05', '::1'),
+(821, '/orders', NULL, '2026-07-21 14:23:05', '::1'),
+(822, '/profile', NULL, '2026-07-21 14:23:42', '::1'),
+(823, '/login', NULL, '2026-07-21 14:23:44', '::1'),
+(824, '/', NULL, '2026-07-21 14:23:58', '::1'),
+(825, '/profile', NULL, '2026-07-21 14:23:59', '::1'),
+(826, '/orders', NULL, '2026-07-21 14:24:01', '::1'),
+(827, '/orders', NULL, '2026-07-21 14:24:59', '::1'),
+(828, '/orders', NULL, '2026-07-21 14:24:59', '::1'),
+(829, '/admin/orders', NULL, '2026-07-21 14:30:59', '::1'),
+(830, '/admin/orders', NULL, '2026-07-21 14:30:59', '::1'),
+(831, '/admin-login', NULL, '2026-07-21 14:30:59', '::1'),
+(832, '/admin', NULL, '2026-07-21 14:31:14', '::1'),
+(833, '/admin/orders', NULL, '2026-07-21 14:31:18', '::1'),
+(834, '/admin/orders/18', NULL, '2026-07-21 14:31:24', '::1'),
+(835, '/admin/orders/18', NULL, '2026-07-21 14:32:02', '::1'),
+(836, '/admin/orders/18', NULL, '2026-07-21 14:32:02', '::1'),
+(837, '/products', NULL, '2026-07-21 14:35:56', '::1'),
+(838, '/product/polky-barrel-pants', 0, '2026-07-21 14:35:58', '::1'),
+(839, '/products', NULL, '2026-07-21 14:36:21', '::1'),
+(840, '/product/celia-stripe-shirt', 0, '2026-07-21 14:36:23', '::1'),
+(841, '/profile', NULL, '2026-07-21 15:35:03', '::1'),
+(842, '/orders', NULL, '2026-07-21 15:35:06', '::1'),
+(843, '/orders', NULL, '2026-07-21 15:38:25', '::1'),
+(844, '/orders', NULL, '2026-07-21 15:38:25', '::1'),
+(845, '/orders', NULL, '2026-07-21 15:39:25', '::1'),
+(846, '/orders', NULL, '2026-07-21 15:39:25', '::1'),
+(847, '/products', NULL, '2026-07-21 15:39:56', '::1'),
+(848, '/product/polky-barrel-pants', 0, '2026-07-21 15:39:57', '::1'),
+(849, '/product/polky-barrel-pants', 0, '2026-07-21 16:06:29', '::1'),
+(850, '/product/polky-barrel-pants', 0, '2026-07-21 16:06:29', '::1'),
+(851, '/product/celia-stripe-shirt', 0, '2026-07-21 16:06:39', '::1'),
+(852, '/product/polky-barrel-pants', 0, '2026-07-21 16:06:47', '::1'),
+(853, '/product/polky-barrel-pants', 0, '2026-07-21 16:12:52', '::1'),
+(854, '/product/polky-barrel-pants', 0, '2026-07-21 16:12:52', '::1');
 
 -- --------------------------------------------------------
 
@@ -1358,14 +1558,15 @@ CREATE TABLE IF NOT EXISTS `wishlists` (
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `user_id` (`user_id`)
-) ENGINE=MyISAM AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=MyISAM AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 --
 -- Dumping data untuk tabel `wishlists`
 --
 
 INSERT INTO `wishlists` (`id`, `user_id`, `product_id`, `created_at`) VALUES
-(1, 101, 2, '2026-06-22 14:38:08');
+(1, 101, 2, '2026-06-22 14:38:08'),
+(2, 102, 6, '2026-07-20 23:50:48');
 
 --
 -- Ketidakleluasaan untuk tabel pelimpahan (Dumped Tables)

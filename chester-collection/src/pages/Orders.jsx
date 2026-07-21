@@ -29,21 +29,21 @@ export default function Orders() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("all");
 
-  // State untuk Modal Detail Pesanan
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
-  // State untuk Modal Ulasan (Review)
+  // ---> TAMBAHAN 1: Menambahkan variant_name ke dalam state modal ulasan
   const [reviewModal, setReviewModal] = useState({
     show: false,
     order_id: null,
     product_id: null,
     product_name: "",
+    variant_name: "", // Wadah baru untuk menyimpan nama variasi
   });
+
   const [reviewForm, setReviewForm] = useState({ rating: 5, comment: "" });
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
 
-  // State Custom Alert
   const [customAlert, setCustomAlert] = useState({
     show: false,
     message: "",
@@ -78,7 +78,6 @@ export default function Orders() {
   const fetchOrderHistory = async (userId) => {
     setLoading(true);
     try {
-      // Menggunakan endpoint customer untuk mengambil riwayat ringkas
       const response = await axios.get(
         `${import.meta.env.VITE_API_URL}/customers/${userId}`,
       );
@@ -94,7 +93,7 @@ export default function Orders() {
 
   const fetchOrderDetail = async (orderId) => {
     setLoadingDetail(true);
-    setSelectedOrder(null); // Reset detail sebelumnya
+    setSelectedOrder(null);
     try {
       const response = await axios.get(
         `${import.meta.env.VITE_API_URL}/orders/${orderId}`,
@@ -140,11 +139,10 @@ export default function Orders() {
     }
   };
 
-  // Logika Filter Tab
   const filteredOrders =
     activeTab === "all" ? orders : orders.filter((o) => o.status === activeTab);
 
-  // Fungsi Kirim Ulasan
+  // ---> TAMBAHAN 2: Menambahkan console.log dan variant_name ke payload API
   const submitReview = async (e) => {
     e.preventDefault();
     setIsSubmittingReview(true);
@@ -155,7 +153,11 @@ export default function Orders() {
         user_id: userData.id,
         rating: reviewForm.rating,
         comment: reviewForm.comment,
+        variant_name: reviewModal.variant_name, // Mengirim variasi ke backend
       };
+
+      // Tampilkan di console untuk memastikan data tidak kosong!
+      console.log("MENGIRIM ULASAN DARI ORDERS.JSX:", payload);
 
       const response = await axios.post(
         `${import.meta.env.VITE_API_URL}/reviews`,
@@ -169,6 +171,7 @@ export default function Orders() {
         order_id: null,
         product_id: null,
         product_name: "",
+        variant_name: "", // Reset juga variasinya
       });
       setReviewForm({ rating: 5, comment: "" });
     } catch (error) {
@@ -215,6 +218,7 @@ export default function Orders() {
                     order_id: null,
                     product_id: null,
                     product_name: "",
+                    variant_name: "",
                   })
                 }
                 className="text-gray-400 hover:text-gray-800 transition"
@@ -227,6 +231,10 @@ export default function Orders() {
                 Bagaimana kepuasan Anda terhadap produk{" "}
                 <strong className="text-gray-900">
                   {reviewModal.product_name}
+                  {/* Menampilkan juga variasi di pop up ulasan agar user tahu */}
+                  {reviewModal.variant_name !== "Tanpa Variasi"
+                    ? ` (${reviewModal.variant_name})`
+                    : ""}
                 </strong>
                 ?
               </p>
@@ -300,7 +308,6 @@ export default function Orders() {
             </div>
 
             <div className="p-5 overflow-y-auto flex-1 bg-gray-50/50">
-              {/* TOMBOL PANDUAN PEMBAYARAN JIKA PENDING */}
               {selectedOrder.status === "pending" && (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 flex justify-between items-center">
                   <div>
@@ -364,15 +371,19 @@ export default function Orders() {
                       </p>
                     </div>
 
-                    {/* TOMBOL REVIEW MUNCUL JIKA STATUS SELESAI */}
                     {selectedOrder.status === "completed" && (
                       <button
+                        // ---> TAMBAHAN 3: Menangkap nama variasi saat tombol di klik
                         onClick={() =>
                           setReviewModal({
                             show: true,
                             order_id: selectedOrder.id,
                             product_id: item.product_id,
                             product_name: item.product_name,
+                            variant_name:
+                              item.variant_key ||
+                              item.variant_name ||
+                              "Tanpa Variasi", // Menyimpan variasi ke state
                           })
                         }
                         className="bg-amber-100 text-amber-700 hover:bg-amber-200 border border-amber-200 px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-1 transition"
@@ -397,9 +408,9 @@ export default function Orders() {
         </div>
       )}
 
+      {/* SISA SCRIPT (Sidebar dan Daftar Pesanan) SAMA PERSIS */}
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
-          {/* SIDEBAR NAVIGATION */}
           <div className="md:col-span-3">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="p-6 text-center border-b border-gray-100 bg-gray-950 text-white">
@@ -462,7 +473,6 @@ export default function Orders() {
             </div>
           </div>
 
-          {/* MAIN CONTENT AREA */}
           <div className="md:col-span-9 space-y-6">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="p-6 sm:p-8 border-b border-gray-100">
@@ -475,7 +485,6 @@ export default function Orders() {
                 </p>
               </div>
 
-              {/* TABS FILTER */}
               <div className="flex overflow-x-auto border-b border-gray-100 hide-scrollbar bg-gray-50/50">
                 {[
                   { id: "all", label: "Semua" },
@@ -562,7 +571,6 @@ export default function Orders() {
                             </div>
 
                             <div className="flex gap-2">
-                              {/* TAUTAN LANGSUNG KE PEMBAYARAN JIKA PENDING */}
                               {order.status === "pending" && (
                                 <Link
                                   to={`/payment-confirmation/${order.id}`}

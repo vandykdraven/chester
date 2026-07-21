@@ -13,19 +13,26 @@ import {
   ChevronDown,
   Image as ImageIcon,
   FileText,
+  Bell, // ---> TAMBAHAN: Ikon Lonceng Notifikasi
 } from "lucide-react";
+import axios from "axios"; // ---> TAMBAHAN: Import Axios
 import logo from "../../assets/logo.png";
 
 export default function AdminLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isProductMenuOpen, setIsProductMenuOpen] = useState(false);
   const [isStaticMenuOpen, setIsStaticMenuOpen] = useState(false);
-  const [adminUser, setAdminUser] = useState({ fullname: "Admin", email: "" }); // State Profil Admin
+  const [adminUser, setAdminUser] = useState({ fullname: "Admin", email: "" });
+
+  // ---> TAMBAHAN: State untuk Notifikasi
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
 
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Ambil data admin dari localStorage setiap kali komponen ini dimuat
+  // Ambil data admin
   useEffect(() => {
     const fetchAdminData = () => {
       const savedAdmin = JSON.parse(localStorage.getItem("admin"));
@@ -33,24 +40,68 @@ export default function AdminLayout() {
         setAdminUser(savedAdmin);
       }
     };
-
-    // Panggil saat pertama kali load
     fetchAdminData();
-
-    // Opsional: Listener jika localStorage berubah di tab/window yang sama (berguna saat profil diupdate)
     window.addEventListener("storage", fetchAdminData);
     return () => window.removeEventListener("storage", fetchAdminData);
-  }, [location.pathname]); // Trigger update jika path berubah (misal dari settings kembali ke dashboard)
+  }, [location.pathname]);
 
-  // Fungsi Keluar
+  // ---> TAMBAHAN: Fungsi mengambil notifikasi dari backend
+  useEffect(() => {
+    fetchNotifications();
+    // Opsional: Refresh notifikasi setiap 60 detik secara otomatis
+    const interval = setInterval(fetchNotifications, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const fetchNotifications = async () => {
+    try {
+      const token = localStorage.getItem("adminToken");
+      const response = await axios.get(
+        `${import.meta.env.VITE_API_URL}/admin/notifications`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      if (response.data.success) {
+        setNotifications(response.data.data);
+        setUnreadCount(response.data.unread_count);
+      }
+    } catch (error) {
+      console.error("Gagal memuat notifikasi", error);
+    }
+  };
+
+  // ---> TAMBAHAN: Fungsi menandai notifikasi telah dibaca
+  const markAsRead = async (id, isRead) => {
+    if (isRead) return; // Jika sudah dibaca, abaikan
+    try {
+      const token = localStorage.getItem("adminToken");
+      await axios.put(
+        `${import.meta.env.VITE_API_URL}/admin/notifications/${id}/read`,
+        {},
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      // Perbarui tampilan secara lokal tanpa memanggil ulang API
+      setNotifications(
+        notifications.map((notif) =>
+          notif.id === id ? { ...notif, is_read: 1 } : notif,
+        ),
+      );
+      setUnreadCount((prev) => Math.max(0, prev - 1));
+    } catch (error) {
+      console.error("Gagal menandai notifikasi", error);
+    }
+  };
+
   const handleLogout = () => {
     localStorage.removeItem("adminToken");
     localStorage.removeItem("adminData");
-    localStorage.removeItem("admin"); // Hapus juga data profilnya
+    localStorage.removeItem("admin");
     navigate("/admin-login");
   };
 
-  // Helper Inisial Avatar
   const getInitial = (name) => {
     return name ? name.charAt(0).toUpperCase() : "A";
   };
@@ -109,6 +160,7 @@ export default function AdminLayout() {
               <LayoutDashboard size={20} /> Dashboard
             </Link>
 
+            {/* Menu Produk */}
             <div>
               <button
                 onClick={() => setIsProductMenuOpen(!isProductMenuOpen)}
@@ -169,6 +221,8 @@ export default function AdminLayout() {
                 </Link>
               </div>
             </div>
+
+            {/* Menu Halaman Statis */}
             <div>
               <button
                 onClick={() => setIsStaticMenuOpen(!isStaticMenuOpen)}
@@ -264,14 +318,76 @@ export default function AdminLayout() {
 
           <div className="flex-1 lg:flex-none"></div>
 
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-4 sm:gap-6">
             <Link
               to="/"
-              className="flex items-center gap-2 text-xs md:text-sm font-semibold text-gray-600 hover:text-chester-pink border border-gray-200 hover:border-chester-pink px-4 py-2 rounded-lg bg-gray-50 hover:bg-white shadow-sm transition-all duration-300"
+              className="hidden sm:flex items-center gap-2 text-xs md:text-sm font-semibold text-gray-600 hover:text-chester-pink border border-gray-200 hover:border-chester-pink px-4 py-2 rounded-lg bg-gray-50 hover:bg-white shadow-sm transition-all duration-300"
             >
-              <ExternalLink size={16} />{" "}
-              <span className="hidden sm:inline">Lihat Website</span>
+              <ExternalLink size={16} /> Lihat Website
             </Link>
+
+            {/* ---> TAMBAHAN: Komponen Lonceng Notifikasi */}
+            <div className="relative">
+              <button
+                onClick={() => setIsNotificationOpen(!isNotificationOpen)}
+                className="relative p-2 text-gray-500 hover:text-chester-pink transition bg-gray-50 hover:bg-pink-50 rounded-full border border-gray-100"
+              >
+                <Bell size={20} />
+                {unreadCount > 0 && (
+                  <span className="absolute top-0 right-0 h-3 w-3 bg-red-500 rounded-full border-2 border-white"></span>
+                )}
+              </button>
+
+              {/* Kotak Dropdown Notifikasi */}
+              {isNotificationOpen && (
+                <div className="absolute right-0 mt-3 w-80 bg-white rounded-xl shadow-xl border border-gray-100 z-50 overflow-hidden">
+                  <div className="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                    <h4 className="font-bold text-gray-900 text-sm">
+                      Notifikasi
+                    </h4>
+                    {unreadCount > 0 && (
+                      <span className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded-full font-bold">
+                        {unreadCount} Baru
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="max-h-80 overflow-y-auto custom-scrollbar">
+                    {notifications.length === 0 ? (
+                      <div className="p-6 text-center text-gray-500 text-sm">
+                        Belum ada notifikasi baru.
+                      </div>
+                    ) : (
+                      notifications.map((notif) => (
+                        <div
+                          key={notif.id}
+                          onClick={() => markAsRead(notif.id, notif.is_read)}
+                          className={`p-4 border-b border-gray-50 cursor-pointer transition-colors hover:bg-gray-50 flex gap-3 ${notif.is_read ? "opacity-60" : "bg-blue-50/30"}`}
+                        >
+                          <div
+                            className={`w-2 h-2 mt-1.5 rounded-full flex-shrink-0 ${notif.is_read ? "bg-transparent" : "bg-chester-pink"}`}
+                          ></div>
+                          <div>
+                            <p
+                              className={`text-sm ${notif.is_read ? "text-gray-600" : "text-gray-900 font-medium"}`}
+                            >
+                              {notif.message}
+                            </p>
+                            <p className="text-xs text-gray-400 mt-1">
+                              {new Date(notif.created_at).toLocaleDateString(
+                                "id-ID",
+                                { hour: "2-digit", minute: "2-digit" },
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="h-8 w-px bg-gray-200 hidden md:block"></div>
 
             {/* PROFIL ADMIN DINAMIS */}

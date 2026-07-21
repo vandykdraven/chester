@@ -1,6 +1,7 @@
 const express = require("express");
 const axios = require("axios");
 const mysql = require("mysql2");
+const { filterProfanity } = require("./utils/helpers");
 const Notifier = require("./utils/notifier");
 const crypto = require("crypto");
 const cors = require("cors");
@@ -573,6 +574,47 @@ app.put(
     }
   },
 );
+
+// =======================================================================
+// 5. ENDPOINT: AMBIL ULASAN UNTUK HALAMAN PRODUK PUBLIK
+// =======================================================================
+app.get("/api/products/:id/reviews", async (req, res) => {
+  try {
+    const productId = req.params.id;
+
+    // Ambil ulasan, gabungkan dengan nama user untuk ditampilkan
+    const [reviews] = await db.query(
+      `SELECT r.id, r.rating, r.comment, r.variant_name, r.admin_reply, r.created_at, r.updated_at, 
+              u.fullname as customer_name, u.avatar 
+       FROM product_reviews r
+       JOIN users u ON r.user_id = u.id
+       WHERE r.product_id = ?
+       ORDER BY r.created_at DESC`,
+      [productId],
+    );
+
+    // Hitung rata-rata rating
+    let averageRating = 0;
+    if (reviews.length > 0) {
+      const totalRating = reviews.reduce((sum, rev) => sum + rev.rating, 0);
+      averageRating = (totalRating / reviews.length).toFixed(1); // 1 angka di belakang koma
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: reviews,
+      summary: {
+        averageRating: averageRating,
+        totalReviews: reviews.length,
+      },
+    });
+  } catch (error) {
+    console.error("Gagal mengambil ulasan produk:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server." });
+  }
+});
 
 // =======================================================================
 // ENDPOINT: MEDIA GALERI (GALLERY)
@@ -2207,17 +2249,33 @@ app.delete("/api/users/:id/addresses/:addressId", async (req, res) => {
 });
 
 // =======================================================================
-// ENDPOINT: ULASAN / REVIEW PRODUK (NEW FEATURE)
+// 1. ENDPOINT: BUAT ULASAN BARU (PELANGGAN)
 // =======================================================================
 app.post("/api/reviews", async (req, res) => {
   try {
-    const { order_id, product_id, user_id, rating, comment } = req.body;
+    const { order_id, product_id, user_id, rating, comment, variant_name } =
+      req.body;
+
     if (!order_id || !product_id || !user_id || !rating) {
       return res
         .status(400)
         .json({ success: false, message: "Data ulasan tidak lengkap!" });
     }
 
+    // Syarat 1: Pastikan Pesanan Berstatus 'Selesai'
+    const [orderCheck] = await db.query(
+      "SELECT status FROM orders WHERE id = ?",
+      [order_id],
+    );
+    if (orderCheck.length === 0 || orderCheck[0].status !== "completed") {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Ulasan hanya dapat diberikan untuk pesanan yang sudah selesai.",
+      });
+    }
+
+    // Syarat 2: Cegah Ulasan Ganda
     const [existing] = await db.query(
       "SELECT id FROM product_reviews WHERE order_id = ? AND product_id = ? AND user_id = ?",
       [order_id, product_id, user_id],
@@ -2225,14 +2283,54 @@ app.post("/api/reviews", async (req, res) => {
     if (existing.length > 0) {
       return res.status(400).json({
         success: false,
-        message: "Anda sudah memberikan ulasan untuk produk ini.",
+        message:
+          "Anda sudah memberikan ulasan untuk produk ini. Silakan gunakan fitur Edit.",
       });
     }
 
-    await db.query(
-      "INSERT INTO product_reviews (order_id, product_id, user_id, rating, comment) VALUES (?, ?, ?, ?, ?)",
-      [order_id, product_id, user_id, rating, comment || null],
+    // Syarat 3: Terapkan Filter Kata Kotor
+    const [settings] = await db.query(
+      "SELECT setting_value FROM settings WHERE setting_key = 'profanity_filter_words'",
     );
+    const badWords = settings.length > 0 ? settings[0].setting_value : "";
+    const filteredComment = filterProfanity(comment, badWords);
+
+    // Eksekusi Simpan Data Utama
+    await db.query(
+      "INSERT INTO product_reviews (order_id, product_id, user_id, rating, comment, variant_name) VALUES (?, ?, ?, ?, ?, ?)",
+      [
+        order_id,
+        product_id,
+        user_id,
+        rating,
+        filteredComment || null,
+        variant_name || null,
+      ],
+    );
+
+    // Transformasi 1: Kalkulasi Rating Otomatis ke Tabel Produk
+    const [ratingResult] = await db.query(
+      "SELECT AVG(rating) as average_rating, COUNT(id) as total_reviews FROM product_reviews WHERE product_id = ?",
+      [product_id],
+    );
+
+    const avgRating = ratingResult[0].average_rating || 0;
+    const totalReviews = ratingResult[0].total_reviews || 0;
+
+    await db.query(
+      "UPDATE products SET rating = ?, review_count = ? WHERE id = ?",
+      [Number(avgRating).toFixed(1), totalReviews, product_id],
+    );
+
+    // Transformasi 2: Injeksi Notifikasi Admin untuk Rating Rendah
+    if (rating <= 2) {
+      const notifMessage = `Peringatan: Pesanan #${order_id} mendapat ulasan ${rating} bintang. Segera tindak lanjuti keluhan pelanggan.`;
+      await db.query(
+        "INSERT INTO admin_notifications (type, reference_id, message) VALUES (?, ?, ?)",
+        ["bad_review", order_id, notifMessage],
+      );
+    }
+
     return res.status(201).json({
       success: true,
       message: "Terima kasih! Ulasan Anda berhasil disimpan.",
@@ -2242,6 +2340,109 @@ app.post("/api/reviews", async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Terjadi kesalahan server saat menyimpan ulasan.",
+    });
+  }
+});
+
+// =======================================================================
+// 2. ENDPOINT: EDIT ULASAN (PELANGGAN)
+// =======================================================================
+app.put("/api/reviews/:id", async (req, res) => {
+  try {
+    const reviewId = req.params.id;
+    const { rating, comment } = req.body;
+
+    // Terapkan kembali filter kata kotor saat diedit
+    const [settings] = await db.query(
+      "SELECT setting_value FROM settings WHERE setting_key = 'profanity_filter_words'",
+    );
+    const badWords = settings.length > 0 ? settings[0].setting_value : "";
+    const filteredComment = filterProfanity(comment, badWords);
+
+    await db.query(
+      "UPDATE product_reviews SET rating = ?, comment = ? WHERE id = ?",
+      [rating, filteredComment || null, reviewId],
+    );
+
+    return res
+      .status(200)
+      .json({ success: true, message: "Ulasan berhasil diperbarui!" });
+  } catch (error) {
+    console.error("Gagal update ulasan:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server." });
+  }
+});
+
+// =======================================================================
+// 3. ENDPOINT: AMBIL SEMUA ULASAN DENGAN PAGINATION (ADMIN)
+// =======================================================================
+app.get("/api/admin/reviews", async (req, res) => {
+  try {
+    // Logika Pagination Server-Side
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+
+    // Hitung total keseluruhan data
+    const [totalRows] = await db.query(
+      "SELECT COUNT(*) as count FROM product_reviews",
+    );
+    const totalRecords = totalRows[0].count;
+    const totalPages = Math.ceil(totalRecords / limit);
+
+    // Ambil data ulasan (Digabung dengan nama produk, nama pelanggan, dan nomor invoice)
+    const [reviews] = await db.query(
+      `SELECT r.*, p.name as product_name, u.fullname as customer_name, o.invoice_number 
+       FROM product_reviews r
+       JOIN products p ON r.product_id = p.id
+       JOIN users u ON r.user_id = u.id
+       JOIN orders o ON r.order_id = o.id
+       ORDER BY r.created_at DESC
+       LIMIT ? OFFSET ?`,
+      [limit, offset],
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: reviews,
+      pagination: {
+        currentPage: page,
+        totalPages: totalPages,
+        totalRecords: totalRecords,
+      },
+    });
+  } catch (error) {
+    console.error("Gagal mengambil ulasan untuk admin:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Terjadi kesalahan server." });
+  }
+});
+
+// =======================================================================
+// 4. ENDPOINT: ADMIN MEMBALAS ULASAN
+// =======================================================================
+app.put("/api/admin/reviews/:id/reply", async (req, res) => {
+  try {
+    const reviewId = req.params.id;
+    const { admin_reply } = req.body;
+
+    await db.query("UPDATE product_reviews SET admin_reply = ? WHERE id = ?", [
+      admin_reply || null,
+      reviewId,
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      message: "Balasan Anda berhasil dikirim ke pelanggan!",
+    });
+  } catch (error) {
+    console.error("Gagal membalas ulasan:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Terjadi kesalahan server saat membalas.",
     });
   }
 });
@@ -3046,6 +3247,107 @@ app.get("/sitemap.xml", async (req, res) => {
   } catch (error) {
     console.error("Gagal membuat sitemap:", error);
     res.status(500).send("Terjadi kesalahan pada server saat membuat sitemap.");
+  }
+});
+
+// =======================================================================
+// ENDPOINT: MENGAMBIL DAFTAR NOTIFIKASI ADMIN
+// =======================================================================
+app.get("/api/admin/notifications", async (req, res) => {
+  try {
+    // Mengambil 10 notifikasi terbaru
+    const [notifications] = await db.query(
+      "SELECT * FROM admin_notifications ORDER BY created_at DESC LIMIT 10",
+    );
+
+    // Menghitung jumlah notifikasi yang belum dibaca (is_read = 0)
+    const [unread] = await db.query(
+      "SELECT COUNT(id) as unread_count FROM admin_notifications WHERE is_read = 0",
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: notifications,
+      unread_count: unread[0].unread_count,
+    });
+  } catch (error) {
+    console.error("Gagal mengambil notifikasi:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Kesalahan server" });
+  }
+});
+
+// =======================================================================
+// ENDPOINT: TANDAI NOTIFIKASI SUDAH DIBACA
+// =======================================================================
+app.put("/api/admin/notifications/:id/read", async (req, res) => {
+  try {
+    const notifId = req.params.id;
+    await db.query("UPDATE admin_notifications SET is_read = 1 WHERE id = ?", [
+      notifId,
+    ]);
+    return res
+      .status(200)
+      .json({ success: true, message: "Notifikasi dibaca" });
+  } catch (error) {
+    return res
+      .status(500)
+      .json({ success: false, message: "Kesalahan server" });
+  }
+});
+
+// =======================================================================
+// ENDPOINT: MENGAMBIL ULASAN PRODUK DENGAN SERVER-SIDE PAGINATION
+// =======================================================================
+app.get("/api/products/:product_id/reviews", async (req, res) => {
+  try {
+    const { product_id } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 5;
+    const offset = (page - 1) * limit;
+
+    // ---> PERBAIKAN: Menghitung COUNT (Total) dan AVG (Rata-rata) dari database
+    const [summaryResult] = await db.query(
+      "SELECT COUNT(id) as total, IFNULL(AVG(rating), 0) as averageRating FROM product_reviews WHERE product_id = ?",
+      [product_id],
+    );
+    const totalReviews = summaryResult[0].total;
+    // Format rata-rata menjadi 1 angka di belakang koma (contoh: 4.5)
+    const averageRating = parseFloat(summaryResult[0].averageRating).toFixed(1);
+    const totalPages = Math.ceil(totalReviews / limit);
+
+    const [reviews] = await db.query(
+      `SELECT pr.*, u.fullname, u.avatar
+       FROM product_reviews pr
+       LEFT JOIN users u ON pr.user_id = u.id
+       WHERE pr.product_id = ?
+       ORDER BY pr.created_at DESC
+       LIMIT ? OFFSET ?`,
+      [product_id, limit, offset],
+    );
+
+    // ---> PERBAIKAN: Menambahkan objek "summary" ke data yang dikirim ke Frontend
+    return res.status(200).json({
+      success: true,
+      data: reviews,
+      pagination: {
+        current_page: page,
+        total_pages: totalPages,
+        total_reviews: totalReviews,
+        limit_per_page: limit,
+      },
+      summary: {
+        averageRating: averageRating,
+        totalReviews: totalReviews,
+      },
+    });
+  } catch (error) {
+    console.error("Gagal mengambil ulasan:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Terjadi kesalahan server saat mengambil ulasan.",
+    });
   }
 });
 
