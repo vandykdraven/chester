@@ -13,7 +13,8 @@ import {
   ChevronDown,
   Image as ImageIcon,
   FileText,
-  Bell, // ---> TAMBAHAN: Ikon Lonceng Notifikasi
+  Bell,
+  MessageSquare,
 } from "lucide-react";
 import axios from "axios"; // ---> TAMBAHAN: Import Axios
 import logo from "../../assets/logo.png";
@@ -113,6 +114,11 @@ export default function AdminLayout() {
       path: "/admin/orders",
     },
     { name: "Pelanggan", icon: <Users size={20} />, path: "/admin/customers" },
+    {
+      name: "Ulasan",
+      icon: <MessageSquare size={20} />,
+      path: "/admin/reviews",
+    },
     {
       name: "Galeri Media",
       icon: <ImageIcon size={20} />,

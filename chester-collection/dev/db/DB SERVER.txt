@@ -1,7 +1,0 @@
-z9jhgLQby8z2nmC4y5SF
-
-
-Hostname : localhost
-Database : chesterc_chester
-Username : chesterc_chester
-Password : z9jhgLQby8z2nmC4y5SF

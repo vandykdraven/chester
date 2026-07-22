@@ -576,19 +576,21 @@ app.put(
 );
 
 // =======================================================================
-// 5. ENDPOINT: AMBIL ULASAN UNTUK HALAMAN PRODUK PUBLIK
+// ENDPOINT: [PELANGGAN] MENGAMBIL ULASAN PUBLIK PADA HALAMAN PRODUK
 // =======================================================================
 app.get("/api/products/:id/reviews", async (req, res) => {
   try {
     const productId = req.params.id;
 
     // Ambil ulasan, gabungkan dengan nama user untuk ditampilkan
+    // Telah ditambahkan r.user_id untuk validasi kepemilikan di frontend
+    // dan r.is_hidden = 0 untuk memfilter ulasan yang disembunyikan.
     const [reviews] = await db.query(
-      `SELECT r.id, r.rating, r.comment, r.variant_name, r.admin_reply, r.created_at, r.updated_at, 
+      `SELECT r.id, r.user_id, r.rating, r.comment, r.variant_name, r.admin_reply, r.created_at, r.updated_at, 
               u.fullname as customer_name, u.avatar 
        FROM product_reviews r
        JOIN users u ON r.user_id = u.id
-       WHERE r.product_id = ?
+       WHERE r.product_id = ? AND r.is_hidden = 0
        ORDER BY r.created_at DESC`,
       [productId],
     );
@@ -3347,6 +3349,153 @@ app.get("/api/products/:product_id/reviews", async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Terjadi kesalahan server saat mengambil ulasan.",
+    });
+  }
+});
+
+// =======================================================================
+// ENDPOINT: [ADMIN] MENGAMBIL SELURUH ULASAN
+// =======================================================================
+app.get("/api/admin/reviews", async (req, res) => {
+  try {
+    const [reviews] = await db.query(
+      `SELECT pr.*, 
+              p.name as product_name, 
+              u.fullname as customer_name
+       FROM product_reviews pr
+       LEFT JOIN products p ON pr.product_id = p.id
+       LEFT JOIN users u ON pr.user_id = u.id
+       ORDER BY pr.created_at DESC`,
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: reviews,
+    });
+  } catch (error) {
+    console.error("Gagal mengambil ulasan admin:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Terjadi kesalahan server saat mengambil ulasan admin.",
+    });
+  }
+});
+
+// =======================================================================
+// ENDPOINT: [ADMIN] MEMBALAS ULASAN PELANGGAN
+// =======================================================================
+app.put("/api/admin/reviews/:id/reply", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { admin_reply } = req.body;
+
+    if (!admin_reply || admin_reply.trim() === "") {
+      return res.status(400).json({
+        success: false,
+        message: "Teks balasan tidak boleh kosong.",
+      });
+    }
+
+    const [result] = await db.query(
+      "UPDATE product_reviews SET admin_reply = ? WHERE id = ?",
+      [admin_reply, id],
+    );
+
+    if (result.affectedRows === 0) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Ulasan tidak ditemukan." });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Balasan ulasan berhasil disimpan.",
+    });
+  } catch (error) {
+    console.error("Gagal menyimpan balasan ulasan:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Terjadi kesalahan server saat menyimpan balasan.",
+    });
+  }
+});
+
+// =======================================================================
+// ENDPOINT: [ADMIN] TOGGLE SEMBUNYIKAN/TAMPILKAN ULASAN
+// =======================================================================
+app.patch("/api/admin/reviews/:id/visibility", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Kita gunakan NOT is_hidden agar jika 0 jadi 1, jika 1 jadi 0
+    const [result] = await db.query(
+      "UPDATE product_reviews SET is_hidden = NOT is_hidden WHERE id = ?",
+      [id],
+    );
+
+    if (result.affectedRows === 0) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Ulasan tidak ditemukan." });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Status visibilitas ulasan berhasil diubah.",
+    });
+  } catch (error) {
+    console.error("Gagal mengubah visibilitas ulasan:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Terjadi kesalahan server saat memproses data.",
+    });
+  }
+});
+
+// =======================================================================
+// ENDPOINT: [PELANGGAN] EDIT ULASAN
+// =======================================================================
+app.put("/api/reviews/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rating, comment, user_id } = req.body; // user_id didapat dari token atau sesi pelanggan di React
+
+    // Validasi input
+    if (!rating || rating < 1 || rating > 5) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Rating harus antara 1 dan 5." });
+    }
+    if (!user_id) {
+      return res.status(401).json({
+        success: false,
+        message: "Akses ditolak. ID Pengguna diperlukan.",
+      });
+    }
+
+    // Update database: Hanya jika id ulasan DAN user_id cocok
+    const [result] = await db.query(
+      "UPDATE product_reviews SET rating = ?, comment = ? WHERE id = ? AND user_id = ?",
+      [rating, comment, id, user_id],
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(403).json({
+        success: false,
+        message:
+          "Ulasan tidak ditemukan atau Anda tidak memiliki izin untuk mengedit ulasan ini.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Ulasan berhasil diperbarui.",
+    });
+  } catch (error) {
+    console.error("Gagal mengedit ulasan:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Terjadi kesalahan server saat menyimpan ulasan.",
     });
   }
 });

@@ -10,9 +10,12 @@ import {
   CheckCircle,
   AlertCircle,
   Star,
+  Edit,
+  X,
 } from "lucide-react";
 import axios from "axios";
 
+// Fungsi untuk memformat angka menjadi format Rupiah
 const formatRupiah = (angka) => {
   return new Intl.NumberFormat("id-ID", {
     style: "currency",
@@ -21,6 +24,7 @@ const formatRupiah = (angka) => {
   }).format(angka);
 };
 
+// Fungsi untuk mendapatkan URL embed YouTube yang valid
 const getYouTubeEmbedUrl = (url) => {
   if (!url) return null;
   const ytRegex =
@@ -36,6 +40,7 @@ export default function ProductPage() {
   const { slug } = useParams();
   const navigate = useNavigate();
 
+  // State untuk menyimpan data ulasan
   const [reviews, setReviews] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -44,19 +49,17 @@ export default function ProductPage() {
     totalReviews: 0,
   });
 
+  // State untuk menyimpan data produk dan interaksi halaman
   const [product, setProduct] = useState(null);
   const [relatedProducts, setRelatedProducts] = useState([]);
   const [loading, setLoading] = useState(true);
-
   const [selectedVariant, setSelectedVariant] = useState(null);
   const [quantity, setQuantity] = useState(1);
-
   const [currentImgIndex, setCurrentImgIndex] = useState(0);
   const [zoomStyle, setZoomStyle] = useState({
     transformOrigin: "center",
     transform: "scale(1)",
   });
-
   const [isWishlisted, setIsWishlisted] = useState(false);
   const [customAlert, setCustomAlert] = useState({
     show: false,
@@ -64,17 +67,37 @@ export default function ProductPage() {
     type: "success",
   });
 
+  // State khusus untuk mengontrol jendela popup (modal) edit ulasan
+  const [editModal, setEditModal] = useState({
+    isOpen: false,
+    reviewId: null,
+    rating: 5,
+    comment: "",
+    isSubmitting: false,
+  });
+
   const BASE_URL = import.meta.env.VITE_API_URL.replace("/api", "");
+
+  // Mengambil data pelanggan yang sedang login dari penyimpanan browser
   const customerUser = JSON.parse(
     localStorage.getItem("customerUser") ||
       sessionStorage.getItem("customerUser"),
   );
 
+  // Fungsi untuk mengambil token otorisasi pelanggan untuk keperluan API
+  const getCustomerAuthHeader = () => {
+    const token =
+      localStorage.getItem("customerToken") ||
+      sessionStorage.getItem("customerToken");
+    return { headers: { Authorization: `Bearer ${token}` } };
+  };
+
+  // Efek ini berjalan otomatis saat halaman pertama kali dimuat atau slug URL berubah
   useEffect(() => {
     fetchProductDetails();
   }, [slug]);
 
-  // ---> TAMBAHAN 1: Menambahkan parameter "page" dengan nilai default 1
+  // Mengambil data ulasan dari backend API
   const fetchProductReviews = async (productId, page = 1) => {
     try {
       const res = await axios.get(
@@ -83,13 +106,10 @@ export default function ProductPage() {
 
       if (res.data.success) {
         setReviews(res.data.data);
-
         if (res.data.pagination) {
           setCurrentPage(res.data.pagination.current_page);
           setTotalPages(res.data.pagination.total_pages);
         }
-
-        // ---> PERBAIKAN: Menangkap summary langsung dari response backend dengan aman
         if (res.data.summary) {
           setReviewSummary({
             averageRating: res.data.summary.averageRating,
@@ -102,6 +122,7 @@ export default function ProductPage() {
     }
   };
 
+  // Fungsi untuk menampilkan notifikasi pop-up di layar
   const showAlert = (message, type = "success") => {
     setCustomAlert({ show: true, message, type });
     setTimeout(
@@ -110,6 +131,7 @@ export default function ProductPage() {
     );
   };
 
+  // Mengambil detail lengkap produk dari backend
   const fetchProductDetails = async () => {
     setLoading(true);
     try {
@@ -139,7 +161,7 @@ export default function ProductPage() {
           checkWishlistStatus(prodData.id);
         }
 
-        // Memanggil ulasan halaman 1 saat produk pertama kali dimuat
+        // Panggil fungsi ulasan setelah ID produk didapatkan
         fetchProductReviews(prodData.id, 1);
       }
     } catch (error) {
@@ -149,6 +171,7 @@ export default function ProductPage() {
     }
   };
 
+  // Mengambil produk lain dalam kategori yang sama
   const fetchRelatedProducts = async (categoryId, currentProductId) => {
     try {
       const res = await axios.get(`${import.meta.env.VITE_API_URL}/products`);
@@ -165,6 +188,7 @@ export default function ProductPage() {
     }
   };
 
+  // Mengecek apakah produk ini sudah ada di wishlist pengguna
   const checkWishlistStatus = async (currentProductId) => {
     try {
       const res = await axios.get(
@@ -181,6 +205,7 @@ export default function ProductPage() {
     }
   };
 
+  // Menambah atau menghapus produk dari wishlist
   const toggleWishlist = async () => {
     if (!customerUser) {
       showAlert("Silakan login untuk menyimpan produk ke Wishlist.", "error");
@@ -217,13 +242,13 @@ export default function ProductPage() {
     else setQuantity((prev) => (prev > 1 ? prev - 1 : 1));
   };
 
+  // Memproses penambahan barang ke keranjang
   const handleAddToCart = async () => {
     if (!customerUser) {
       showAlert("Silakan login untuk menambahkan ke keranjang.", "error");
       setTimeout(() => navigate("/login"), 2000);
       return;
     }
-
     if (product.has_variant === 1 && !selectedVariant) {
       showAlert("Silakan pilih variasi produk terlebih dahulu.", "error");
       return;
@@ -276,7 +301,6 @@ export default function ProductPage() {
       setTimeout(() => navigate("/login"), 2000);
       return;
     }
-
     if (product.has_variant === 1 && !selectedVariant) {
       showAlert("Silakan pilih variasi produk terlebih dahulu.", "error");
       return;
@@ -294,6 +318,7 @@ export default function ProductPage() {
         `${import.meta.env.VITE_API_URL}/carts`,
         payload,
       );
+
       try {
         if (window.fbq) {
           const trackPrice = selectedVariant
@@ -311,6 +336,7 @@ export default function ProductPage() {
       } catch (fbqError) {
         console.error("Meta Pixel Error (AddToCart):", fbqError);
       }
+
       if (res.data.success) {
         window.dispatchEvent(new Event("cartUpdated"));
         navigate("/checkout");
@@ -340,6 +366,59 @@ export default function ProductPage() {
     }
   };
 
+  // Fungsi untuk membuka modal edit dengan data ulasan yang sudah ada
+  const handleOpenEditModal = (rev) => {
+    setEditModal({
+      isOpen: true,
+      reviewId: rev.id,
+      rating: rev.rating,
+      comment: rev.comment || "",
+      isSubmitting: false,
+    });
+  };
+
+  // Fungsi untuk mengirim perubahan ulasan ke backend API
+  const handleSubmitEditReview = async (e) => {
+    e.preventDefault();
+    try {
+      setEditModal((prev) => ({ ...prev, isSubmitting: true }));
+
+      // Memanggil endpoint PUT dengan menyertakan Token Pelanggan
+      const res = await axios.put(
+        `${import.meta.env.VITE_API_URL}/reviews/${editModal.reviewId}`,
+        { rating: editModal.rating, comment: editModal.comment },
+        getCustomerAuthHeader(),
+      );
+
+      if (res.data.success) {
+        showAlert("Ulasan Anda berhasil diperbarui!", "success");
+
+        // Memperbarui tampilan ulasan secara langsung di layar tanpa memuat ulang halaman
+        setReviews(
+          reviews.map((r) =>
+            r.id === editModal.reviewId
+              ? { ...r, rating: editModal.rating, comment: editModal.comment }
+              : r,
+          ),
+        );
+
+        // Menutup modal
+        setEditModal((prev) => ({ ...prev, isOpen: false }));
+
+        // Mengambil ulang summary agar rata-rata bintang terbarui
+        fetchProductReviews(product.id, currentPage);
+      }
+    } catch (error) {
+      showAlert(
+        error.response?.data?.message || "Gagal memperbarui ulasan.",
+        "error",
+      );
+    } finally {
+      setEditModal((prev) => ({ ...prev, isSubmitting: false }));
+    }
+  };
+
+  // Kontrol navigasi galeri gambar produk
   const nextImage = () =>
     setCurrentImgIndex((prev) => (prev + 1) % product.displayImages.length);
   const prevImage = () =>
@@ -360,6 +439,7 @@ export default function ProductPage() {
   const handleMouseLeave = () =>
     setZoomStyle({ transformOrigin: "center", transform: "scale(1)" });
 
+  // Tampilan layar pemuatan (loading)
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -368,6 +448,7 @@ export default function ProductPage() {
     );
   }
 
+  // Tampilan jika produk tidak ditemukan
   if (!product) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4">
@@ -379,6 +460,7 @@ export default function ProductPage() {
     );
   }
 
+  // Penentuan harga berdasarkan varian yang dipilih
   const currentPrice = selectedVariant
     ? Number(selectedVariant.price || 0)
     : Number(product.price || 0);
@@ -388,6 +470,7 @@ export default function ProductPage() {
 
   return (
     <div className="bg-white min-h-screen font-lora relative">
+      {/* Notifikasi Pop-up */}
       {customAlert.show && (
         <div className="fixed top-6 right-6 z-50 animate-bounce">
           <div
@@ -404,6 +487,7 @@ export default function ProductPage() {
       )}
 
       <div className="container mx-auto px-4 py-8 max-w-6xl">
+        {/* Navigasi Breadcrumb */}
         <nav className="text-xs text-gray-500 mb-8 flex gap-2">
           <Link to="/" className="hover:text-chester-pink">
             Beranda
@@ -419,10 +503,11 @@ export default function ProductPage() {
         </nav>
 
         {/* ========================================= */}
-        {/* BAGIAN ATAS: DETAIL PRODUK                */}
+        {/* BAGIAN ATAS: DETAIL DAN GALERI PRODUK       */}
         {/* ========================================= */}
         <div className="flex flex-col md:flex-row gap-10 lg:gap-16 items-start">
           <div className="w-full md:w-1/2 flex flex-col gap-4">
+            {/* Gambar Utama */}
             <div
               className="relative w-full aspect-[3/4] bg-gray-50 overflow-hidden cursor-crosshair group rounded-lg"
               onMouseMove={handleMouseMove}
@@ -457,6 +542,7 @@ export default function ProductPage() {
               </button>
             </div>
 
+            {/* Thumbnail Gambar */}
             <div className="flex gap-4 overflow-x-auto pb-2 hide-scrollbar">
               {product.displayImages.map((img, index) => (
                 <button
@@ -473,6 +559,7 @@ export default function ProductPage() {
               ))}
             </div>
 
+            {/* Video Produk (jika ada) */}
             {product.video_url && (
               <div className="mt-4 border border-gray-100 p-2 rounded-xl bg-gray-50">
                 <div className="w-full aspect-video rounded-lg overflow-hidden shadow-sm bg-gray-900">
@@ -495,6 +582,7 @@ export default function ProductPage() {
               {product.name}
             </h1>
 
+            {/* Area Harga */}
             <div className="flex items-end gap-3 mb-8">
               <p className="text-2xl text-chester-pink font-medium">
                 {currentOriginalPrice > 0
@@ -509,6 +597,7 @@ export default function ProductPage() {
               )}
             </div>
 
+            {/* Pilihan Variasi */}
             {product.has_variant === 1 &&
               product.variants &&
               product.variants.length > 0 && (
@@ -535,6 +624,7 @@ export default function ProductPage() {
                 </div>
               )}
 
+            {/* Tombol Interaksi (Jumlah, Beli, Keranjang) */}
             <div className="flex flex-col gap-4 mb-10">
               <div className="flex items-center border border-gray-300 w-full md:w-32 h-14 md:h-12 rounded-lg">
                 <button
@@ -582,6 +672,7 @@ export default function ProductPage() {
               </button>
             </div>
 
+            {/* Deskripsi Produk */}
             <div className="pt-8 border-t border-gray-100">
               <div className="mb-6">
                 <h3 className="text-sm font-bold text-chester-text uppercase tracking-wider mb-3">
@@ -605,10 +696,9 @@ export default function ProductPage() {
             </div>
           </div>
         </div>
-        {/* AKHIR DARI BAGIAN DETAIL PRODUK */}
 
         {/* ========================================= */}
-        {/* BAGIAN TENGAH: AREA UI ULASAN PEMBELI     */}
+        {/* BAGIAN TENGAH: AREA UI ULASAN PEMBELI       */}
         {/* ========================================= */}
         <div className="mt-16 pt-10 border-t border-gray-100">
           <h3 className="text-xl font-bold text-chester-text mb-6">
@@ -650,7 +740,18 @@ export default function ProductPage() {
               {/* Daftar Ulasan */}
               <div className="divide-y divide-gray-100">
                 {reviews.map((rev) => (
-                  <div key={rev.id} className="py-6 first:pt-0">
+                  <div key={rev.id} className="py-6 first:pt-0 group relative">
+                    {/* TOMBOL EDIT ULASAN (Hanya terlihat oleh pembuat ulasan) */}
+                    {customerUser && customerUser.id === rev.user_id && (
+                      <button
+                        onClick={() => handleOpenEditModal(rev)}
+                        className="absolute top-6 right-0 flex items-center gap-1.5 text-xs font-bold text-gray-400 hover:text-chester-pink transition-colors bg-white px-2 py-1 rounded border border-gray-200 hover:border-chester-pink shadow-sm opacity-100 md:opacity-0 md:group-hover:opacity-100"
+                      >
+                        <Edit size={14} />
+                        Edit
+                      </button>
+                    )}
+
                     <div className="flex justify-between items-start mb-2">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center font-bold text-gray-500 overflow-hidden">
@@ -702,7 +803,7 @@ export default function ProductPage() {
                       </p>
                     )}
 
-                    <p className="text-sm text-gray-700 leading-relaxed mt-2">
+                    <p className="text-sm text-gray-700 leading-relaxed mt-2 pr-16 md:pr-0">
                       {rev.comment ? (
                         rev.comment
                       ) : (
@@ -727,7 +828,7 @@ export default function ProductPage() {
                 ))}
               </div>
 
-              {/* ---> TAMBAHAN 3: Kontrol Navigasi Paginasi (Tombol Sebelumnya / Selanjutnya) */}
+              {/* Navigasi Paginasi */}
               {totalPages > 1 && (
                 <div className="flex justify-center items-center gap-4 mt-4 pt-6 border-t border-gray-100">
                   <button
@@ -842,6 +943,97 @@ export default function ProductPage() {
           </div>
         )}
       </div>
+
+      {/* ========================================= */}
+      {/* MODAL EDIT ULASAN PELANGGAN                 */}
+      {/* ========================================= */}
+      {editModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center p-5 border-b border-gray-100 bg-gray-50">
+              <h3 className="font-bold text-gray-800">Edit Ulasan Saya</h3>
+              <button
+                onClick={() => setEditModal({ ...editModal, isOpen: false })}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitEditReview} className="p-6">
+              {/* Interaksi Pilihan Bintang */}
+              <div className="mb-5 text-center">
+                <label className="block text-sm font-bold text-gray-700 mb-3">
+                  Berapa bintang untuk produk ini?
+                </label>
+                <div className="flex justify-center gap-2 text-gray-300">
+                  {[1, 2, 3, 4, 5].map((starValue) => (
+                    <button
+                      type="button"
+                      key={starValue}
+                      onClick={() =>
+                        setEditModal({ ...editModal, rating: starValue })
+                      }
+                      className="hover:scale-110 transition-transform focus:outline-none"
+                    >
+                      <Star
+                        size={32}
+                        fill={
+                          starValue <= editModal.rating ? "#facc15" : "none"
+                        }
+                        color={
+                          starValue <= editModal.rating
+                            ? "#facc15"
+                            : "currentColor"
+                        }
+                      />
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Input Kotak Teks Komentar */}
+              <div className="mb-6">
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  Ceritakan pengalaman Anda
+                </label>
+                <textarea
+                  required
+                  rows={4}
+                  value={editModal.comment}
+                  onChange={(e) =>
+                    setEditModal({ ...editModal, comment: e.target.value })
+                  }
+                  placeholder="Bagaimana kualitas bahan, jahitan, atau sablonnya?"
+                  className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-chester-pink focus:ring-1 focus:ring-chester-pink transition-colors"
+                ></textarea>
+              </div>
+
+              {/* Tombol Simpan atau Batal */}
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setEditModal({ ...editModal, isOpen: false })}
+                  className="px-5 py-2.5 text-sm font-bold text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={editModal.isSubmitting}
+                  className="px-5 py-2.5 text-sm font-bold text-white bg-chester-pink rounded-lg hover:bg-pink-600 transition-colors disabled:opacity-50 flex items-center gap-2"
+                >
+                  {editModal.isSubmitting ? (
+                    <span className="animate-pulse">Menyimpan...</span>
+                  ) : (
+                    "Simpan Perubahan"
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

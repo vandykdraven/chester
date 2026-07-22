@@ -10,6 +10,7 @@ import {
 import logo from "./assets/logo.png";
 import { Search, User, ShoppingBag, Menu, X, Trash2 } from "lucide-react";
 import axios from "axios";
+import api from "./api";
 
 // Import Halaman Pelanggan
 import Home from "./pages/Home";
@@ -49,6 +50,7 @@ import CustomerDetail from "./pages/admin/CustomerDetail";
 import ShippingSettings from "./pages/admin/ShippingSettings";
 import HomepageSettings from "./pages/admin/HomepageSettings";
 import StaticPageEdit from "./pages/admin/StaticPageEdit";
+import AdminReviews from "./pages/admin/AdminReviews";
 
 // Import Penjaga Rute
 import AdminGuard from "./components/AdminGuard";
@@ -731,6 +733,7 @@ export default function App() {
             <Route path="orders" element={<OrderList />} />
             <Route path="orders/:id" element={<OrderDetail />} />
             <Route path="settings" element={<Settings />} />
+            <Route path="reviews" element={<AdminReviews />} />
             <Route path="product-categories" element={<ProductCategory />} />
             <Route path="products/edit/:slug" element={<ProductEdit />} />
             <Route path="products/gallery" element={<GalleryList />} />

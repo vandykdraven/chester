@@ -1,0 +1,9 @@
+RewriteEngine On
+  RewriteBase /
+  
+  # Jika yang diakses adalah file statis yang benar-benar ada (css, js, gambar), biarkan
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  
+  # Jika tidak ada, arahkan semuanya secara internal ke index.html
+  RewriteRule ^ index.html [L]

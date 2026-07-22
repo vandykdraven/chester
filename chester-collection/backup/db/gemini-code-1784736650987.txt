@@ -1,0 +1,275 @@
+import { useState, useEffect } from "react";
+import axios from "axios";
+import { 
+  Search, 
+  MessageCircle, 
+  Star, 
+  X, 
+  CheckCircle,
+  AlertCircle,
+  Eye,
+  EyeOff
+} from "lucide-react";
+
+export default function AdminReviews() {
+  const [reviews, setReviews] = useState([]);
+  const [loading, setLoading] = useState(true);
+  
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterStar, setFilterStar] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
+  
+  const [replyModal, setReplyModal] = useState({
+    isOpen: false, reviewId: null, productName: "", customerName: "", comment: "", replyText: "", isSubmitting: false
+  });
+  const [alert, setAlert] = useState({ show: false, message: "", type: "success" });
+
+  const getAuthHeader = () => {
+    const token = localStorage.getItem("adminToken");
+    return { headers: { Authorization: `Bearer ${token}` } };
+  };
+
+  useEffect(() => {
+    fetchAdminReviews();
+  }, []);
+
+  const fetchAdminReviews = async () => {
+    try {
+      setLoading(true);
+      const res = await axios.get(`${import.meta.env.VITE_API_URL}/admin/reviews`, getAuthHeader());
+      if (res.data.success) {
+        setReviews(res.data.data);
+      }
+    } catch (error) {
+      console.error("Gagal memuat ulasan:", error);
+      showAlert("Gagal memuat data ulasan. Periksa otorisasi Anda.", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const showAlert = (message, type = "success") => {
+    setAlert({ show: true, message, type });
+    setTimeout(() => setAlert({ show: false, message: "", type: "success" }), 3000);
+  };
+
+  const handleToggleVisibility = async (id, currentStatus) => {
+    try {
+      setReviews(reviews.map(rev => rev.id === id ? { ...rev, is_hidden: !currentStatus } : rev));
+      const res = await axios.patch(
+        `${import.meta.env.VITE_API_URL}/admin/reviews/${id}/visibility`, 
+        {}, 
+        getAuthHeader()
+      );
+      
+      if (!res.data.success) {
+        setReviews(reviews.map(rev => rev.id === id ? { ...rev, is_hidden: currentStatus } : rev));
+        showAlert("Gagal mengubah status visibilitas.", "error");
+      } else {
+         showAlert(currentStatus ? "Ulasan kembali ditampilkan." : "Ulasan disembunyikan.", "success");
+      }
+    } catch (error) {
+      console.error("Gagal mengubah visibilitas:", error);
+      showAlert("Terjadi kesalahan server saat mengubah status.", "error");
+      fetchAdminReviews();
+    }
+  };
+
+  const handleOpenModal = (review) => {
+    setReplyModal({
+      isOpen: true, 
+      reviewId: review.id, 
+      productName: review.product_name || "Produk", 
+      customerName: review.customer_name || "Pelanggan", 
+      comment: review.comment || "Tidak ada komentar.", 
+      replyText: review.admin_reply || "", 
+      isSubmitting: false
+    });
+  };
+
+  const handleSubmitReply = async (e) => {
+    e.preventDefault();
+    if (!replyModal.replyText.trim()) return showAlert("Teks balasan tidak boleh kosong.", "error");
+
+    try {
+      setReplyModal((prev) => ({ ...prev, isSubmitting: true }));
+      const res = await axios.put(
+        `${import.meta.env.VITE_API_URL}/admin/reviews/${replyModal.reviewId}/reply`, 
+        { admin_reply: replyModal.replyText }, 
+        getAuthHeader()
+      );
+
+      if (res.data.success) {
+        setReviews(reviews.map(rev => rev.id === replyModal.reviewId ? { ...rev, admin_reply: replyModal.replyText } : rev));
+        showAlert("Balasan berhasil dikirim!", "success");
+        setReplyModal((prev) => ({ ...prev, isOpen: false }));
+      }
+    } catch (error) {
+      showAlert(error.response?.data?.message || "Kesalahan menyimpan balasan.", "error");
+    } finally {
+      setReplyModal((prev) => ({ ...prev, isSubmitting: false }));
+    }
+  };
+
+  const filteredReviews = reviews.filter((rev) => {
+    const searchMatch = (rev.product_name || "").toLowerCase().includes(searchQuery.toLowerCase()) || 
+                        (rev.customer_name || "").toLowerCase().includes(searchQuery.toLowerCase());
+    const starMatch = filterStar === "all" || rev.rating.toString() === filterStar;
+    
+    let statusMatch = true;
+    if (filterStatus === "hidden") statusMatch = rev.is_hidden;
+    else if (filterStatus === "replied") statusMatch = !!rev.admin_reply && !rev.is_hidden;
+    else if (filterStatus === "waiting") statusMatch = !rev.admin_reply && !rev.is_hidden;
+
+    return searchMatch && starMatch && statusMatch;
+  });
+
+  if (loading) {
+    return (
+      
+        
+      
+    );
+  }
+
+  return (
+    
+      {alert.show && (
+        
+          {alert.type === "success" ?  : }
+          {alert.message}
+        
+      )}
+
+      
+        
+          Manajemen Ulasan
+          Pantau, balas, atau sembunyikan ulasan pelanggan.
+        
+        
+        
+           setFilterStar(e.target.value)}
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-chester-pink"
+          >
+            Semua Bintang
+            Bintang 5
+            Bintang 4
+            Bintang 3
+            Bintang 2
+            Bintang 1
+          
+
+           setFilterStatus(e.target.value)}
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-chester-pink"
+          >
+            Semua Status
+            Menunggu Balasan
+            Sudah Dibalas
+            Disembunyikan
+          
+
+          
+             setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-chester-pink"
+            />
+            
+          
+        
+      
+
+      
+        
+          
+              {filteredReviews.length === 0 ? (
+                
+              ) : (
+                filteredReviews.map((rev) => (
+                  
+                ))
+              )}
+            
+            
+              
+                Pelanggan & Produk
+                Penilaian
+                Komentar
+                Status
+                Aksi
+              
+            
+            Tidak ada data.
+                    
+                      {rev.customer_name || "Pengguna"}
+                      {rev.product_name}
+                    
+                    
+                      
+                        
+                        {rev.rating}
+                      
+                    
+                    
+                      {rev.comment || "-"}
+                    
+                    
+                       {rev.is_hidden ? (
+                         Disembunyikan
+                       ) : rev.admin_reply ? (
+                         Dibalas
+                       ) : (
+                         Menunggu
+                       )}
+                    
+                    
+                      
+                         handleToggleVisibility(rev.id, rev.is_hidden)}
+                          title={rev.is_hidden ? "Tampilkan Ulasan" : "Sembunyikan Ulasan"}
+                          className={`p-1.5 rounded-lg transition-colors ${rev.is_hidden ? 'bg-gray-200 text-gray-600 hover:bg-gray-300' : 'bg-rose-50 text-rose-500 hover:bg-rose-100'}`}
+                        >
+                          {rev.is_hidden ?  : }
+                        
+                        
+                         handleOpenModal(rev)}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${rev.admin_reply ? "bg-gray-100 text-gray-600 hover:bg-gray-200" : "bg-chester-pink text-white hover:bg-pink-600"}`}
+                        >
+                          
+                          {rev.admin_reply ? "Edit" : "Balas"}
+                        
+                      
+                    
+                  
+          
+        
+      
+      
+      {replyModal.isOpen && (
+         
+          
+            
+              Balas Ulasan Pelanggan
+               setReplyModal({...replyModal, isOpen: false})} className="text-gray-400 hover:text-gray-600 transition-colors">
+                
+              
+            
+            
+              
+                {replyModal.customerName}
+                "{replyModal.comment}"
+              
+              
+                 setReplyModal({ ...replyModal, replyText: e.target.value })}
+                  placeholder="Ketik balasan Anda..."
+                  className="w-full p-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-chester-pink"
+                >
+              
+              
+                 setReplyModal({...replyModal, isOpen: false})} className="px-5 py-2.5 text-sm font-bold text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200">Batal
+                Simpan
+              
+            
+          
+        
+      )}
+    
+  );
+}

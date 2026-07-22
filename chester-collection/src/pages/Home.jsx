@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import axios from "axios";
+import { getImageUrl } from "../utils/imageHelper";
 
 const formatRupiah = (angka) => {
   return new Intl.NumberFormat("id-ID", {
@@ -19,7 +20,7 @@ const ProductCard = ({ slug, image, name, price, original_price }) => (
   >
     <div className="aspect-[4/5] overflow-hidden mb-4 bg-gray-100 rounded-lg">
       <img
-        src={image}
+        src={getImageUrl(image)}
         alt={name}
         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
         onError={(e) => (e.target.src = "/placeholder.png")}
