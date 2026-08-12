@@ -1,10 +1,10 @@
 {
   "dev": {
     "driver": "mysql",
-    "host": "127.0.0.1",
-    "user": "root",
-    "password": "",
-    "database": "chester",
+    "host": "localhost",
+    "user": "chesterc_chester",
+    "password": "5vjgZ78mnmqJnkMNKLvz",
+    "database": "chesterc_chester",
     "multipleStatements": true
   }
 }

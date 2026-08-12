@@ -13,22 +13,21 @@ import {
   Database,
 } from "lucide-react";
 import Quill from "quill";
-import axios from "axios";
 import "quill/dist/quill.snow.css";
 import { quillModules } from "../../utils/quillConfig";
 
+// KOREKSI 1: Mengimpor master API dan Image Helper
+import api from "../../api";
+import { getImageUrl } from "../../utils/imageHelper";
+
 export default function ProductEdit() {
-  // DIPERBARUI: Menangkap 'slug' dari URL (asumsi route-nya sudah /admin/products/edit/:slug)
-  // Namun, jika route Anda di App.jsx untuk halaman edit ini masih /admin/products/edit/:id,
-  // Anda harus mengubah variabel ini menyesuaikan nama parameter di App.jsx Anda.
-  // Untuk amannya, kita asumsikan namanya sudah diubah menjadi :slug.
   const { slug } = useParams();
 
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  // DIPERBARUI: State untuk menyimpan ID asli produk agar bisa digunakan saat proses Simpan (PUT)
+  // State untuk menyimpan ID asli produk agar bisa digunakan saat proses Simpan (PUT)
   const [originalProductId, setOriginalProductId] = useState(null);
 
   const editorRef = useRef(null);
@@ -87,16 +86,15 @@ export default function ProductEdit() {
   const [optionInputs, setOptionInputs] = useState({});
   const [variantMatrix, setVariantMatrix] = useState([]);
 
-  const BASE_URL = import.meta.env.VITE_API_URL.replace("/api", "");
-
   // --- 1. AMBIL MASTER DATA ---
   useEffect(() => {
     const fetchMasterData = async () => {
       try {
+        // KOREKSI 2: Menggunakan master API
         const [guidesRes, catsRes, tagsRes] = await Promise.all([
-          axios.get(`${import.meta.env.VITE_API_URL}/size-guides`),
-          axios.get(`${import.meta.env.VITE_API_URL}/categories`),
-          axios.get(`${import.meta.env.VITE_API_URL}/tags`),
+          api.get("/size-guides"),
+          api.get("/categories"),
+          api.get("/tags"),
         ]);
 
         if (guidesRes.data.success) setSizeGuides(guidesRes.data.data);
@@ -113,14 +111,11 @@ export default function ProductEdit() {
   useEffect(() => {
     const loadProductData = async () => {
       try {
-        // DIPERBARUI: Memanggil data menggunakan slug, bukan ID
-        const response = await axios.get(
-          `${import.meta.env.VITE_API_URL}/products/${slug}`,
-        );
+        // KOREKSI 3: Menggunakan master API
+        const response = await api.get(`/products/${slug}`);
         if (response.data.success) {
           const p = response.data.data;
 
-          // DIPERBARUI: Simpan ID aslinya untuk kebutuhan penyimpanan nanti
           setOriginalProductId(p.id);
 
           setFormData({
@@ -162,7 +157,8 @@ export default function ProductEdit() {
             loadedImages[0] = {
               type: "existing",
               path: primaryImg.image_url,
-              url: `${BASE_URL}${primaryImg.image_url}`,
+              // KOREKSI 4: Menggunakan getImageUrl
+              url: getImageUrl(primaryImg.image_url),
             };
 
           const supportingImgs = p.images.filter((img) => img.is_primary === 0);
@@ -171,7 +167,8 @@ export default function ProductEdit() {
               loadedImages[index + 1] = {
                 type: "existing",
                 path: img.image_url,
-                url: `${BASE_URL}${img.image_url}`,
+                // KOREKSI 4: Menggunakan getImageUrl
+                url: getImageUrl(img.image_url),
               };
           });
           setImages(loadedImages);
@@ -188,7 +185,7 @@ export default function ProductEdit() {
       }
     };
     loadProductData();
-  }, [slug]); // <-- Pastikan ini bergantung pada slug
+  }, [slug]);
 
   // --- 3. INITIALIZE QUILL ---
   useEffect(() => {
@@ -238,9 +235,8 @@ export default function ProductEdit() {
   const loadGalleryData = async () => {
     setIsGalleryLoading(true);
     try {
-      const response = await axios.get(
-        `${import.meta.env.VITE_API_URL}/gallery?limit=50`,
-      );
+      // KOREKSI 5: Menggunakan master API
+      const response = await api.get("/gallery?limit=50");
       if (response.data.success) setGalleryMedia(response.data.data);
     } catch (err) {
       console.error(err);
@@ -254,7 +250,8 @@ export default function ProductEdit() {
     newImages[activeSlot] = {
       type: "server",
       path: filePath,
-      url: `${BASE_URL}${filePath}`,
+      // KOREKSI 6: Menggunakan getImageUrl
+      url: getImageUrl(filePath),
     };
     setImages(newImages);
     setShowGallery(false);
@@ -306,7 +303,8 @@ export default function ProductEdit() {
     );
     if (!isExistInDB) {
       try {
-        await axios.post(`${import.meta.env.VITE_API_URL}/tags`, {
+        // KOREKSI 7: Menggunakan master API
+        await api.post("/tags", {
           name: trimmedName,
         });
         setTags([...tags, { id: Date.now(), name: trimmedName }]);
@@ -339,7 +337,6 @@ export default function ProductEdit() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // DIPERBARUI: Tambahkan pengaman agar data tidak disimpan sebelum ID asli didapatkan
     if (!originalProductId) {
       showAlert("Data produk belum selesai dimuat.", "error");
       return;
@@ -382,9 +379,9 @@ export default function ProductEdit() {
       };
       dataToSend.append("data", JSON.stringify(payload));
 
-      // DIPERBARUI: Mengirimkan data (PUT) menggunakan originalProductId, BUKAN slug
-      const response = await axios.put(
-        `${import.meta.env.VITE_API_URL}/products/${originalProductId}`,
+      // KOREKSI 8: Menggunakan master API
+      const response = await api.put(
+        `/products/${originalProductId}`,
         dataToSend,
         {
           headers: { "Content-Type": "multipart/form-data" },
@@ -546,10 +543,15 @@ export default function ProductEdit() {
                       onClick={() => handleSelectFromGallery(media.file_path)}
                       className="cursor-pointer aspect-square rounded-xl overflow-hidden border hover:border-chester-pink transition shadow-sm"
                     >
+                      {/* KOREKSI 9: Terapkan fallback onError */}
                       <img
-                        src={`${BASE_URL}${media.file_path}`}
+                        src={getImageUrl(media.file_path)}
                         alt="Media"
                         className="w-full h-full object-cover"
+                        onError={(e) => {
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src = "/placeholder.png";
+                        }}
                       />
                     </div>
                   ))}
@@ -1021,8 +1023,13 @@ export default function ProductEdit() {
                     src={images[0].url}
                     alt="Utama"
                     className="absolute inset-0 w-full h-full object-cover z-10"
+                    onError={(e) => {
+                      e.currentTarget.onerror = null;
+                      e.currentTarget.src = "/placeholder.png";
+                    }}
                   />
                   <button
+                    type="button"
                     onClick={(e) => removeImageSlot(0, e)}
                     className="absolute top-3 right-3 bg-white text-red-500 rounded p-1.5 shadow-md z-20 hover:bg-red-500 hover:text-white"
                   >
@@ -1067,8 +1074,13 @@ export default function ProductEdit() {
                         src={images[idx].url}
                         alt="Pendukung"
                         className="absolute inset-0 w-full h-full object-cover z-10"
+                        onError={(e) => {
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src = "/placeholder.png";
+                        }}
                       />
                       <button
+                        type="button"
                         onClick={(e) => removeImageSlot(idx, e)}
                         className="absolute top-1 right-1 bg-white/80 text-red-500 rounded p-1 z-20"
                       >

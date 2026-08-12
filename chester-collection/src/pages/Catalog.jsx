@@ -7,7 +7,8 @@ import {
   ChevronRight,
   Search,
 } from "lucide-react";
-import axios from "axios";
+import api from "../api"; // Menggunakan konfigurasi master API
+import { getImageUrl } from "../utils/imageHelper"; // Standarisasi gambar
 
 const formatRupiah = (angka) => {
   return new Intl.NumberFormat("id-ID", {
@@ -22,10 +23,8 @@ const ProductCard = ({ product }) => {
   const timeoutRef = useRef(null);
   const intervalRef = useRef(null);
 
-  const BASE_URL = import.meta.env.VITE_API_URL.replace("/api", "");
-  const images = product.primary_image
-    ? [`${BASE_URL}${product.primary_image}`]
-    : ["/placeholder.png"];
+  // Menggunakan helper secara langsung dan menghilangkan BASE_URL string yang statis
+  const images = [getImageUrl(product.primary_image)];
 
   const handleMouseEnter = () => {
     if (!window.matchMedia("(hover: hover)").matches || images.length <= 1)
@@ -65,7 +64,7 @@ const ProductCard = ({ product }) => {
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      <div className="aspect-square overflow-hidden mb-4 bg-gray-100 relative rounded-lg">
+      <div className="group aspect-square overflow-hidden mb-4 bg-gray-100 relative rounded-lg">
         <div className="w-full h-full transition-transform duration-500 group-hover:scale-105">
           <div
             className="flex w-full h-full transition-transform duration-500 ease-in-out"
@@ -77,6 +76,10 @@ const ProductCard = ({ product }) => {
                   src={img}
                   alt={`${product.name} ${idx + 1}`}
                   className={`w-full h-full object-cover ${stockStatus === "sold" ? "opacity-70 grayscale" : ""}`}
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = "/placeholder.png";
+                  }}
                 />
               </div>
             ))}
@@ -140,19 +143,28 @@ export default function Catalog() {
   const location = useLocation();
 
   useEffect(() => {
-    axios.get(`${import.meta.env.VITE_API_URL}/categories`).then((res) => {
-      if (res.data.success) setCategories(res.data.data);
-    });
+    // Cache memori khusus untuk kategori filter
+    const cachedCategories = sessionStorage.getItem("chester_categories");
+    if (cachedCategories) {
+      setCategories(JSON.parse(cachedCategories));
+    } else {
+      api.get(`/categories`).then((res) => {
+        if (res.data.success) {
+          setCategories(res.data.data);
+          sessionStorage.setItem(
+            "chester_categories",
+            JSON.stringify(res.data.data),
+          );
+        }
+      });
+    }
   }, []);
 
-  // --- DIPERBARUI: Menangkap slug kategori dari URL ---
   useEffect(() => {
     const searchParams = new URLSearchParams(location.search);
     const categoryParam = searchParams.get("category");
 
     if (categoryParam) {
-      // Karena sekarang menggunakan slug (teks), kita bisa langsung menggunakannya.
-      // Jika URL adalah ?category=tops,pants maka kita pisahkan dengan koma
       const slugs = categoryParam.split(",");
       setSelectedCategories(slugs);
       setPage(1);
@@ -180,14 +192,13 @@ export default function Catalog() {
         search: searchQuery,
       });
 
-      // selectedCategories sekarang berisi array slug (contoh: ['tops', 'pants'])
       if (selectedCategories.length > 0) {
         params.append("category", selectedCategories.join(","));
       }
 
-      const response = await axios.get(
-        `${import.meta.env.VITE_API_URL}/products?${params.toString()}`,
-      );
+      // Menggunakan file konfigurasi master api
+      const response = await api.get(`/products?${params.toString()}`);
+
       if (response.data.success) {
         setProducts(response.data.data);
         setTotalPages(response.data.pagination.totalPages);
@@ -205,7 +216,6 @@ export default function Catalog() {
     setPage(1);
   };
 
-  // --- DIPERBARUI: Menerima categorySlug, bukan lagi categoryId ---
   const handleCategoryToggle = (categorySlug) => {
     setSelectedCategories((prev) => {
       const isExist = prev.includes(categorySlug);
@@ -305,7 +315,6 @@ export default function Catalog() {
                     key={cat.id}
                     className="flex items-center gap-3 cursor-pointer group"
                   >
-                    {/* DIPERBARUI: Menggunakan cat.slug bukan cat.id */}
                     <input
                       type="checkbox"
                       checked={selectedCategories.includes(cat.slug)}

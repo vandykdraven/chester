@@ -12,7 +12,9 @@ import {
   CheckCircle,
   AlertCircle,
 } from "lucide-react";
-import axios from "axios";
+// 1. KOREKSI: Gunakan konfigurasi API master dan Image Helper
+import api from "../api";
+import { getImageUrl } from "../utils/imageHelper";
 
 export default function Wishlist() {
   const navigate = useNavigate();
@@ -30,23 +32,27 @@ export default function Wishlist() {
     type: "success",
   });
 
-  const BASE_URL = import.meta.env.VITE_API_URL.replace("/api", "");
-
   useEffect(() => {
     // Validasi sesi pengguna
     const storedUser = JSON.parse(
       localStorage.getItem("customerUser") ||
         sessionStorage.getItem("customerUser"),
     );
+
     if (!storedUser) {
       navigate("/login");
       return;
     }
+
     setUserData(storedUser);
-    if (storedUser.avatar) setAvatarPreview(`${BASE_URL}${storedUser.avatar}`);
+
+    // 2. KOREKSI: Gunakan getImageUrl untuk avatar profil
+    if (storedUser.avatar) {
+      setAvatarPreview(getImageUrl(storedUser.avatar));
+    }
 
     fetchWishlists(storedUser.id);
-  }, [navigate, BASE_URL]);
+  }, [navigate]);
 
   const showAlert = (message, type = "success") => {
     setCustomAlert({ show: true, message, type });
@@ -59,9 +65,8 @@ export default function Wishlist() {
   const fetchWishlists = async (userId) => {
     setLoading(true);
     try {
-      const response = await axios.get(
-        `${import.meta.env.VITE_API_URL}/users/${userId}/wishlists`,
-      );
+      // 3. KOREKSI: Gunakan master 'api'
+      const response = await api.get(`/users/${userId}/wishlists`);
       if (response.data.success) {
         setWishlists(response.data.data);
       }
@@ -74,9 +79,8 @@ export default function Wishlist() {
 
   const removeWishlist = async (wishlistId) => {
     try {
-      const response = await axios.delete(
-        `${import.meta.env.VITE_API_URL}/wishlists/${wishlistId}`,
-      );
+      // 4. KOREKSI: Gunakan master 'api'
+      const response = await api.delete(`/wishlists/${wishlistId}`);
       if (response.data.success) {
         // Hapus item dari state lokal untuk kinerja yang lebih cepat tanpa harus memuat ulang data dari server
         setWishlists(
@@ -135,6 +139,10 @@ export default function Wishlist() {
                       src={avatarPreview}
                       alt="Avatar"
                       className="w-full h-full object-cover"
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = "/placeholder.png";
+                      }}
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-xl font-bold uppercase">
@@ -198,8 +206,8 @@ export default function Wishlist() {
                     Daftar Keinginan Saya
                   </h2>
                   <p className="text-sm text-gray-500 mt-1">
-                    Koleksi produk mroblong yang Anda sukai dan simpan untuk
-                    dibeli nanti.
+                    Koleksi produk yang Anda sukai dan simpan untuk dibeli
+                    nanti.
                   </p>
                 </div>
               </div>
@@ -228,13 +236,11 @@ export default function Wishlist() {
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                   {wishlists.map((item) => {
-                    // DIPERBARUI: Kalkulasi harga seperti di Home/Catalog
                     const displayPrice =
                       item.has_variant === 1
                         ? Number(item.min_v_price || item.price || 0)
                         : Number(item.price || 0);
 
-                    // DIPERBARUI: Fallback ke product_id jika slug kosong
                     const targetLink = item.slug
                       ? `/product/${item.slug}`
                       : `/product/${item.product_id}`;
@@ -245,14 +251,15 @@ export default function Wishlist() {
                         className="bg-white border border-gray-100 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-shadow group"
                       >
                         <div className="relative aspect-[4/5] bg-gray-100 overflow-hidden">
+                          {/* 5. KOREKSI: Standardisasi gambar produk wishlist */}
                           <img
-                            src={
-                              item.primary_image
-                                ? `${BASE_URL}${item.primary_image}`
-                                : "/placeholder.png"
-                            }
+                            src={getImageUrl(item.primary_image)}
                             alt={item.name}
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                            onError={(e) => {
+                              e.currentTarget.onerror = null;
+                              e.currentTarget.src = "/placeholder.png";
+                            }}
                           />
                           <button
                             onClick={() => removeWishlist(item.wishlist_id)}
@@ -269,7 +276,6 @@ export default function Wishlist() {
                               {item.name}
                             </h4>
                             <p className="font-black text-chester-pink mt-1">
-                              {/* DIPERBARUI: Memanggil displayPrice */}
                               {formatRupiah(displayPrice)}
                             </p>
                           </div>

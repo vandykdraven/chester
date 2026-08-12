@@ -1,0 +1,5 @@
+{
+  "success": false,
+  "error": "Existing courier cannot provide pickup service",
+  "code": 40002031
+}

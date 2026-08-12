@@ -9,8 +9,9 @@ import {
 } from "react-router-dom";
 import logo from "./assets/logo.png";
 import { Search, User, ShoppingBag, Menu, X, Trash2 } from "lucide-react";
-import axios from "axios";
 import api from "./api";
+// KOREKSI: Mengimpor helper gambar untuk standarisasi
+import { getImageUrl } from "./utils/imageHelper";
 
 // Import Halaman Pelanggan
 import Home from "./pages/Home";
@@ -26,7 +27,7 @@ import Orders from "./pages/Orders";
 import Vouchers from "./pages/Vouchers";
 import Wishlist from "./pages/Wishlist";
 import Checkout from "./pages/Checkout";
-import StaticPage from "./pages/StaticPage"; // Halaman Statis
+import StaticPage from "./pages/StaticPage";
 import SEOTracker from "./components/SEOTracker";
 
 // Import Halaman Admin
@@ -100,9 +101,7 @@ const Header = ({ setIsCartOpen, cartCount }) => {
   useEffect(() => {
     const fetchHeaderData = async () => {
       try {
-        const voucherRes = await axios.get(
-          `${import.meta.env.VITE_API_URL}/vouchers`,
-        );
+        const voucherRes = await api.get("/vouchers");
         if (voucherRes.data.success && voucherRes.data.data.length > 0) {
           const now = new Date();
 
@@ -123,8 +122,8 @@ const Header = ({ setIsCartOpen, cartCount }) => {
         }
 
         const [catRes, setRes] = await Promise.all([
-          axios.get(`${import.meta.env.VITE_API_URL}/categories`),
-          axios.get(`${import.meta.env.VITE_API_URL}/settings`),
+          api.get("/categories"),
+          api.get("/settings"),
         ]);
 
         let activeMenuIds = [];
@@ -187,7 +186,6 @@ const Header = ({ setIsCartOpen, cartCount }) => {
   return (
     <>
       <header className="bg-white border-b border-gray-100 font-lora sticky top-0 z-40">
-        {/* VOUCHER BAR: Hanya dirender (ditampilkan) jika ada voucher aktif */}
         {activeVouchers.length > 0 && (
           <div className="bg-chester-pink text-white text-xs py-2 px-4 relative overflow-hidden min-h-[36px] flex justify-center items-center">
             {activeVouchers.map((voucher, index) => (
@@ -247,10 +245,9 @@ const Header = ({ setIsCartOpen, cartCount }) => {
               Katalog
             </Link>
 
-            {/* MENU KATEGORI DINAMIS DARI DATABASE */}
             {dynamicMenus.map((menu) => (
               <Link
-                key={menu.slug}
+                key={menu.id}
                 to={`/products?category=${menu.slug}`}
                 className="text-sm font-bold text-chester-text hover:text-chester-pink transition"
               >
@@ -322,7 +319,7 @@ const Header = ({ setIsCartOpen, cartCount }) => {
             {dynamicMenus.map((menu) => (
               <Link
                 key={menu.id}
-                to={`/products?category=${menu.id}`}
+                to={`/products?category=${menu.slug}`}
                 onClick={() => setIsMobileMenuOpen(false)}
                 className="text-lg font-bold text-chester-text hover:text-chester-pink"
               >
@@ -347,7 +344,7 @@ const Header = ({ setIsCartOpen, cartCount }) => {
 };
 
 // =======================================================================
-// KOMPONEN FOOTER (KEMBALI KE STRUKTUR AWAL)
+// KOMPONEN FOOTER
 // =======================================================================
 const Footer = () => {
   const [socials, setSocials] = useState({});
@@ -355,9 +352,7 @@ const Footer = () => {
   useEffect(() => {
     const fetchFooterSettings = async () => {
       try {
-        const response = await axios.get(
-          `${import.meta.env.VITE_API_URL}/settings`,
-        );
+        const response = await api.get("/settings");
         if (response.data.success) {
           let apiData = response.data.data;
           if (Array.isArray(apiData)) {
@@ -382,9 +377,7 @@ const Footer = () => {
   return (
     <footer className="bg-chester-pink text-white py-8 font-lora mt-auto">
       <div className="container mx-auto px-4">
-        {/* Struktur Orisinal: Terpusat secara horizontal */}
         <div className="flex flex-col md:flex-row flex-wrap justify-center items-center gap-6 md:gap-10 mb-8">
-          {/* 1. Bagian Logo */}
           <div className="bg-white rounded-full p-1.5 shadow-sm">
             <img
               src={logo}
@@ -393,7 +386,6 @@ const Footer = () => {
             />
           </div>
 
-          {/* 2. Bagian Menu Statis */}
           <div className="flex flex-wrap justify-center gap-6 text-sm font-medium opacity-90">
             <Link
               to="/page/privacy"
@@ -415,7 +407,6 @@ const Footer = () => {
             </Link>
           </div>
 
-          {/* 3. Bagian Ikon Media Sosial (Dengan data dinamis) */}
           <div className="flex items-center gap-5 md:ml-4">
             {socials.facebook && (
               <a
@@ -510,7 +501,6 @@ const Footer = () => {
           </div>
         </div>
 
-        {/* 4. Bagian Copyright dan Template by ServerMaya */}
         <div className="text-center text-xs opacity-80 border-t border-white/20 pt-6 max-w-5xl mx-auto flex flex-col items-center gap-1">
           <p>
             &copy; {new Date().getFullYear()} Chester Collection. Hak Cipta
@@ -549,7 +539,7 @@ function PageTracker() {
           productId = pathParts[pathParts.length - 1];
         }
 
-        await axios.post(`${import.meta.env.VITE_API_URL}/analytics/track`, {
+        await api.post("/analytics/track", {
           page_url: location.pathname,
           product_id: productId || null,
         });
@@ -571,9 +561,7 @@ function MarketingScripts() {
   useEffect(() => {
     const injectScripts = async () => {
       try {
-        const response = await axios.get(
-          `${import.meta.env.VITE_API_URL}/settings`,
-        );
+        const response = await api.get("/settings");
         if (response.data.success) {
           let settingsMap = {};
           response.data.data.forEach(
@@ -584,7 +572,6 @@ function MarketingScripts() {
           const pixelId = settingsMap.meta_pixel_id;
           const gscTag = settingsMap.gsc_verification_tag;
 
-          // 1. Google Analytics (GA4) Injection
           if (gaId && !document.getElementById("ga-script-manager")) {
             const script1 = document.createElement("script");
             script1.id = "ga-script-manager";
@@ -603,7 +590,6 @@ function MarketingScripts() {
             document.head.appendChild(script2);
           }
 
-          // 2. Meta Pixel Injection
           if (pixelId && !document.getElementById("meta-pixel-script")) {
             const script3 = document.createElement("script");
             script3.id = "meta-pixel-script";
@@ -622,7 +608,6 @@ function MarketingScripts() {
             document.head.appendChild(script3);
           }
 
-          // 3. Google Search Console Verification Tag Injection
           if (gscTag && !document.getElementById("gsc-verification-meta")) {
             const meta = document.createElement("meta");
             meta.id = "gsc-verification-meta";
@@ -637,9 +622,9 @@ function MarketingScripts() {
     };
 
     injectScripts();
-  }, []); // Hanya dieksekusi sekali saat website pertama kali dibuka
+  }, []);
 
-  return null; // Komponen ini bekerja di latar belakang, tidak menampilkan apa-apa di layar
+  return null;
 }
 
 // =======================================================================
@@ -648,8 +633,6 @@ function MarketingScripts() {
 export default function App() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [cartItems, setCartItems] = useState([]);
-
-  const BASE_URL = import.meta.env.VITE_API_URL.replace("/api", "");
 
   const fetchCartItems = async () => {
     const userStr =
@@ -661,9 +644,7 @@ export default function App() {
     }
     const user = JSON.parse(userStr);
     try {
-      const response = await axios.get(
-        `${import.meta.env.VITE_API_URL}/carts/${user.id}`,
-      );
+      const response = await api.get(`/carts/${user.id}`);
       if (response.data.success) {
         const formattedItems = response.data.data.map((item) => {
           const baseP = item.variant_id
@@ -681,7 +662,8 @@ export default function App() {
             price: finalSellingPrice,
             qty: item.quantity,
             variant: item.variant_key || "Standar",
-            image: item.image ? `${BASE_URL}${item.image}` : "/placeholder.png",
+            // KOREKSI: Menerapkan getImageUrl pada pemetaan gambar keranjang
+            image: getImageUrl(item.image),
           };
         });
         setCartItems(formattedItems);
@@ -699,7 +681,7 @@ export default function App() {
 
   const removeItem = async (id) => {
     try {
-      await axios.delete(`${import.meta.env.VITE_API_URL}/carts/${id}`);
+      await api.delete(`/carts/${id}`);
       fetchCartItems();
     } catch (error) {
       console.error("Gagal menghapus produk dari keranjang:", error);
@@ -716,7 +698,6 @@ export default function App() {
     <Router>
       <PageTracker />
       <SEOTracker />
-      {/* MENGAKTIFKAN INJEKTOR SCRIPT MARKETING */}
       <MarketingScripts />
 
       <Routes>
@@ -762,7 +743,6 @@ export default function App() {
                   <Route path="/vouchers" element={<Vouchers />} />
                   <Route path="/wishlist" element={<Wishlist />} />
 
-                  {/* ROUTE HALAMAN STATIS */}
                   <Route path="/page/:pageId" element={<StaticPage />} />
 
                   <Route path="/login" element={<Login />} />
@@ -780,7 +760,6 @@ export default function App() {
 
               <Footer />
 
-              {/* Laci Keranjang */}
               <div
                 className={`fixed inset-0 z-50 bg-black/40 transition-opacity duration-300 ${isCartOpen ? "opacity-100 visible" : "opacity-0 invisible"}`}
                 onClick={() => setIsCartOpen(false)}
@@ -810,10 +789,15 @@ export default function App() {
                       cartItems.map((item) => (
                         <div key={item.id} className="flex gap-4 group">
                           <div className="w-24 aspect-[3/4] bg-gray-50 flex-shrink-0 rounded-lg overflow-hidden border border-gray-100">
+                            {/* KOREKSI: Menambahkan fallback onError untuk mencegah gambar rusak jika url gagal diload */}
                             <img
                               src={item.image}
                               alt={item.name}
                               className="w-full h-full object-cover"
+                              onError={(e) => {
+                                e.currentTarget.onerror = null;
+                                e.currentTarget.src = "/placeholder.png";
+                              }}
                             />
                           </div>
                           <div className="flex-1 flex flex-col justify-between py-1">

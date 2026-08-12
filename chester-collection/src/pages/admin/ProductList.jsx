@@ -11,7 +11,9 @@ import {
   CheckCircle,
   AlertCircle,
 } from "lucide-react";
-import axios from "axios";
+// KOREKSI: Menggunakan master API dan helper gambar terpusat
+import api from "../../api";
+import { getImageUrl } from "../../utils/imageHelper";
 
 const formatRupiah = (angka) => {
   return new Intl.NumberFormat("id-ID", {
@@ -47,17 +49,14 @@ export default function ProductList() {
     type: "success",
   });
 
-  const BASE_URL = import.meta.env.VITE_API_URL.replace("/api", "");
-
   useEffect(() => {
     fetchProducts();
   }, []);
 
   const fetchProducts = async () => {
     try {
-      const response = await axios.get(
-        `${import.meta.env.VITE_API_URL}/products`,
-      );
+      // KOREKSI: Pemanggilan API tersentralisasi
+      const response = await api.get("/products");
       if (response.data.success) {
         setProducts(response.data.data);
       }
@@ -86,9 +85,8 @@ export default function ProductList() {
 
   const confirmDelete = async () => {
     try {
-      const response = await axios.delete(
-        `${import.meta.env.VITE_API_URL}/products/${deleteModal.id}`,
-      );
+      // KOREKSI: Pemanggilan API tersentralisasi
+      const response = await api.delete(`/products/${deleteModal.id}`);
       if (response.data.success) {
         showAlert("Produk berhasil dihapus secara permanen!", "success");
         fetchProducts();
@@ -378,17 +376,21 @@ export default function ProductList() {
                         <div className="flex items-center gap-4">
                           <div className="w-14 h-14 rounded-lg bg-gray-100 overflow-hidden flex-shrink-0 border border-gray-200 flex items-center justify-center">
                             {product.primary_image ? (
+                              /* KOREKSI: Terapkan helper dan onError fallback */
                               <img
-                                src={`${BASE_URL}${product.primary_image}`}
+                                src={getImageUrl(product.primary_image)}
                                 alt={product.name}
                                 className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  e.currentTarget.onerror = null;
+                                  e.currentTarget.src = "/placeholder.png";
+                                }}
                               />
                             ) : (
                               <ImageIcon size={20} className="text-gray-400" />
                             )}
                           </div>
                           <div>
-                            {/* PEMBARUAN: Menggunakan product.slug untuk nama yang diklik */}
                             <Link
                               to={`/admin/products/edit/${product.slug}`}
                               className="font-bold text-chester-text hover:text-chester-pink transition line-clamp-1"
@@ -434,7 +436,6 @@ export default function ProductList() {
 
                       <td className="p-5 text-right align-middle">
                         <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          {/* PEMBARUAN: Menggunakan product.slug untuk tombol pensil/edit */}
                           <Link
                             to={`/admin/products/edit/${product.slug}`}
                             className="w-8 h-8 rounded bg-gray-50 text-gray-600 hover:text-blue-600 hover:bg-blue-50 flex items-center justify-center transition border border-gray-200"

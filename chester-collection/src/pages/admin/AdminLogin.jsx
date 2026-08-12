@@ -1,16 +1,14 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ShieldCheck, ArrowLeft, Loader2 } from "lucide-react";
-import axios from "axios";
+import api from "../../api";
 
 export default function AdminLogin() {
   const navigate = useNavigate();
 
-  // State untuk form input
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  // State untuk status pengiriman data
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -20,23 +18,17 @@ export default function AdminLogin() {
     setLoading(true);
 
     try {
-      // Mengirimkan data input ke server Node.js kita
-      const response = await axios.post(
-        "http://localhost:5000/api/admin/login",
-        {
-          email,
-          password,
-        },
-      );
+      const response = await api.post("/admin/login", {
+        email,
+        password,
+      });
 
-      // Jika sukses, simpan Token JWT dan data Admin ke memori browser (localStorage)
+      // KOREKSI UTAMA: Ubah adminData menjadi admin
       localStorage.setItem("adminToken", response.data.token);
-      localStorage.setItem("adminData", JSON.stringify(response.data.admin));
+      localStorage.setItem("admin", JSON.stringify(response.data.admin));
 
-      // Alihkan halaman secara aman langsung menuju Dashboard Admin
       navigate("/admin");
     } catch (err) {
-      // Jika gagal, tangkap pesan error dari server backend
       if (err.response && err.response.data) {
         setError(err.response.data.message);
       } else {
@@ -73,7 +65,6 @@ export default function AdminLogin() {
           </p>
         </div>
 
-        {/* Notifikasi Error jika login gagal */}
         {error && (
           <div
             className="bg-red-50 border-l-4 border-red-500 text-red-700 p-4 text-sm rounded animate-shake"

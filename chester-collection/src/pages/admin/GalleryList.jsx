@@ -8,7 +8,9 @@ import {
   AlertCircle,
   AlertTriangle,
 } from "lucide-react";
-import axios from "axios";
+// KOREKSI: Naik dua tingkat (../../) untuk kembali ke folder utama src/
+import api from "../../api";
+import { getImageUrl } from "../../utils/imageHelper";
 
 export default function GalleryList() {
   const [media, setMedia] = useState([]);
@@ -17,7 +19,7 @@ export default function GalleryList() {
 
   // --- STATE SERVER-SIDE PAGING & SEARCH ---
   const [searchTerm, setSearchTerm] = useState("");
-  const [searchInput, setSearchInput] = useState(""); // Untuk menampung ketikan sebelum di-Enter
+  const [searchInput, setSearchInput] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [pagination, setPagination] = useState({
     totalItems: 0,
@@ -36,8 +38,6 @@ export default function GalleryList() {
     type: "success",
   });
 
-  const BASE_URL = import.meta.env.VITE_API_URL.replace("/api", "");
-
   // Fetch data setiap kali currentPage atau searchTerm (kata kunci final) berubah
   useEffect(() => {
     fetchGallery(currentPage, searchTerm);
@@ -46,16 +46,12 @@ export default function GalleryList() {
   const fetchGallery = async (page = 1, search = "") => {
     setIsLoading(true);
     try {
-      const response = await axios.get(
-        `${import.meta.env.VITE_API_URL}/gallery`,
-        {
-          params: { page, limit: 15, search },
-        },
-      );
+      const response = await api.get(`/gallery`, {
+        params: { page, limit: 15, search },
+      });
 
       if (response.data.success) {
         setMedia(response.data.data);
-        // PERBAIKAN: Beri jaring pengaman. Hanya set pagination jika backend mengirimkannya.
         if (response.data.pagination) {
           setPagination(response.data.pagination);
         }
@@ -93,17 +89,12 @@ export default function GalleryList() {
     formData.append("galleryFile", file);
 
     try {
-      const response = await axios.post(
-        `${import.meta.env.VITE_API_URL}/gallery/upload`,
-        formData,
-        {
-          headers: { "Content-Type": "multipart/form-data" },
-        },
-      );
+      const response = await api.post(`/gallery/upload`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
 
       if (response.data.success) {
         showAlert("Gambar baru berhasil ditambahkan!", "success");
-        // Jika upload berhasil, kembalikan ke halaman 1 agar foto terbaru langsung terlihat
         if (currentPage === 1) {
           fetchGallery(1, searchTerm);
         } else {
@@ -124,9 +115,7 @@ export default function GalleryList() {
 
   const confirmDelete = async () => {
     try {
-      const response = await axios.delete(
-        `${import.meta.env.VITE_API_URL}/gallery/${deleteModal.id}`,
-      );
+      const response = await api.delete(`/gallery/${deleteModal.id}`);
       if (response.data.success) {
         showAlert("Gambar berhasil dihapus dari server.", "success");
         fetchGallery(currentPage, searchTerm);
@@ -148,10 +137,9 @@ export default function GalleryList() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + " " + sizes[i];
   };
 
-  // Memicu pencarian hanya saat tombol Enter ditekan atau tombol Cari diklik
   const handleSearchSubmit = (e) => {
     e.preventDefault();
-    setCurrentPage(1); // Reset ke halaman 1 setiap kali mencari kata baru
+    setCurrentPage(1);
     setSearchTerm(searchInput);
   };
 
@@ -293,9 +281,13 @@ export default function GalleryList() {
               >
                 <div className="w-full aspect-square bg-gray-50 overflow-hidden relative border-b border-gray-100 flex items-center justify-center">
                   <img
-                    src={`${BASE_URL}${item.file_path}`}
+                    src={getImageUrl(item.file_path)}
                     alt={item.filename}
                     className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                    onError={(e) => {
+                      e.currentTarget.onerror = null;
+                      e.currentTarget.src = "/placeholder.png";
+                    }}
                   />
 
                   <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-2 z-10">

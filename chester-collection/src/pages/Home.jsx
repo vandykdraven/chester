@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import axios from "axios";
+import api from "../api"; // Menggunakan file konfigurasi master API
 import { getImageUrl } from "../utils/imageHelper";
 
 const formatRupiah = (angka) => {
@@ -11,19 +11,20 @@ const formatRupiah = (angka) => {
   }).format(angka);
 };
 
-// DIPERBARUI: Mengganti parameter 'id' menjadi 'slug'
 const ProductCard = ({ slug, image, name, price, original_price }) => (
-  // DIPERBARUI: Tautan sekarang mengarah ke /product/nama-slug-produk
   <Link
     to={`/product/${slug}`}
     className="group font-lora block cursor-pointer"
   >
-    <div className="aspect-[4/5] overflow-hidden mb-4 bg-gray-100 rounded-lg">
+    <div className="group aspect-[4/5] overflow-hidden mb-4 bg-gray-100 rounded-lg relative">
       <img
-        src={getImageUrl(image)}
+        src={image}
         alt={name}
         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-        onError={(e) => (e.target.src = "/placeholder.png")}
+        onError={(e) => {
+          e.currentTarget.onerror = null;
+          e.currentTarget.src = "/placeholder.png";
+        }}
       />
     </div>
     <p className="text-sm font-medium text-chester-text group-hover:text-chester-pink transition line-clamp-1">
@@ -83,21 +84,32 @@ const Hero = ({ slides }) => {
 
 const NewArrivals = () => {
   const [products, setProducts] = useState([]);
-  const BASE_URL = import.meta.env.VITE_API_URL.replace("/api", "");
 
   useEffect(() => {
     const fetchLatestProducts = async () => {
+      // 1. Cek Cache di Memori
+      const cachedLatest = sessionStorage.getItem("chester_latest_arrivals");
+      if (cachedLatest) {
+        setProducts(JSON.parse(cachedLatest));
+        return;
+      }
+
+      // 2. Fetch API jika belum ada cache
       try {
-        const res = await axios.get(`${import.meta.env.VITE_API_URL}/products`);
+        const res = await api.get(`/products`); // Menggunakan master config
         if (res.data.success) {
-          // Filter hanya produk yang aktif, urutkan dari ID terbaru, ambil 4 teratas
           const activeProducts = res.data.data.filter(
             (p) => p.status === "available",
           );
           const sortedLatest = activeProducts
             .sort((a, b) => b.id - a.id)
             .slice(0, 4);
+
           setProducts(sortedLatest);
+          sessionStorage.setItem(
+            "chester_latest_arrivals",
+            JSON.stringify(sortedLatest),
+          );
         }
       } catch (err) {
         console.error("Gagal load new arrivals:", err);
@@ -128,9 +140,8 @@ const NewArrivals = () => {
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
             {products.map((p) => {
-              const image = p.primary_image
-                ? `${BASE_URL}${p.primary_image}`
-                : "/placeholder.png";
+              // Menggunakan fungsi getImageUrl dari helper
+              const image = getImageUrl(p.primary_image);
               const price =
                 p.has_variant === 1 ? Number(p.min_v_price) : Number(p.price);
               const original_price =
@@ -140,8 +151,8 @@ const NewArrivals = () => {
 
               return (
                 <ProductCard
-                  key={p.id} // Key tetap menggunakan ID karena ini aturan internal React
-                  slug={p.slug} // DIPERBARUI: Mengirimkan data slug produk
+                  key={p.id}
+                  slug={p.slug}
                   image={image}
                   name={p.name}
                   price={price}
@@ -163,7 +174,6 @@ const FeaturedCollection = ({ col1, col2 }) => {
     <section className="py-16 bg-chester-gray font-lora">
       <div className="container mx-auto px-4">
         <div className="grid md:grid-cols-2 gap-8">
-          {/* Kolom 1 */}
           <div className="relative group overflow-hidden cursor-pointer aspect-square md:aspect-auto md:h-[500px] rounded-xl shadow-md">
             <img
               src={col1.image}
@@ -184,7 +194,6 @@ const FeaturedCollection = ({ col1, col2 }) => {
             </div>
           </div>
 
-          {/* Kolom 2 */}
           <div className="relative group overflow-hidden cursor-pointer aspect-square md:aspect-auto md:h-[500px] rounded-xl shadow-md">
             <img
               src={col2.image}
@@ -219,8 +228,16 @@ export default function Home() {
 
   useEffect(() => {
     const fetchHomeConfig = async () => {
+      // 1. Cek Cache Pengaturan Beranda
+      const cachedConfig = sessionStorage.getItem("chester_home_config");
+      if (cachedConfig) {
+        setHomeData(JSON.parse(cachedConfig));
+        return;
+      }
+
+      // 2. Fetch API jika tidak ada di memori
       try {
-        const res = await axios.get(`${import.meta.env.VITE_API_URL}/settings`);
+        const res = await api.get(`/settings`);
         if (res.data.success) {
           let apiData = res.data.data;
           if (Array.isArray(apiData)) {
@@ -229,7 +246,7 @@ export default function Home() {
             apiData = mapped;
           }
 
-          setHomeData({
+          const parsedData = {
             heroSlides: apiData.hero_banners
               ? JSON.parse(apiData.hero_banners)
               : [
@@ -254,7 +271,13 @@ export default function Home() {
                   linkText: "Belanja Koleksi",
                   linkUrl: "/products",
                 },
-          });
+          };
+
+          setHomeData(parsedData);
+          sessionStorage.setItem(
+            "chester_home_config",
+            JSON.stringify(parsedData),
+          );
         }
       } catch (err) {
         console.error("Gagal menarik konfigurasi beranda:", err);

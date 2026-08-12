@@ -1,4 +1,5 @@
 const express = require("express");
+const router = express.Router();
 const axios = require("axios");
 const mysql = require("mysql2");
 const { filterProfanity } = require("./utils/helpers");
@@ -19,16 +20,18 @@ app.use(express.json());
 // Mengizinkan browser mengakses folder 'uploads' secara langsung untuk pratinjau gambar
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-// Konfigurasi Koneksi Database MySQL
+// Konfigurasi Koneksi Database MySQL Menggunakan Pool (Dengan Keep-Alive)
 const db = mysql
   .createPool({
-    host: process.env.DB_HOST || "localhost",
-    user: process.env.DB_USER || "root",
-    password: process.env.DB_PASSWORD || "",
-    database: process.env.DB_DATABASE || "chester",
+    host: process.env.DB_HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_DATABASE,
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
+    enableKeepAlive: true,        // Mengaktifkan fitur anti-idle
+    keepAliveInitialDelay: 10000, // Mengirim sinyal ping setiap 10 detik
   })
   .promise();
 
@@ -151,14 +154,22 @@ app.post("/api/products", cpUpload, async (req, res) => {
       const productId = productResult.insertId;
       const imgCfg = imagesConfig || [];
 
+      // PROSES SLOT FOTO UTAMA
       if (imgCfg[0]) {
         if (imgCfg[0].type === "pc" && req.files["primaryImage"]) {
+          const file = req.files["primaryImage"][0];
+          const filePath = `/uploads/products/${file.filename}`;
+
+          // 1. Simpan relasi ke tabel produk
           await connection.query(
             `INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 1)`,
-            [
-              productId,
-              `/uploads/products/${req.files["primaryImage"][0].filename}`,
-            ],
+            [productId, filePath],
+          );
+          
+          // 2. PERBAIKAN: Daftarkan ke galeri server agar muncul di modal
+          await connection.query(
+            `INSERT INTO gallery_media (filename, file_path, file_size) VALUES (?, ?, ?)`,
+            [file.originalname, filePath, file.size],
           );
         } else if (imgCfg[0].type === "server" && imgCfg[0].path) {
           await connection.query(
@@ -168,6 +179,7 @@ app.post("/api/products", cpUpload, async (req, res) => {
         }
       }
 
+      // PROSES SLOT FOTO PENDUKUNG (1-4)
       let pcUploadIndex = 0;
       for (let i = 1; i <= 4; i++) {
         const slotConfig = imgCfg[i];
@@ -177,13 +189,21 @@ app.post("/api/products", cpUpload, async (req, res) => {
             req.files["supportingImages"] &&
             req.files["supportingImages"][pcUploadIndex]
           ) {
+            const file = req.files["supportingImages"][pcUploadIndex];
+            const filePath = `/uploads/products/${file.filename}`;
+
+            // 1. Simpan relasi ke tabel produk
             await connection.query(
               `INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 0)`,
-              [
-                productId,
-                `/uploads/products/${req.files["supportingImages"][pcUploadIndex].filename}`,
-              ],
+              [productId, filePath],
             );
+
+            // 2. PERBAIKAN: Daftarkan ke galeri server
+            await connection.query(
+              `INSERT INTO gallery_media (filename, file_path, file_size) VALUES (?, ?, ?)`,
+              [file.originalname, filePath, file.size],
+            );
+            
             pcUploadIndex++;
           } else if (slotConfig.type === "server" && slotConfig.path) {
             await connection.query(
@@ -342,24 +362,69 @@ app.get("/api/products", async (req, res) => {
 });
 
 app.delete("/api/products/:id", async (req, res) => {
+  const connection = await db.getConnection();
   try {
-    const [result] = await db.query("DELETE FROM products WHERE id = ?", [
-      req.params.id,
-    ]);
-    if (result.affectedRows === 0)
-      return res
-        .status(404)
-        .json({ success: false, message: "Produk tidak ditemukan!" });
-    return res.json({
-      success: true,
-      message:
-        "Data produk berhasil dihapus, file gambar tetap tersimpan di Galeri Server!",
-    });
+    await connection.beginTransaction();
+    const productId = req.params.id;
+
+    try {
+      // LANGKAH 1: Selalu coba HARD DELETE terlebih dahulu untuk data anak dasar
+      await connection.query("DELETE FROM product_images WHERE product_id = ?", [productId]);
+      await connection.query("DELETE FROM product_variants WHERE product_id = ?", [productId]);
+      await connection.query("DELETE FROM product_wholesales WHERE product_id = ?", [productId]);
+      
+      // Coba hapus produk utama
+      const [deleteResult] = await connection.query("DELETE FROM products WHERE id = ?", [productId]);
+      
+      if (deleteResult.affectedRows === 0) {
+        throw new Error("NOT_FOUND");
+      }
+      
+      await connection.commit();
+      return res.json({ success: true, message: "Produk belum memiliki riwayat transaksi. Berhasil dihapus permanen." });
+
+    } catch (sqlError) {
+      // LANGKAH 2: Tangkap error relasional MySQL.
+      // ER_ROW_IS_REFERENCED_2 atau errno 1451 berarti produk sedang terikat di tabel lain (penjualan, keranjang, dll).
+      if (sqlError.code === 'ER_ROW_IS_REFERENCED_2' || sqlError.errno === 1451) {
+        
+        // Eksekusi SOFT DELETE
+        const timeStamp = Date.now();
+        const deleteSuffix = `-del-${timeStamp}`;
+
+        const [updateResult] = await connection.query(`
+          UPDATE products 
+          SET 
+            is_deleted = 1, 
+            slug = CONCAT(slug, ?),
+            sku = IF(sku IS NOT NULL AND sku != '', CONCAT(sku, ?), sku)
+          WHERE id = ?
+        `, [deleteSuffix, deleteSuffix, productId]);
+
+        if (updateResult.affectedRows === 0) {
+          throw new Error("NOT_FOUND");
+        }
+
+        await connection.commit();
+        return res.json({ success: true, message: "Produk memiliki riwayat penjualan/interaksi. Berhasil diarsipkan (Soft Delete)." });
+
+      } else {
+        // Jika errornya bukan karena relasi, lempar error ke blok catch utama
+        throw sqlError;
+      }
+    }
+
   } catch (error) {
-    return res.status(500).json({
-      success: false,
-      message: "Terjadi kesalahan server saat menghapus produk.",
-    });
+    await connection.rollback();
+    
+    if (error.message === "NOT_FOUND") {
+      return res.status(404).json({ success: false, message: "Produk tidak ditemukan di database." });
+    }
+
+    console.error("Gagal melakukan Smart Delete:", error);
+    return res.status(500).json({ success: false, message: "Terjadi kesalahan server. Cek log terminal Node.js Anda." });
+  } finally {
+    connection.release();
   }
 });
 
@@ -409,9 +474,8 @@ app.put(
   ]),
   async (req, res) => {
     if (!req.body.data)
-      return res
-        .status(400)
-        .json({ success: false, message: "Data produk tidak ditemukan." });
+      return res.status(400).json({ success: false, message: "Data produk tidak ditemukan." });
+
     const productId = req.params.id;
     const {
       name,
@@ -435,8 +499,9 @@ app.put(
       imagesConfig,
     } = JSON.parse(req.body.data);
 
-    // Otomatis memperbarui slug jika nama produk diganti di halaman admin
-    const slug = name
+    // Mencegah error jika name dari frontend tiba-tiba undefined
+    const safeName = name || "Produk Tanpa Nama";
+    const slug = safeName
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/(^-|-$)+/g, "");
@@ -444,49 +509,51 @@ app.put(
     const connection = await db.getConnection();
     try {
       await connection.beginTransaction();
-      // Menambahkan update untuk kolom slug
+
+      // PERBAIKAN: Memastikan semua nilai numerik dikonversi dengan aman 
+      // (Mencegah error string kosong "" masuk ke MySQL Strict Mode)
+      const finalPrice = has_variant ? 0 : (Number(price) || 0);
+      const finalOriginalPrice = has_variant ? 0 : (Number(original_price) || 0);
+      const finalStock = has_variant ? 0 : (Number(stock) || 0);
+      const finalWeight = has_variant ? 0 : (Number(weight) || 0);
+
       await connection.query(
         `UPDATE products SET name = ?, slug = ?, category_id = ?, size_guide_id = ?, description = ?, video_url = ?, status = ?, price = ?, original_price = ?, stock = ?, weight = ?, sku = ?, has_variant = ?, variant_types_json = ?, seo_title = ?, seo_description = ?, seo_keywords = ? WHERE id = ?`,
         [
-          name,
-          slug, // Memasukkan pembaruan slug
+          safeName,
+          slug,
           category_id || null,
           size_guide_id || null,
-          description,
+          description || null,
           video_url || null,
-          status,
-          has_variant ? 0 : price,
-          has_variant ? 0 : original_price,
-          has_variant ? 0 : stock,
-          has_variant ? 0 : weight,
-          sku,
+          status || "available",
+          finalPrice,
+          finalOriginalPrice,
+          finalStock,
+          finalWeight,
+          sku || null,
           has_variant ? 1 : 0,
           has_variant ? JSON.stringify(variantTypes) : null,
           seo_title || null,
           seo_description || null,
           seo_keywords || null,
           productId,
-        ],
+        ]
       );
 
-      await connection.query(
-        "DELETE FROM product_wholesales WHERE product_id = ?",
-        [productId],
-      );
+      await connection.query("DELETE FROM product_wholesales WHERE product_id = ?", [productId]);
       if (wholesales && wholesales.length > 0) {
         for (const ws of wholesales) {
-          if (ws.minQty && ws.price)
+          if (ws.minQty && ws.price) {
             await connection.query(
               "INSERT INTO product_wholesales (product_id, min_qty, wholesale_price) VALUES (?, ?, ?)",
-              [productId, ws.minQty, ws.price],
+              [productId, Number(ws.minQty) || 0, Number(ws.price) || 0]
             );
+          }
         }
       }
 
-      await connection.query(
-        "DELETE FROM product_variants WHERE product_id = ?",
-        [productId],
-      );
+      await connection.query("DELETE FROM product_variants WHERE product_id = ?", [productId]);
       if (has_variant && variantMatrix && variantMatrix.length > 0) {
         for (const row of variantMatrix) {
           await connection.query(
@@ -494,37 +561,28 @@ app.put(
             [
               productId,
               row.key || row.variant_key || row.combination?.join("-"),
-              row.price,
-              row.original_price,
-              row.stock,
-              row.weight,
-              row.sku,
-            ],
+              Number(row.price) || 0,
+              Number(row.original_price) || 0,
+              Number(row.stock) || 0,
+              Number(row.weight) || 0,
+              row.sku || null,
+            ]
           );
         }
       }
 
-      await connection.query(
-        "DELETE FROM product_images WHERE product_id = ?",
-        [productId],
-      );
+      await connection.query("DELETE FROM product_images WHERE product_id = ?", [productId]);
       const imgCfg = imagesConfig || [];
       if (imgCfg[0]) {
         if (imgCfg[0].type === "pc" && req.files["primaryImage"]) {
           await connection.query(
             "INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 1)",
-            [
-              productId,
-              `/uploads/products/${req.files["primaryImage"][0].filename}`,
-            ],
+            [productId, `/uploads/products/${req.files["primaryImage"][0].filename}`]
           );
-        } else if (
-          (imgCfg[0].type === "server" || imgCfg[0].type === "existing") &&
-          imgCfg[0].path
-        ) {
+        } else if ((imgCfg[0].type === "server" || imgCfg[0].type === "existing") && imgCfg[0].path) {
           await connection.query(
             "INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 1)",
-            [productId, imgCfg[0].path],
+            [productId, imgCfg[0].path]
           );
         }
       }
@@ -533,46 +591,31 @@ app.put(
       for (let i = 1; i <= 4; i++) {
         const slotConfig = imgCfg[i];
         if (slotConfig) {
-          if (
-            slotConfig.type === "pc" &&
-            req.files["supportingImages"] &&
-            req.files["supportingImages"][pcUploadIndex]
-          ) {
+          if (slotConfig.type === "pc" && req.files["supportingImages"] && req.files["supportingImages"][pcUploadIndex]) {
             await connection.query(
               "INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 0)",
-              [
-                productId,
-                `/uploads/products/${req.files["supportingImages"][pcUploadIndex].filename}`,
-              ],
+              [productId, `/uploads/products/${req.files["supportingImages"][pcUploadIndex].filename}`]
             );
             pcUploadIndex++;
-          } else if (
-            (slotConfig.type === "server" || slotConfig.type === "existing") &&
-            slotConfig.path
-          ) {
+          } else if ((slotConfig.type === "server" || slotConfig.type === "existing") && slotConfig.path) {
             await connection.query(
               "INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 0)",
-              [productId, slotConfig.path],
+              [productId, slotConfig.path]
             );
           }
         }
       }
 
       await connection.commit();
-      return res.json({
-        success: true,
-        message: "Produk dan media berhasil diperbarui!",
-      });
+      return res.json({ success: true, message: "Produk dan media berhasil diperbarui!" });
     } catch (error) {
       await connection.rollback();
-      return res.status(500).json({
-        success: false,
-        message: "Gagal memperbarui data pada server.",
-      });
+      console.error("Gagal update produk:", error);
+      return res.status(500).json({ success: false, message: "Gagal memperbarui data pada server." });
     } finally {
       connection.release();
     }
-  },
+  }
 );
 
 // =======================================================================
@@ -1191,7 +1234,7 @@ app.put("/api/orders/:id/status", async (req, res) => {
 });
 
 // =======================================================================
-// ENDPOINT: MEMBUAT PESANAN (CHECKOUT) DENGAN PENGURANGAN STOK OTOMATIS
+// ENDPOINT: MEMBUAT PESANAN (CHECKOUT) - HANYA SIMPAN KE DATABASE
 // =======================================================================
 app.post("/api/orders", async (req, res) => {
   const connection = await db.getConnection();
@@ -1207,20 +1250,23 @@ app.post("/api/orders", async (req, res) => {
       grand_total,
     } = req.body;
 
+    // Ambil data user (email) dari database, karena diperlukan oleh Notifier
+    const [userRows] = await connection.query("SELECT email FROM users WHERE id = ?", [user_id]);
+    const userEmail = userRows.length > 0 ? userRows[0].email : "email_tidak_diketahui@domain.com";
+
     const date = new Date();
     const invoiceNumber = `INV-${date.getFullYear()}${(date.getMonth() + 1).toString().padStart(2, "0")}${date.getDate().toString().padStart(2, "0")}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     await connection.beginTransaction();
 
-    // 1. Simpan Data ke Tabel Orders
     const [orderResult] = await connection.query(
       `INSERT INTO orders (
-        invoice_number, user_id, 
+        invoice_number, user_id, biteship_order_id, airway_bill, waybill_url,
         recipient_name, phone, full_address, city_id, city_name, province_name, postal_code,
         province_id, subdistrict_id,
         courier_name, courier_service, shipping_cost, 
         subtotal_products, total_amount, discount_amount, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '0', '0', ?, ?, ?, ?, ?, ?, 'pending')`,
+      ) VALUES (?, ?, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, '0', '0', ?, ?, ?, ?, ?, ?, 'pending')`,
       [
         invoiceNumber,
         user_id,
@@ -1231,153 +1277,189 @@ app.post("/api/orders", async (req, res) => {
         address.city_name,
         address.province_name,
         address.postal_code,
-        shipping_option.courierName,
+        shipping_option.courierName, 
         shipping_option.serviceName,
         shipping_cost,
         subtotal,
         grand_total,
         discount_amount,
-      ],
+      ]
     );
 
     const orderId = orderResult.insertId;
 
-    // 2. Simpan Item ke Tabel order_items & KURANGI STOK PRODUK
     for (const item of cart_items) {
-      // A. Simpan history item yang dibeli
       await connection.query(
         `INSERT INTO order_items (order_id, product_id, product_name, variant_key, price, quantity, weight) 
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [
-          orderId,
-          item.product_id,
-          item.name,
-          item.variant,
-          item.price,
-          item.qty,
-          item.weight,
-        ],
+        [orderId, item.product_id, item.name, item.variant, item.price, item.qty, item.weight || 200]
       );
 
-      // B. LOGIKA PENGURANGAN STOK
       const quantityToDeduct = parseInt(item.qty, 10);
-
-      // Jika produk tidak memiliki varian atau varian dianggap "Standar"
       if (!item.variant || item.variant === "Standar") {
-        await connection.query(
-          `UPDATE products 
-           SET stock = GREATEST(stock - ?, 0) 
-           WHERE id = ?`,
-          [quantityToDeduct, item.product_id],
-        );
+        await connection.query(`UPDATE products SET stock = GREATEST(stock - ?, 0) WHERE id = ?`, [quantityToDeduct, item.product_id]);
       } else {
-        // Jika produk memiliki variasi spesifik (misal: "Merah, L")
-        // Kurangi stok di tabel product_variants terlebih dahulu
-        await connection.query(
-          `UPDATE product_variants 
-           SET stock = GREATEST(stock - ?, 0) 
-           WHERE product_id = ? AND variant_key = ?`,
-          [quantityToDeduct, item.product_id, item.variant],
-        );
-
-        // Setelah stok varian berkurang, kita juga sebaiknya mengupdate total stok gabungan
-        // di tabel products agar tampilan ProductList.jsx admin tetap sinkron
-        await connection.query(
-          `UPDATE products p
-           SET p.stock = (
-             SELECT COALESCE(SUM(v.stock), 0) 
-             FROM product_variants v 
-             WHERE v.product_id = p.id
-           )
-           WHERE p.id = ?`,
-          [item.product_id],
-        );
+        await connection.query(`UPDATE product_variants SET stock = GREATEST(stock - ?, 0) WHERE product_id = ? AND variant_key = ?`, [quantityToDeduct, item.product_id, item.variant]);
+        await connection.query(`UPDATE products p SET p.stock = (SELECT COALESCE(SUM(v.stock), 0) FROM product_variants v WHERE v.product_id = p.id) WHERE p.id = ?`, [item.product_id]);
       }
     }
 
-    // 3. Kosongkan Keranjang
     await connection.query("DELETE FROM carts WHERE user_id = ?", [user_id]);
+    await connection.commit(); 
 
-    await connection.commit();
+    // Notifikasi Dashboard Admin
+    await createAdminNotification(
+      "new_order",
+      orderId,
+      `Ada pesanan baru masuk! (Invoice: ${invoiceNumber})`
+    );
 
-    // =======================================================================
-    // 🚀 BLOK TRIGGER NOTIFIKASI OTOMATIS (EMAIL & WA)
-    // =======================================================================
-    try {
-      const [userRows] = await db.query(
-        "SELECT fullname, email, phone FROM users WHERE id = ?",
-        [user_id],
-      );
-      if (userRows.length > 0) {
-        const customerProfile = userRows[0];
-        if (!customerProfile.phone) customerProfile.phone = address.phone;
-
-        const orderDataForNotif = {
-          invoice_number: invoiceNumber,
-          total_amount: grand_total,
-        };
-
-        Notifier.sendNewOrderNotification(
-          db,
-          orderDataForNotif,
-          customerProfile,
-          cart_items,
-        ).catch((err) =>
-          console.error("Gagal menjalankan fungsi Notifier background:", err),
-        );
-      }
-    } catch (notifError) {
-      console.error("Gagal menarik data untuk notifikasi:", notifError);
-    }
-    // =======================================================================
+    // ---> PERBAIKAN UTAMA: PANGGIL NOTIFIER UNTUK MENGIRIM WA & EMAIL <---
+    // Kita jalankan di background (.catch) agar tidak membuat pelanggan menunggu loading checkout terlalu lama
+    const orderData = { id: orderId, invoice_number: invoiceNumber, total_amount: grand_total };
+    const customerData = { fullname: address.recipient_name, phone: address.phone, email: userEmail };
+    
+    Notifier.sendNewOrderNotification(db, orderData, customerData, cart_items)
+      .catch(err => console.error("Gagal mengirim WA/Email dari background:", err));
 
     return res.status(201).json({
       success: true,
       orderId: orderId,
+      message: "Pesanan berhasil dibuat, menunggu pembayaran pelanggan."
     });
+
   } catch (error) {
     await connection.rollback();
-    console.error("Gagal membuat pesanan:", error);
-    return res
-      .status(500)
-      .json({ success: false, message: "Terjadi kesalahan database." });
+    console.error("Error Checkout API:", error);
+    return res.status(500).json({ success: false, message: "Terjadi kesalahan internal server." });
   } finally {
     connection.release();
   }
 });
 
 // =======================================================================
-// ENDPOINT: REQUEST PICKUP (ORDER CREATION) KE BITESHIP - FINAL FIX + DATE + TIME
+// HELPER 2: STANDARDISASI LAYANAN SEMUA KURIR UNTUK BITESHIP (REVISI FINAL)
+// =======================================================================
+const mapCourierService = (courierCode, serviceName) => {
+  if (!serviceName) return "";
+  const s = serviceName.toLowerCase();
+  
+  switch (courierCode) {
+    case "jne":
+      if (s.includes("reg")) return "reg";
+      if (s.includes("oke")) return "oke";
+      if (s.includes("yes")) return "yes";
+      if (s.includes("jtr") || s.includes("trucking") || s.includes("cargo")) return "jtr";
+      return "reg";
+
+    case "jnt":
+    case "j&t":
+    case "j&texpress":
+      if (s.includes("ez") || s.includes("reguler") || s.includes("reg")) return "ez";
+      if (s.includes("eco")) return "eco";
+      if (s.includes("super")) return "super";
+      return "ez";
+
+    case "sicepat":
+      if (s.includes("halu")) return "halu";
+      if (s.includes("gokil") || s.includes("cargo")) return "gokil";
+      if (s.includes("best")) return "best";
+      if (s.includes("reg") || s.includes("sicepat")) return "reg";
+      return "reg";
+
+    case "pos":
+    case "posindonesia":
+      if (s.includes("q9")) return "q9_same_day";
+      if (s.includes("same")) return "same_day";
+      if (s.includes("next")) return "next_day";
+      if (s.includes("jumbo")) return "jumbo_ekonomi";
+      return "kilat_khusus";
+
+    case "tiki":
+      if (s.includes("reg")) return "reg";
+      if (s.includes("ons")) return "ons";
+      if (s.includes("eco")) return "eco";
+      return "reg";
+
+    case "ninja":
+    case "ninjaxpress":
+      if (s.includes("standard") || s.includes("reg")) return "standard";
+      if (s.includes("fast")) return "fast";
+      return "standard";
+
+    case "anteraja":
+      // PERBAIKAN: Menggunakan underscore sesuai doc Biteship
+      if (s.includes("reg")) return "reg";
+      if (s.includes("next") || s.includes("ndc")) return "next_day"; 
+      if (s.includes("same") || s.includes("hari ini")) return "same_day"; 
+      if (s.includes("eco")) return "eco";
+      return "reg";
+
+    case "lion":
+    case "lionparcel":
+      if (s.includes("regpack") || s.includes("reg")) return "regpack";
+      if (s.includes("onepack") || s.includes("besok")) return "onepack";
+      if (s.includes("jpack") || s.includes("jago")) return "jpack";
+      if (s.includes("bosspack")) return "bosspack";
+      return "regpack";
+
+    case "wahana":
+    case "wahanaprestasilogistik":
+      if (s.includes("normal") || s.includes("reg")) return "normal";
+      if (s.includes("next")) return "nextday";
+      return "normal";
+
+    case "sap":
+    case "sapexpress":
+      if (s.includes("reg")) return "reg";
+      if (s.includes("sameday") || s.includes("hari ini")) return "uds";
+      return "reg";
+
+    case "paxel":
+      // PERBAIKAN: Paxel di Biteship menuntut ukuran, bukan kecepatan
+      if (s.includes("small")) return "small";
+      if (s.includes("large")) return "large";
+      if (s.includes("custom")) return "custom";
+      return "medium"; // Fallback mutlak jika frontend hanya mengirim teks "sameday"
+
+    case "ide":
+    case "idexpress":
+      if (s.includes("lite") || s.includes("setengah")) return "lite";
+      if (s.includes("reg") || s.includes("standard")) return "standard";
+      if (s.includes("sameday")) return "sameday"; 
+      return "standard";
+  }
+
+  return s.trim().replace(/[^a-z0-9]/g, '_').replace(/_+/g, '_');
+};
+
+// =======================================================================
+// ENDPOINT: REQUEST PICKUP (ORDER CREATION) KE BITESHIP - MODE INSTAN
 // =======================================================================
 app.post("/api/orders/:id/book-shipping", async (req, res) => {
   try {
     const orderId = req.params.id;
-
-    const { delivery_date, delivery_time } = req.body;
-
-    if (!delivery_date || !delivery_time) {
-      return res.status(400).json({
-        success: false,
-        message: "Tanggal dan waktu penjemputan (pickup) wajib diisi.",
-      });
-    }
+    
+    // PENJELASAN DOKUMENTASI: 
+    // Variabel delivery_date dan delivery_time beserta blok validasinya 
+    // telah dihapus sepenuhnya karena sistem sekarang menggunakan metode 
+    // pemanggilan kurir instan (sekarang).
 
     const [orders] = await db.query(
       "SELECT o.*, u.fullname as customer_name, u.email as customer_email FROM orders o JOIN users u ON o.user_id = u.id WHERE o.id = ?",
       [orderId],
     );
     if (orders.length === 0) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Pesanan tidak ditemui." });
+      return res.status(404).json({ success: false, message: "Pesanan tidak ditemui." });
     }
 
     const order = orders[0];
 
+    // Pencegah Booking Ganda
     if (order.biteship_order_id) {
       return res.status(400).json({
         success: false,
-        message: "Pesanan ini sudah pernah di-booking sebelumnya.",
+        message: "Pesanan ini sudah pernah di-booking sebelumnya. Resi sudah terbit.",
       });
     }
 
@@ -1387,19 +1469,19 @@ app.post("/api/orders/:id/book-shipping", async (req, res) => {
     );
 
     const [settings] = await db.query(
-      "SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('biteship_api_key', 'shop_name', 'shop_phone', 'shop_address', 'store_postal_code')",
+      "SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('biteship_api_key', 'shop_name', 'shop_phone', 'shop_address', 'store_area_id')"
     );
 
     let shopConfig = {};
     settings.forEach((s) => (shopConfig[s.setting_key] = s.setting_value));
 
-    let formattedCourier = order.courier_name.toLowerCase();
-    if (formattedCourier === "j&t" || formattedCourier === "j&t express") {
-      formattedCourier = "jnt";
-    }
+    // Analisa dan Mapping Kurir
+    let safeCourierCode = order.courier_name.toLowerCase().replace(/\s+/g, '');
+    if (safeCourierCode.includes("j&t") || safeCourierCode.includes("jnt")) safeCourierCode = "jnt";
+    if (safeCourierCode.includes("pos")) safeCourierCode = "pos";
+    if (safeCourierCode.includes("ninja")) safeCourierCode = "ninja";
 
-    // const date = new Date();
-    // const deliveryDate = date.toISOString().split("T")[0];
+    const formattedService = mapCourierService(safeCourierCode, order.courier_service);
 
     const payload = {
       shipper_contact_name: shopConfig.shop_name || "Admin",
@@ -1407,23 +1489,20 @@ app.post("/api/orders/:id/book-shipping", async (req, res) => {
       origin_contact_name: shopConfig.shop_name || "Admin",
       origin_contact_phone: shopConfig.shop_phone || "08000000000",
       origin_address: shopConfig.shop_address || "Alamat Toko",
-      origin_postal_code: shopConfig.store_postal_code || "57148",
+      origin_area_id: shopConfig.store_area_id,
 
       destination_contact_name: order.recipient_name,
       destination_contact_phone: order.phone,
       destination_address: `${order.full_address}, ${order.city_name}, ${order.province_name}`,
-      destination_postal_code: order.postal_code || "",
-      destination_area_id: order.city_id || "",
+      destination_postal_code: parseInt(order.postal_code, 10) || undefined,
+      destination_area_id: order.city_id || undefined,
 
-      courier_company: formattedCourier,
-      courier_type: order.courier_service.toLowerCase(),
+      courier_company: safeCourierCode,
+      courier_type: formattedService,   
 
-      delivery_type: "later",
+      // Memaksa parameter waktu menjadi sekarang (instan)
+      delivery_type: "now",
       origin_collection_method: "pickup",
-
-      delivery_date: delivery_date,
-      // PERBAIKAN: FORMAT HH:mm TUNGGAL
-      delivery_time: delivery_time,
 
       items: items.map((item) => ({
         name: item.product_name,
@@ -1438,35 +1517,37 @@ app.post("/api/orders/:id/book-shipping", async (req, res) => {
       "Content-Type": "application/json",
     };
 
+    const biteshipUrl = process.env.BITESHIP_BASE_URL;
     let response;
 
     try {
-      response = await axios.post(
-        "https://api.biteship.com/v1/orders",
-        payload,
-        {
-          headers: biteshipHeaders,
-        },
-      );
-    } catch (biteshipError) {
-      if (biteshipError.response?.data?.code === 40002031) {
-        console.warn(
-          `Kurir ${payload.courier_company} tidak menyokong pickup. Menukar kaedah kepada drop-off...`,
-        );
-
-        payload.origin_collection_method = "drop_off";
-
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-
-        response = await axios.post(
-          "https://api.biteship.com/v1/orders",
-          payload,
-          {
+      response = await axios.post(`${biteshipUrl}/v1/orders`, payload, {
+        headers: biteshipHeaders,
+      });
+    } catch (error) {
+      const errorData = error.response?.data || error.message || "Unknown Error";
+      
+      if (errorData.code === 40002031) {
+        try {
+          payload.origin_collection_method = "drop_off";
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          response = await axios.post(`${biteshipUrl}/v1/orders`, payload, {
             headers: biteshipHeaders,
-          },
-        );
+          });
+        } catch (fallbackError) {
+           return res.status(500).json({
+            success: false,
+            message: "Kurir tidak support pickup, dan gagal mencoba metode Drop-off.",
+            raw_error: fallbackError.response?.data || fallbackError.message
+          });
+        }
       } else {
-        throw biteshipError;
+        return res.status(500).json({
+          success: false,
+          message: "API Biteship menolak payload data. Cek Inspect Element > Network.",
+          raw_error: errorData,
+          payload_sent: payload
+        });
       }
     }
 
@@ -1475,15 +1556,36 @@ app.post("/api/orders/:id/book-shipping", async (req, res) => {
     const biteshipOrderId = biteshipData.id;
     const waybillUrl = biteshipData.courier.waybill_url;
 
-    await db.query(
-      "UPDATE orders SET airway_bill = ?, biteship_order_id = ?, waybill_url = ?, status = 'shipping' WHERE id = ?",
-      [awbNumber, biteshipOrderId, waybillUrl, orderId],
-    );
+    try {
+      await db.query(
+        "UPDATE orders SET airway_bill = ?, biteship_order_id = ?, waybill_url = ?, status = 'shipping' WHERE id = ?",
+        [awbNumber, biteshipOrderId, waybillUrl, orderId],
+      );
+    } catch (dbError) {
+      return res.status(500).json({
+        success: false,
+        message: "Biteship sukses, tapi gagal simpan status ke Database internal.",
+        raw_error: dbError.message
+      });
+    }
+
+    const waMessage = `Halo *${order.customer_name}*,\n\nKabar gembira! Pesananmu dengan Invoice *${order.invoice_number}* sudah kami proses dan sedang dalam tahap pengiriman menggunakan kurir *${payload.courier_company.toUpperCase()}*.\n\nNomor Resi: *${awbNumber}*\n\nTerima kasih telah berbelanja di toko kami!`;
+    
+    // PERBAIKAN: Mencegah error jika fungsi sendFonnteWA sudah dihapus
+    try {
+      if (typeof sendFonnteWA === 'function') {
+        sendFonnteWA(order.phone, waMessage).catch(() => {});
+      } else {
+        console.log("Notifikasi WA dilewati karena skrip lama sudah dihapus.");
+      }
+    } catch (waError) {
+      console.error("Error pada notifikasi WA:", waError.message);
+    }
 
     const statusMessage =
       payload.origin_collection_method === "drop_off"
-        ? "Booking sukses (Mode Drop-off). Harap cetak resi dan antarkan paket ke gerai."
-        : "Booking sukses. Kurir akan segera melakukan penjemputan.";
+        ? "Booking sukses (Mode Drop-off). Resi terbit, harap cetak resi dan antarkan paket ke gerai terdekat."
+        : "Booking sukses. Resi otomatis terbit, kurir akan segera menjemput paket.";
 
     return res.status(200).json({
       success: true,
@@ -1491,19 +1593,20 @@ app.post("/api/orders/:id/book-shipping", async (req, res) => {
       data: { airway_bill: awbNumber, waybill_url: waybillUrl },
     });
   } catch (error) {
-    console.error("Ralat Biteship API:", error.response?.data || error.message);
+    const errorMessage = error.response?.data?.error || error.message || "Gagal mendapatkan resi otomatis dari Biteship.";
     return res.status(500).json({
       success: false,
-      message:
-        error.response?.data?.error ||
-        "Gagal melakukan proses tempahan (booking) kurier ke Biteship.",
+      message: errorMessage,
     });
   }
 });
 
+// =======================================================================
+// ENDPOINT: PENCARIAN AREA BITESIHP
+// =======================================================================
 app.get("/api/logistic/search-area", async (req, res) => {
   try {
-    const { keyword } = req.query; // Sesuai dengan AddressBook.jsx
+    const { keyword } = req.query;
     if (!keyword || keyword.length < 3) {
       return res
         .status(400)
@@ -1521,13 +1624,13 @@ app.get("/api/logistic/search-area", async (req, res) => {
         .json({ success: false, message: "API Key tidak ada." });
     }
 
-    // PENTING: Kita tetap gunakan &type=single karena ini kunci agar data muncul
+    const biteshipUrl = process.env.BITESHIP_BASE_URL;
+
     const response = await axios.get(
-      `https://api.biteship.com/v1/maps/areas?countries=ID&input=${keyword}&type=single`,
+      `${biteshipUrl}/v1/maps/areas?countries=ID&input=${keyword}&type=single`,
       { headers: { Authorization: apiKey } },
     );
 
-    // Kita kembalikan data apa adanya dari Biteship agar frontend bisa mengolahnya
     res.status(200).json({ success: true, data: response.data.areas });
   } catch (error) {
     res.status(500).json({ success: false, message: "Gagal memuat area." });
@@ -2255,16 +2358,12 @@ app.delete("/api/users/:id/addresses/:addressId", async (req, res) => {
 // =======================================================================
 app.post("/api/reviews", async (req, res) => {
   try {
-    const { order_id, product_id, user_id, rating, comment, variant_name } =
-      req.body;
+    const { order_id, product_id, user_id, rating, comment, variant_name } = req.body;
 
     if (!order_id || !product_id || !user_id || !rating) {
-      return res
-        .status(400)
-        .json({ success: false, message: "Data ulasan tidak lengkap!" });
+      return res.status(400).json({ success: false, message: "Data ulasan tidak lengkap!" });
     }
 
-    // Syarat 1: Pastikan Pesanan Berstatus 'Selesai'
     const [orderCheck] = await db.query(
       "SELECT status FROM orders WHERE id = ?",
       [order_id],
@@ -2272,12 +2371,10 @@ app.post("/api/reviews", async (req, res) => {
     if (orderCheck.length === 0 || orderCheck[0].status !== "completed") {
       return res.status(400).json({
         success: false,
-        message:
-          "Ulasan hanya dapat diberikan untuk pesanan yang sudah selesai.",
+        message: "Ulasan hanya dapat diberikan untuk pesanan yang sudah selesai.",
       });
     }
 
-    // Syarat 2: Cegah Ulasan Ganda
     const [existing] = await db.query(
       "SELECT id FROM product_reviews WHERE order_id = ? AND product_id = ? AND user_id = ?",
       [order_id, product_id, user_id],
@@ -2285,20 +2382,20 @@ app.post("/api/reviews", async (req, res) => {
     if (existing.length > 0) {
       return res.status(400).json({
         success: false,
-        message:
-          "Anda sudah memberikan ulasan untuk produk ini. Silakan gunakan fitur Edit.",
+        message: "Anda sudah memberikan ulasan untuk produk ini. Silakan gunakan fitur Edit.",
       });
     }
 
-    // Syarat 3: Terapkan Filter Kata Kotor
     const [settings] = await db.query(
       "SELECT setting_value FROM settings WHERE setting_key = 'profanity_filter_words'",
     );
     const badWords = settings.length > 0 ? settings[0].setting_value : "";
+    
+    // Asumsi fungsi filterProfanity sudah didefinisikan sebelumnya di kodemu
     const filteredComment = filterProfanity(comment, badWords);
 
-    // Eksekusi Simpan Data Utama
-    await db.query(
+    // ---> PERBAIKAN: Tangkap insertId dari eksekusi simpan ulasan
+    const [reviewResult] = await db.query(
       "INSERT INTO product_reviews (order_id, product_id, user_id, rating, comment, variant_name) VALUES (?, ?, ?, ?, ?, ?)",
       [
         order_id,
@@ -2309,8 +2406,9 @@ app.post("/api/reviews", async (req, res) => {
         variant_name || null,
       ],
     );
+    
+    const newReviewId = reviewResult.insertId;
 
-    // Transformasi 1: Kalkulasi Rating Otomatis ke Tabel Produk
     const [ratingResult] = await db.query(
       "SELECT AVG(rating) as average_rating, COUNT(id) as total_reviews FROM product_reviews WHERE product_id = ?",
       [product_id],
@@ -2324,14 +2422,19 @@ app.post("/api/reviews", async (req, res) => {
       [Number(avgRating).toFixed(1), totalReviews, product_id],
     );
 
-    // Transformasi 2: Injeksi Notifikasi Admin untuk Rating Rendah
+    // ---> PERBAIKAN: Gunakan Helper Notifikasi untuk SEMUA ulasan
+    let notifMessage = `Pesanan #${order_id} mendapat ulasan baru (${rating} Bintang).`;
+    
+    // Pesan khusus jika rating buruk
     if (rating <= 2) {
-      const notifMessage = `Peringatan: Pesanan #${order_id} mendapat ulasan ${rating} bintang. Segera tindak lanjuti keluhan pelanggan.`;
-      await db.query(
-        "INSERT INTO admin_notifications (type, reference_id, message) VALUES (?, ?, ?)",
-        ["bad_review", order_id, notifMessage],
-      );
+      notifMessage = `Peringatan: Pesanan #${order_id} mendapat ulasan buruk (${rating} Bintang). Segera cek keluhan pelanggan!`;
     }
+
+    await createAdminNotification(
+      "new_review",
+      newReviewId, 
+      notifMessage
+    );
 
     return res.status(201).json({
       success: true,
@@ -2617,30 +2720,20 @@ app.post("/api/shipping-cost", async (req, res) => {
       });
     }
 
-    // Perbaikan: Ambil store_area_id, bukan store_postal_code
     const [settings] = await db.query(
-      "SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('biteship_api_key', 'biteship_api_url', 'store_area_id', 'active_couriers')",
+      "SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('biteship_api_key', 'store_area_id', 'active_couriers')",
     );
 
     let biteshipKey = "";
-    let biteshipUrl =
-      process.env.BITESHIP_API_URL ||
-      "https://api.biteship.com/v1/rates/couriers";
+    // PERBAIKAN: Gunakan BITESHIP_BASE_URL dan gabungkan dengan endpoint-nya
+    let biteshipUrl = `${process.env.BITESHIP_BASE_URL}/v1/rates/couriers`;
     let originAreaId = "";
     let activeCouriers = "";
 
     settings.forEach((setting) => {
-      if (setting.setting_key === "biteship_api_key")
-        biteshipKey = setting.setting_value;
-      if (setting.setting_key === "biteship_api_url" && setting.setting_value)
-        biteshipUrl = setting.setting_value;
-
-      // Perbaikan: Simpan nilai store_area_id
-      if (setting.setting_key === "store_area_id")
-        originAreaId = setting.setting_value;
-
-      if (setting.setting_key === "active_couriers")
-        activeCouriers = setting.setting_value;
+      if (setting.setting_key === "biteship_api_key") biteshipKey = setting.setting_value;
+      if (setting.setting_key === "store_area_id") originAreaId = setting.setting_value;
+      if (setting.setting_key === "active_couriers") activeCouriers = setting.setting_value;
     });
 
     if (!biteshipKey) {
@@ -2659,12 +2752,10 @@ app.post("/api/shipping-cost", async (req, res) => {
 
     const finalCouriers = (courier || activeCouriers).toLowerCase();
 
-    // Pastikan kita memiliki origin_area_id, jika kosong tolak request
     if (!originAreaId) {
       return res.status(500).json({
         success: false,
-        message:
-          "Area ID Toko (Origin) belum dikonfigurasi di Pengaturan Admin.",
+        message: "Area ID Toko (Origin) belum dikonfigurasi di Pengaturan Admin.",
       });
     }
 
@@ -2693,7 +2784,6 @@ app.post("/api/shipping-cost", async (req, res) => {
             },
           ];
 
-    // Perbaikan: Payload sekarang 100% menggunakan Area ID
     const payload = {
       origin_area_id: originAreaId,
       destination_area_id: city_id,
@@ -2718,19 +2808,13 @@ app.post("/api/shipping-cost", async (req, res) => {
       }));
       return res.json({ success: true, data: options });
     } else {
-      return res
-        .status(400)
-        .json({ success: false, message: "Gagal memproses tarif kurir." });
+      return res.status(400).json({ success: false, message: "Gagal memproses tarif kurir." });
     }
   } catch (err) {
-    console.error(
-      "Biteship Error Response:",
-      err.response?.data || err.message,
-    );
+    console.error("Biteship Error Response:", err.response?.data || err.message);
     return res.status(err.response?.status || 500).json({
       success: false,
-      message:
-        err.response?.data?.error || "Kesalahan server saat hitung ongkir.",
+      message: err.response?.data?.error || "Kesalahan server saat hitung ongkir.",
     });
   }
 });
@@ -2749,7 +2833,8 @@ app.get("/api/shipping/areas", async (req, res) => {
     const [settings] = await db.query(
       "SELECT setting_value FROM settings WHERE setting_key = 'biteship_api_key'",
     );
-    const apiKey = settings[0]?.setting_value;
+    // PERBAIKAN: Validasi jika settings kosong
+    const apiKey = settings.length > 0 ? settings[0].setting_value : null;
 
     if (!apiKey) {
       return res.status(400).json({
@@ -2758,8 +2843,14 @@ app.get("/api/shipping/areas", async (req, res) => {
       });
     }
 
+    // PERBAIKAN: Cek apakah variabel .env terbaca
+    if (!process.env.BITESHIP_BASE_URL) {
+       console.warn("⚠️ BITESHIP_BASE_URL tidak ditemukan di file .env. Menggunakan default.");
+    }
+    const biteshipUrl = process.env.BITESHIP_BASE_URL || "https://api.biteship.com";
+
     const response = await axios.get(
-      `https://api.biteship.com/v1/maps/areas?countries=ID&input=${search}&type=single`,
+      `${biteshipUrl}/v1/maps/areas?countries=ID&input=${search}&type=single`,
       { headers: { Authorization: `Bearer ${apiKey}` } },
     );
 
@@ -2784,13 +2875,8 @@ app.get("/api/shipping/areas", async (req, res) => {
 
     res.json({ success: true, data: areas });
   } catch (error) {
-    console.error(
-      "Error dari Biteship API:",
-      error.response?.data || error.message,
-    );
-    res
-      .status(500)
-      .json({ success: false, message: "Gagal mencari area ke Biteship." });
+    console.error("Error dari Biteship API:", error.response?.data || error.message);
+    res.status(500).json({ success: false, message: "Gagal mencari area ke Biteship." });
   }
 });
 
@@ -2799,11 +2885,11 @@ app.get("/api/shipping/areas", async (req, res) => {
 // =======================================================================
 app.get("/api/shipping/couriers", async (req, res) => {
   try {
-    // 1. Ambil API Key Biteship dari database
     const [settings] = await db.query(
       "SELECT setting_value FROM settings WHERE setting_key = 'biteship_api_key'",
     );
-    const apiKey = settings[0]?.setting_value;
+    // PERBAIKAN: Validasi jika settings kosong
+    const apiKey = settings.length > 0 ? settings[0].setting_value : null;
 
     if (!apiKey) {
       return res.status(400).json({
@@ -2812,23 +2898,24 @@ app.get("/api/shipping/couriers", async (req, res) => {
       });
     }
 
-    // 2. Lakukan request GET ke endpoint Retrieve Couriers Biteship
-    const response = await axios.get("https://api.biteship.com/v1/couriers", {
+    // PERBAIKAN: Cek apakah variabel .env terbaca
+    if (!process.env.BITESHIP_BASE_URL) {
+       console.warn("⚠️ BITESHIP_BASE_URL tidak ditemukan di file .env. Menggunakan default.");
+    }
+    const biteshipUrl = process.env.BITESHIP_BASE_URL || "https://api.biteship.com";
+
+    const response = await axios.get(`${biteshipUrl}/v1/couriers`, {
       headers: {
         Authorization: `Bearer ${apiKey}`,
       },
     });
 
-    // 3. Kembalikan data kurir ke frontend
     return res.status(200).json({
       success: true,
       data: response.data.couriers,
     });
   } catch (error) {
-    console.error(
-      "Gagal menarik data kurir:",
-      error.response?.data || error.message,
-    );
+    console.error("Gagal menarik data kurir:", error.response?.data || error.message);
     return res.status(500).json({
       success: false,
       message: "Terjadi kesalahan server saat menghubungi API Biteship.",
@@ -2841,6 +2928,21 @@ app.get("/api/shipping/couriers", async (req, res) => {
 // =======================================================================
 app.post("/api/webhook/biteship", async (req, res) => {
   try {
+    // ---> TAMBAHAN KEAMANAN: Validasi Signature dari Biteship
+    // Menangkap kunci rahasia yang dikirim oleh Biteship di header
+    const biteshipSignature = req.headers["x-biteship-signature"];
+    // Mengambil kunci rahasia asli dari file .env kita
+    const mySecret = process.env.BITESHIP_SECRET;
+
+    // Jika kata sandi tidak cocok atau kosong, langsung tolak aksesnya!
+    if (biteshipSignature !== mySecret) {
+      console.warn("⚠️ Akses Webhook Ditolak: Signature tidak valid!");
+      return res
+        .status(401)
+        .json({ success: false, message: "Akses ditolak (Unauthorized)" });
+    }
+    // <--- AKHIR TAMBAHAN KEAMANAN
+
     const webhookData = req.body || {};
 
     // 1. PENANGANAN PING INSTALASI DARI BITESHIP
@@ -2949,6 +3051,132 @@ app.post("/api/webhook/biteship", async (req, res) => {
     return res
       .status(500)
       .json({ success: false, message: "Internal Server Error" });
+  }
+});
+
+// =======================================================================
+// ENDPOINT: REQUEST PICKUP (Membuat Pesanan di Dashboard Biteship)
+// =======================================================================
+app.post("/api/orders/:id/request-pickup", async (req, res) => {
+  try {
+    const localOrderId = req.params.id;
+
+    // 1. AMBIL PENGATURAN TOKO DARI DATABASE SECARA DINAMIS
+    const [settings] = await db.query(
+      "SELECT setting_key, setting_value FROM settings",
+    );
+
+    // Mengubah array hasil query menjadi object agar mudah dipanggil (misal: config.shop_name)
+    const config = {};
+    settings.forEach((row) => {
+      config[row.setting_key] = row.setting_value;
+    });
+
+    // Pengecekan keamanan: Pastikan API Key sudah dimasukkan di halaman admin
+    if (!config.biteship_api_key) {
+      return res.status(400).json({
+        success: false,
+        message: "API Key Biteship belum diatur di menu Pengaturan!",
+      });
+    }
+
+    // 2. AMBIL DATA PESANAN DARI DATABASE LOKAL
+    const [orderRows] = await db.query(`SELECT * FROM orders WHERE id = ?`, [
+      localOrderId,
+    ]);
+
+    if (orderRows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Pesanan tidak ditemukan di database",
+      });
+    }
+    const orderData = orderRows[0];
+
+    // 3. AMBIL DATA ITEM PESANAN (Rincian barang)
+    const [itemRows] = await db.query(
+      `SELECT product_name, price, quantity, weight FROM order_items WHERE order_id = ?`,
+      [localOrderId],
+    );
+
+    // 4. SUSUN PAYLOAD (DATA) SESUAI FORMAT BITESHIP
+    const biteshipPayload = {
+      // Data Pengirim (Ditarik dari tabel settings, default: Chester Collection)
+      shipper_contact_name: config.shop_name || "Chester Collection",
+      shipper_contact_phone: config.shop_phone || "0000000000",
+      shipper_contact_email: config.smtp_user || "admin@chestercollection.id",
+      shipper_organization: config.shop_name || "Chester Collection",
+
+      // Data Lokasi Penjemputan (Origin)
+      origin_contact_name: config.shop_name || "Chester Collection",
+      origin_contact_phone: config.shop_phone || "0000000000",
+      origin_address: config.shop_address || "Alamat toko belum diatur",
+      origin_area_id: config.store_area_id,
+
+      // Data Tujuan (Destination - Pembeli)
+      destination_contact_name: orderData.recipient_name,
+      destination_contact_phone: orderData.phone,
+      destination_contact_email: orderData.email || "",
+      destination_address: orderData.full_address,
+      destination_area_id: orderData.destination_area_id,
+
+      // Data Kurir
+      courier_company: orderData.courier_name.toLowerCase(),
+      courier_type: orderData.courier_type || "reg",
+      delivery_type: "now",
+
+      // Rincian Barang (Di-mapping dari tabel order_items)
+      items: itemRows.map((item) => ({
+        name: item.product_name,
+        description: "Pakaian/Fashion",
+        value: item.price,
+        quantity: item.quantity,
+        // Jika berat kosong di database, gunakan default 200 gram
+        weight: item.weight || 200,
+      })),
+    };
+
+    console.log(
+      `Mengirim permintaan pickup ke Biteship untuk pesanan lokal ID: ${localOrderId}`,
+    );
+
+    // 5. TEMBAK DATA KE API BITESHIP (CREATE ORDER)
+    const response = await axios.post(
+      "https://api.biteship.com/v1/orders",
+      biteshipPayload,
+      {
+        headers: {
+          Authorization: `Bearer ${config.biteship_api_key}`,
+          "Content-Type": "application/json",
+        },
+      },
+    );
+
+    // 6. SIMPAN ID DARI BITESHIP KE DATABASE LOKAL
+    const biteshipGeneratedId = response.data.id;
+
+    await db.query(
+      "UPDATE orders SET biteship_order_id = ?, status = 'shipping' WHERE id = ?",
+      [biteshipGeneratedId, localOrderId],
+    );
+
+    // 7. KEMBALIKAN RESPON SUKSES KE FRONTEND (REACT)
+    return res.status(200).json({
+      success: true,
+      message:
+        "Berhasil Request Pickup Kurir! Pesanan sudah masuk ke dasbor Biteship.",
+      biteship_id: biteshipGeneratedId,
+    });
+  } catch (error) {
+    console.error(
+      "Gagal Request Pickup Biteship:",
+      error.response?.data || error.message,
+    );
+    return res.status(500).json({
+      success: false,
+      message: "Gagal memanggil kurir dari Biteship.",
+      error: error.response?.data?.error || error.message,
+    });
   }
 });
 
@@ -3166,91 +3394,96 @@ app.get("/api/dashboard/stats", async (req, res) => {
 });
 
 // =======================================================================
-// ENDPOINT: SEO (ROBOTS.TXT & SITEMAP.XML)
+// ENDPOINT ADMIN: GENERATE STATIC SITEMAP, ROBOTS & INJEKSI GSC
 // =======================================================================
-
-// 1. Endpoint untuk robots.txt
-app.get("/robots.txt", (req, res) => {
-  // Mengambil URL dari .env sesuai aturan (tanpa hardcode)
-  const domain = process.env.FRONTEND_URL;
-
-  const robotsText = `User-agent: *
-Allow: /
-Disallow: /admin-login
-Disallow: /admin/
-
-Sitemap: ${domain}/sitemap.xml`;
-
-  // Memberitahu browser bahwa ini adalah file teks biasa
-  res.header("Content-Type", "text/plain");
-  res.send(robotsText);
-});
-
-// 2. Endpoint untuk sitemap.xml
-app.get("/sitemap.xml", async (req, res) => {
-  const domain = process.env.FRONTEND_URL;
-
+app.get("/api/admin/generate-seo", async (req, res) => {
   try {
-    // PENTING: Perhatikan variabel 'db' di bawah ini.
-    // Sesuaikan dengan nama variabel koneksi database yang Anda gunakan di atas server.js (misalnya: db, pool, atau connection).
-    const [products] = await db.query(
-      "SELECT id, slug, updated_at FROM products WHERE status = 'available'",
-    );
-    const [categories] = await db.query("SELECT id FROM product_categories");
+    const domain = process.env.FRONTEND_URL;
+    const publicPath = process.env.FRONTEND_PUBLIC_PATH || path.resolve(__dirname, "../public_html"); 
+
+    // 1. BUAT FILE FISIK ROBOTS.TXT
+    const robotsText = `User-agent: *\nAllow: /\nDisallow: /admin-login\nDisallow: /admin/\n\nSitemap: ${domain}/sitemap.xml`;
+    fs.writeFileSync(path.join(publicPath, "robots.txt"), robotsText);
+
+    // 2. BUAT FILE FISIK SITEMAP.XML
+    const [products] = await db.query("SELECT slug, updated_at FROM products WHERE status = 'available'");
+    const [categories] = await db.query("SELECT slug FROM product_categories");
 
     let urls = `
-      <url>
-        <loc>${domain}/</loc>
-        <changefreq>daily</changefreq>
-        <priority>1.0</priority>
-      </url>
-      <url>
-        <loc>${domain}/products</loc>
-        <changefreq>daily</changefreq>
-        <priority>0.8</priority>
-      </url>
+      <url><loc>${domain}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>
+      <url><loc>${domain}/products</loc><changefreq>daily</changefreq><priority>0.8</priority></url>
     `;
 
-    // Looping kategori
     categories.forEach((category) => {
-      urls += `
-        <url>
-          <loc>${domain}/products?category=${category.id}</loc>
-          <changefreq>weekly</changefreq>
-          <priority>0.7</priority>
-        </url>
-      `;
+      urls += `<url><loc>${domain}/products?category=${category.slug}</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>`;
     });
 
-    // Looping produk
     products.forEach((product) => {
-      const lastMod = product.updated_at
-        ? new Date(product.updated_at).toISOString().split("T")[0]
-        : new Date().toISOString().split("T")[0];
-
-      urls += `
-        <url>
-          <loc>${domain}/product/${product.slug}</loc>
-          <lastmod>${lastMod}</lastmod>
-          <changefreq>weekly</changefreq>
-          <priority>0.9</priority>
-        </url>
-      `;
+      const lastMod = product.updated_at ? new Date(product.updated_at).toISOString().split("T")[0] : new Date().toISOString().split("T")[0];
+      urls += `<url><loc>${domain}/product/${product.slug}</loc><lastmod>${lastMod}</lastmod><changefreq>weekly</changefreq><priority>0.9</priority></url>`;
     });
 
-    const sitemapXML = `<?xml version="1.0" encoding="UTF-8"?>
-      <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-        ${urls}
-      </urlset>`;
+    const sitemapXML = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>`;
+    fs.writeFileSync(path.join(publicPath, "sitemap.xml"), sitemapXML);
 
-    // Memberitahu browser bahwa ini adalah format XML
-    res.header("Content-Type", "application/xml");
-    res.send(sitemapXML);
+    // ===================================================================
+    // 3. FITUR BARU: INJEKSI OTOMATIS TAG GOOGLE KE INDEX.HTML (DIPERKUAT)
+    // ===================================================================
+    const [settings] = await db.query("SELECT setting_value FROM settings WHERE setting_key = 'gsc_verification_tag'");
+    const gscTag = settings.length > 0 ? settings[0].setting_value : null;
+
+    if (gscTag) {
+      const indexPath = path.join(publicPath, "index.html");
+      
+      // Evaluasi Kritis: Jika file tidak ada, lemparkan error agar developer tahu path-nya salah
+      if (!fs.existsSync(indexPath)) {
+        throw new Error(`File index.html tidak ditemukan di target direktori: ${indexPath}. Cek FRONTEND_PUBLIC_PATH di .env.`);
+      }
+
+      let htmlContent = fs.readFileSync(indexPath, "utf8");
+      const metaString = `<meta name="google-site-verification" content="${gscTag}" />`;
+
+      // Cek apakah kode verifikasi sudah pernah ditanam agar tidak ganda
+      if (!htmlContent.includes("google-site-verification")) {
+        // PERBAIKAN: Gunakan Regex /<\/head>/i agar tahan terhadap perubahan kapitalisasi (<HEAD> atau </head>)
+        htmlContent = htmlContent.replace(/<\/head>/i, `  ${metaString}\n</head>`);
+        fs.writeFileSync(indexPath, htmlContent);
+      } else if (!htmlContent.includes(gscTag)) {
+        // Jika sudah ada tag GSC lama, perbarui dengan kode yang baru
+        htmlContent = htmlContent.replace(/<meta name="google-site-verification" content=".*?"\s*\/>/i, metaString);
+        fs.writeFileSync(indexPath, htmlContent);
+      }
+    }
+
+    return res.status(200).json({ 
+      success: true, 
+      message: "Sitemap, Robots.txt, dan injeksi verifikasi Google berhasil diterapkan ke frontend." 
+    });
   } catch (error) {
-    console.error("Gagal membuat sitemap:", error);
-    res.status(500).send("Terjadi kesalahan pada server saat membuat sitemap.");
+    console.error("Gagal mencetak file SEO:", error);
+    return res.status(500).json({ 
+      success: false, 
+      // PERBAIKAN: Mengirim pesan error spesifik ke layar frontend agar bisa dievaluasi
+      message: error.message || "Terjadi kesalahan internal saat mencetak SEO." 
+    });
   }
 });
+
+// =======================================================================
+// HELPER: FUNGSI UNTUK MEMBUAT NOTIFIKASI ADMIN BARU
+// =======================================================================
+const createAdminNotification = async (type, reference_id, message) => {
+  try {
+    // Kita gunakan db.query langsung agar tidak mengganggu transaksi lain
+    await db.query(
+      "INSERT INTO admin_notifications (type, reference_id, message, is_read) VALUES (?, ?, ?, 0)",
+      [type, reference_id, message]
+    );
+    console.log(`[Notifikasi Dibuat] ${type}: ${message}`);
+  } catch (error) {
+    console.error("Gagal menyimpan notifikasi ke database:", error.message);
+  }
+};
 
 // =======================================================================
 // ENDPOINT: MENGAMBIL DAFTAR NOTIFIKASI ADMIN
@@ -3498,6 +3731,18 @@ app.put("/api/reviews/:id", async (req, res) => {
       message: "Terjadi kesalahan server saat menyimpan ulasan.",
     });
   }
+});
+
+// =======================================================================
+// ENDPOINT: PING KEEP-ALIVE (Mencegah Server Tertidur di cPanel)
+// =======================================================================
+app.get("/api/ping", (req, res) => {
+  // Endpoint ini sangat ringan, tidak memanggil database sama sekali
+  res.status(200).json({
+    success: true,
+    message: "Server Node.js aktif dan terjaga!",
+    timestamp: new Date().toISOString()
+  });
 });
 
 // =======================================================================

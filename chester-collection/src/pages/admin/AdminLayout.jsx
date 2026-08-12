@@ -16,16 +16,21 @@ import {
   Bell,
   MessageSquare,
 } from "lucide-react";
-import axios from "axios"; // ---> TAMBAHAN: Import Axios
+import axios from "axios";
 import logo from "../../assets/logo.png";
 
 export default function AdminLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isProductMenuOpen, setIsProductMenuOpen] = useState(false);
   const [isStaticMenuOpen, setIsStaticMenuOpen] = useState(false);
-  const [adminUser, setAdminUser] = useState({ fullname: "Admin", email: "" });
 
-  // ---> TAMBAHAN: State untuk Notifikasi
+  // ---> TAMBAHAN: Pastikan state default memiliki properti role (default aman: editor)
+  const [adminUser, setAdminUser] = useState({
+    fullname: "Admin",
+    email: "",
+    role: "editor",
+  });
+
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
@@ -46,10 +51,8 @@ export default function AdminLayout() {
     return () => window.removeEventListener("storage", fetchAdminData);
   }, [location.pathname]);
 
-  // ---> TAMBAHAN: Fungsi mengambil notifikasi dari backend
   useEffect(() => {
     fetchNotifications();
-    // Opsional: Refresh notifikasi setiap 60 detik secara otomatis
     const interval = setInterval(fetchNotifications, 60000);
     return () => clearInterval(interval);
   }, []);
@@ -72,9 +75,8 @@ export default function AdminLayout() {
     }
   };
 
-  // ---> TAMBAHAN: Fungsi menandai notifikasi telah dibaca
   const markAsRead = async (id, isRead) => {
-    if (isRead) return; // Jika sudah dibaca, abaikan
+    if (isRead) return;
     try {
       const token = localStorage.getItem("adminToken");
       await axios.put(
@@ -84,7 +86,6 @@ export default function AdminLayout() {
           headers: { Authorization: `Bearer ${token}` },
         },
       );
-      // Perbarui tampilan secara lokal tanpa memanggil ulang API
       setNotifications(
         notifications.map((notif) =>
           notif.id === id ? { ...notif, is_read: 1 } : notif,
@@ -107,32 +108,44 @@ export default function AdminLayout() {
     return name ? name.charAt(0).toUpperCase() : "A";
   };
 
+  // ---> TAMBAHAN: Konfigurasi RBAC di Menu Items
+  // Kita tambahkan properti allowedRoles untuk menu yang rahasia
   const menuItems = [
     {
       name: "Pesanan",
       icon: <ShoppingCart size={20} />,
       path: "/admin/orders",
+      allowedRoles: ["superadmin", "editor"], // Bebas diakses
     },
-    { name: "Pelanggan", icon: <Users size={20} />, path: "/admin/customers" },
+    {
+      name: "Pelanggan",
+      icon: <Users size={20} />,
+      path: "/admin/customers",
+      allowedRoles: ["superadmin", "editor"],
+    },
     {
       name: "Ulasan",
       icon: <MessageSquare size={20} />,
       path: "/admin/reviews",
+      allowedRoles: ["superadmin", "editor"],
     },
     {
       name: "Galeri Media",
       icon: <ImageIcon size={20} />,
       path: "/admin/products/gallery",
+      allowedRoles: ["superadmin", "editor"],
     },
     {
       name: "Halaman Depan",
       icon: <LayoutDashboard size={20} />,
       path: "/admin/homepage-settings",
+      allowedRoles: ["superadmin", "editor"],
     },
     {
       name: "Pengaturan",
       icon: <Settings size={20} />,
       path: "/admin/settings",
+      allowedRoles: ["superadmin", "editor"],
     },
   ];
 
@@ -218,13 +231,17 @@ export default function AdminLayout() {
                 >
                   Voucher Diskon
                 </Link>
-                <Link
-                  to="/admin/product-shipping"
-                  onClick={() => setIsSidebarOpen(false)}
-                  className="pl-11 pr-4 py-2 text-sm text-gray-500 hover:text-chester-pink hover:bg-pink-50/50 rounded-lg transition-colors font-medium"
-                >
-                  Pengaturan Ongkir
-                </Link>
+
+                {/* ---> PERBAIKAN: Menormalkan pengecekan untuk menyembunyikan link spesifik */}
+                {(adminUser?.role || "").toLowerCase() === "superadmin" && (
+                  <Link
+                    to="/admin/product-shipping"
+                    onClick={() => setIsSidebarOpen(false)}
+                    className="pl-11 pr-4 py-2 text-sm text-gray-500 hover:text-chester-pink hover:bg-pink-50/50 rounded-lg transition-colors font-medium"
+                  >
+                    Pengaturan Ongkir
+                  </Link>
+                )}
               </div>
             </div>
 
@@ -269,16 +286,27 @@ export default function AdminLayout() {
               </div>
             </div>
 
-            {menuItems.map((item) => (
-              <Link
-                key={item.name}
-                to={item.path}
-                onClick={() => setIsSidebarOpen(false)}
-                className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${location.pathname === item.path ? "bg-chester-pink text-white font-bold" : "text-gray-600 hover:bg-gray-100 hover:text-chester-text font-medium"}`}
-              >
-                {item.icon} {item.name}
-              </Link>
-            ))}
+            {/* ---> PERBAIKAN: Render menuItems dengan normalisasi huruf untuk RBAC yang aman */}
+            {menuItems
+              .filter((item) => {
+                const currentUserRole = (
+                  adminUser?.role || "editor"
+                ).toLowerCase();
+                const normalizedAllowedRoles = item.allowedRoles.map((role) =>
+                  role.toLowerCase(),
+                );
+                return normalizedAllowedRoles.includes(currentUserRole);
+              })
+              .map((item) => (
+                <Link
+                  key={item.name}
+                  to={item.path}
+                  onClick={() => setIsSidebarOpen(false)}
+                  className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${location.pathname === item.path ? "bg-chester-pink text-white font-bold" : "text-gray-600 hover:bg-gray-100 hover:text-chester-text font-medium"}`}
+                >
+                  {item.icon} {item.name}
+                </Link>
+              ))}
           </nav>
 
           <div className="mt-8">
@@ -332,7 +360,7 @@ export default function AdminLayout() {
               <ExternalLink size={16} /> Lihat Website
             </Link>
 
-            {/* ---> TAMBAHAN: Komponen Lonceng Notifikasi */}
+            {/* Komponen Lonceng Notifikasi */}
             <div className="relative">
               <button
                 onClick={() => setIsNotificationOpen(!isNotificationOpen)}
@@ -344,7 +372,6 @@ export default function AdminLayout() {
                 )}
               </button>
 
-              {/* Kotak Dropdown Notifikasi */}
               {isNotificationOpen && (
                 <div className="absolute right-0 mt-3 w-80 bg-white rounded-xl shadow-xl border border-gray-100 z-50 overflow-hidden">
                   <div className="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
@@ -402,7 +429,9 @@ export default function AdminLayout() {
                 <p className="text-sm font-bold text-chester-text">
                   {adminUser.fullname}
                 </p>
-                <p className="text-xs text-gray-500">{adminUser.email}</p>
+                <p className="text-xs text-gray-500 capitalize">
+                  {adminUser.role || "editor"}
+                </p>
               </div>
               <div className="h-10 w-10 bg-gray-900 text-white rounded-full flex items-center justify-center font-bold shadow-sm text-lg">
                 {getInitial(adminUser.fullname)}

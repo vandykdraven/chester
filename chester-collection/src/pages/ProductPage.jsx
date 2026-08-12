@@ -13,7 +13,9 @@ import {
   Edit,
   X,
 } from "lucide-react";
-import axios from "axios";
+// 1. KOREKSI: Gunakan master konfigurasi API dan Image Helper kita
+import api from "../api";
+import { getImageUrl } from "../utils/imageHelper";
 
 // Fungsi untuk memformat angka menjadi format Rupiah
 const formatRupiah = (angka) => {
@@ -76,21 +78,11 @@ export default function ProductPage() {
     isSubmitting: false,
   });
 
-  const BASE_URL = import.meta.env.VITE_API_URL.replace("/api", "");
-
   // Mengambil data pelanggan yang sedang login dari penyimpanan browser
   const customerUser = JSON.parse(
     localStorage.getItem("customerUser") ||
       sessionStorage.getItem("customerUser"),
   );
-
-  // Fungsi untuk mengambil token otorisasi pelanggan untuk keperluan API
-  const getCustomerAuthHeader = () => {
-    const token =
-      localStorage.getItem("customerToken") ||
-      sessionStorage.getItem("customerToken");
-    return { headers: { Authorization: `Bearer ${token}` } };
-  };
 
   // Efek ini berjalan otomatis saat halaman pertama kali dimuat atau slug URL berubah
   useEffect(() => {
@@ -100,8 +92,9 @@ export default function ProductPage() {
   // Mengambil data ulasan dari backend API
   const fetchProductReviews = async (productId, page = 1) => {
     try {
-      const res = await axios.get(
-        `${import.meta.env.VITE_API_URL}/products/${productId}/reviews?page=${page}&limit=5`,
+      // Menggunakan master api
+      const res = await api.get(
+        `/products/${productId}/reviews?page=${page}&limit=5`,
       );
 
       if (res.data.success) {
@@ -135,14 +128,15 @@ export default function ProductPage() {
   const fetchProductDetails = async () => {
     setLoading(true);
     try {
-      const res = await axios.get(
-        `${import.meta.env.VITE_API_URL}/products/${slug}`,
-      );
+      // Menggunakan master api
+      const res = await api.get(`/products/${slug}`);
       if (res.data.success) {
         const prodData = res.data.data;
+
+        // 2. KOREKSI: Menerapkan getImageUrl pada mapping gambar produk
         const allImages =
           prodData.images && prodData.images.length > 0
-            ? prodData.images.map((img) => `${BASE_URL}${img.image_url}`)
+            ? prodData.images.map((img) => getImageUrl(img.image_url))
             : [];
 
         setProduct({
@@ -174,7 +168,8 @@ export default function ProductPage() {
   // Mengambil produk lain dalam kategori yang sama
   const fetchRelatedProducts = async (categoryId, currentProductId) => {
     try {
-      const res = await axios.get(`${import.meta.env.VITE_API_URL}/products`);
+      // Menggunakan master api
+      const res = await api.get(`/products`);
       if (res.data.success) {
         let filtered = res.data.data.filter((p) => p.id !== currentProductId);
         if (categoryId) {
@@ -191,9 +186,8 @@ export default function ProductPage() {
   // Mengecek apakah produk ini sudah ada di wishlist pengguna
   const checkWishlistStatus = async (currentProductId) => {
     try {
-      const res = await axios.get(
-        `${import.meta.env.VITE_API_URL}/users/${customerUser.id}/wishlists`,
-      );
+      // Menggunakan master api
+      const res = await api.get(`/users/${customerUser.id}/wishlists`);
       if (res.data.success) {
         const isExist = res.data.data.some(
           (w) => w.product_id === currentProductId,
@@ -217,13 +211,11 @@ export default function ProductPage() {
       if (isWishlisted) {
         navigate("/wishlist");
       } else {
-        const res = await axios.post(
-          `${import.meta.env.VITE_API_URL}/wishlists`,
-          {
-            user_id: customerUser.id,
-            product_id: product.id,
-          },
-        );
+        // Menggunakan master api
+        const res = await api.post(`/wishlists`, {
+          user_id: customerUser.id,
+          product_id: product.id,
+        });
         if (res.data.success) {
           setIsWishlisted(true);
           showAlert("Produk ditambahkan ke Wishlist!", "success");
@@ -262,10 +254,8 @@ export default function ProductPage() {
         quantity: quantity,
       };
 
-      const res = await axios.post(
-        `${import.meta.env.VITE_API_URL}/carts`,
-        payload,
-      );
+      // Menggunakan master api
+      const res = await api.post(`/carts`, payload);
 
       if (res.data.success) {
         showAlert("Berhasil ditambahkan ke keranjang!", "success");
@@ -314,10 +304,8 @@ export default function ProductPage() {
         quantity: quantity,
       };
 
-      const res = await axios.post(
-        `${import.meta.env.VITE_API_URL}/carts`,
-        payload,
-      );
+      // Menggunakan master api
+      const res = await api.post(`/carts`, payload);
 
       try {
         if (window.fbq) {
@@ -351,7 +339,7 @@ export default function ProductPage() {
     if (!product) return;
     const shareData = {
       title: product.name,
-      text: `Cek produk mroblong keren ini: ${product.name}`,
+      text: `Cek produk keren ini: ${product.name}`,
       url: window.location.href,
     };
     try {
@@ -383,17 +371,17 @@ export default function ProductPage() {
     try {
       setEditModal((prev) => ({ ...prev, isSubmitting: true }));
 
-      // Memanggil endpoint PUT dengan menyertakan Token Pelanggan
-      const res = await axios.put(
-        `${import.meta.env.VITE_API_URL}/reviews/${editModal.reviewId}`,
-        { rating: editModal.rating, comment: editModal.comment },
-        getCustomerAuthHeader(),
-      );
+      // Karena kita menggunakan instance `api`, token JWT pelanggan sudah otomatis disisipkan
+      // (jika Anda sudah mengonfigurasinya di file api.js).
+      const res = await api.put(`/reviews/${editModal.reviewId}`, {
+        rating: editModal.rating,
+        comment: editModal.comment,
+      });
 
       if (res.data.success) {
         showAlert("Ulasan Anda berhasil diperbarui!", "success");
 
-        // Memperbarui tampilan ulasan secara langsung di layar tanpa memuat ulang halaman
+        // Memperbarui tampilan ulasan secara langsung di layar
         setReviews(
           reviews.map((r) =>
             r.id === editModal.reviewId
@@ -518,6 +506,10 @@ export default function ProductPage() {
                 alt={`${product.name} Main`}
                 className="w-full h-full object-cover transition-transform duration-200 ease-out"
                 style={zoomStyle}
+                onError={(e) => {
+                  e.currentTarget.onerror = null;
+                  e.currentTarget.src = "/placeholder.png";
+                }}
               />
 
               <button
@@ -554,6 +546,10 @@ export default function ProductPage() {
                     src={img}
                     alt={`Thumbnail ${index + 1}`}
                     className="w-full h-full object-cover rounded-sm"
+                    onError={(e) => {
+                      e.currentTarget.onerror = null;
+                      e.currentTarget.src = "/placeholder.png";
+                    }}
                   />
                 </button>
               ))}
@@ -756,10 +752,15 @@ export default function ProductPage() {
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center font-bold text-gray-500 overflow-hidden">
                           {rev.avatar ? (
+                            // 3. KOREKSI: Gunakan getImageUrl untuk Avatar Pengulas
                             <img
-                              src={`${BASE_URL}${rev.avatar}`}
+                              src={getImageUrl(rev.avatar)}
                               alt="Avatar"
                               className="w-full h-full object-cover"
+                              onError={(e) => {
+                                e.currentTarget.onerror = null;
+                                e.currentTarget.style.display = "none";
+                              }}
                             />
                           ) : (
                             rev.customer_name?.charAt(0) || "U"
@@ -817,7 +818,7 @@ export default function ProductPage() {
                     {rev.admin_reply && (
                       <div className="mt-4 bg-gray-50 p-4 rounded-xl border-l-4 border-l-chester-pink">
                         <p className="text-xs font-bold text-chester-pink mb-1 flex items-center gap-1">
-                          <CheckCircle size={12} /> Balasan Admin Mroblong
+                          <CheckCircle size={12} /> Balasan Admin :
                         </p>
                         <p className="text-sm text-gray-600 leading-relaxed">
                           {rev.admin_reply}
@@ -897,14 +898,15 @@ export default function ProductPage() {
                     className="group font-lora block cursor-pointer"
                   >
                     <div className="aspect-[4/5] overflow-hidden mb-4 bg-gray-100 relative rounded-lg">
+                      {/* 4. KOREKSI: Gunakan getImageUrl untuk thumbnail produk terkait */}
                       <img
-                        src={
-                          rel.primary_image
-                            ? `${BASE_URL}${rel.primary_image}`
-                            : "/placeholder.png"
-                        }
+                        src={getImageUrl(rel.primary_image)}
                         alt={rel.name}
                         className={`w-full h-full object-cover transition-transform duration-500 ${rel.status !== "available" ? "opacity-70 grayscale" : "group-hover:scale-105"}`}
+                        onError={(e) => {
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src = "/placeholder.png";
+                        }}
                       />
                       {rel.status === "sold" && (
                         <span className="absolute top-2 left-2 bg-gray-900 text-white text-[10px] font-bold uppercase tracking-wider px-2 py-1 shadow-sm z-10 rounded">

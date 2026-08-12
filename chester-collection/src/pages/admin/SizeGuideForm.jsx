@@ -12,9 +12,12 @@ import {
   Database,
 } from "lucide-react";
 import Quill from "quill";
-import axios from "axios";
 import "quill/dist/quill.snow.css";
 import { quillModules } from "../../utils/quillConfig";
+
+// KOREKSI: Impor master API dan Image Helper
+import api from "../../api";
+import { getImageUrl } from "../../utils/imageHelper";
 
 export default function SizeGuideForm() {
   const { id } = useParams();
@@ -23,12 +26,10 @@ export default function SizeGuideForm() {
 
   const [isLoading, setIsLoading] = useState(isEditMode);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isDirectUploading, setIsDirectUploading] = useState(false); // Loading khusus upload PC
+  const [isDirectUploading, setIsDirectUploading] = useState(false);
 
-  // Ref untuk input file tersembunyi (Upload PC)
   const fileInputRef = useRef(null);
 
-  // State Form
   const [formData, setFormData] = useState({
     name: "",
     content: "",
@@ -38,28 +39,23 @@ export default function SizeGuideForm() {
   const editorRef = useRef(null);
   const quillInstance = useRef(null);
 
-  // State Modal Galeri
   const [showGallery, setShowGallery] = useState(false);
   const [galleryMedia, setGalleryMedia] = useState([]);
   const [isGalleryLoading, setIsGalleryLoading] = useState(false);
 
-  // State Notifikasi
   const [customAlert, setCustomAlert] = useState({
     show: false,
     message: "",
     type: "success",
   });
 
-  const BASE_URL = import.meta.env.VITE_API_URL.replace("/api", "");
-
   // --- AMBIL DATA JIKA MODE EDIT ---
   useEffect(() => {
     if (isEditMode) {
       const fetchGuide = async () => {
         try {
-          const response = await axios.get(
-            `${import.meta.env.VITE_API_URL}/size-guides/${id}`,
-          );
+          // KOREKSI: Gunakan master API terpusat
+          const response = await api.get(`/size-guides/${id}`);
           if (response.data.success) {
             setFormData(response.data.data);
             if (quillInstance.current) {
@@ -121,7 +117,6 @@ export default function SizeGuideForm() {
     const file = event.target.files[0];
     if (!file) return;
 
-    // Validasi ukuran file (misal maks 7MB)
     if (file.size > 7 * 1024 * 1024) {
       showAlert("Ukuran file terlalu besar! Maksimal 7MB.", "error");
       return;
@@ -129,26 +124,18 @@ export default function SizeGuideForm() {
 
     setIsDirectUploading(true);
 
-    // Kita gunakan API Gallery Upload yang sudah ada untuk menyimpan ke server
     const directUploadData = new FormData();
     directUploadData.append("galleryFile", file);
 
     try {
-      const response = await axios.post(
-        `${import.meta.env.VITE_API_URL}/gallery/upload`,
-        directUploadData,
-        {
-          headers: { "Content-Type": "multipart/form-data" },
-        },
-      );
+      // KOREKSI: Gunakan master API terpusat
+      const response = await api.post(`/gallery/upload`, directUploadData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
 
       if (response.data.success) {
-        // Ambil file_path hasil upload di server
         const uploadedFilePath = response.data.data.file_path;
-
-        // Masukkan ke State Form Panduan Ukuran
         setFormData((prev) => ({ ...prev, image_url: uploadedFilePath }));
-
         showAlert(
           "Gambar berhasil diunggah ke server dan dilampirkan!",
           "success",
@@ -159,7 +146,6 @@ export default function SizeGuideForm() {
       showAlert("Gagal mengunggah gambar dari PC ke server.", "error");
     } finally {
       setIsDirectUploading(false);
-      // Reset input file agar bisa pilih file yang sama lagi jika perlu
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
@@ -176,15 +162,11 @@ export default function SizeGuideForm() {
     try {
       let response;
       if (isEditMode) {
-        response = await axios.put(
-          `${import.meta.env.VITE_API_URL}/size-guides/${id}`,
-          formData,
-        );
+        // KOREKSI: Gunakan master API terpusat
+        response = await api.put(`/size-guides/${id}`, formData);
       } else {
-        response = await axios.post(
-          `${import.meta.env.VITE_API_URL}/size-guides`,
-          formData,
-        );
+        // KOREKSI: Gunakan master API terpusat
+        response = await api.post(`/size-guides`, formData);
       }
 
       if (response.data.success) {
@@ -209,9 +191,8 @@ export default function SizeGuideForm() {
     if (galleryMedia.length === 0) {
       setIsGalleryLoading(true);
       try {
-        const response = await axios.get(
-          `${import.meta.env.VITE_API_URL}/gallery?limit=50`,
-        );
+        // KOREKSI: Gunakan master API terpusat
+        const response = await api.get(`/gallery?limit=50`);
         if (response.data.success) {
           setGalleryMedia(response.data.data);
         }
@@ -243,7 +224,6 @@ export default function SizeGuideForm() {
 
   return (
     <div className="max-w-5xl mx-auto pb-12 relative">
-      {/* Input File Tersembunyi untuk PC Upload */}
       <input
         type="file"
         accept="image/*"
@@ -252,7 +232,6 @@ export default function SizeGuideForm() {
         className="hidden"
       />
 
-      {/* TOAST ALERT */}
       {customAlert.show && (
         <div className="fixed top-6 right-6 z-50 animate-bounce">
           <div
@@ -310,10 +289,15 @@ export default function SizeGuideForm() {
                       onClick={() => selectImage(media.file_path)}
                       className="cursor-pointer group relative aspect-square rounded-xl overflow-hidden border-2 border-transparent hover:border-chester-pink shadow-sm hover:shadow-md transition-all"
                     >
+                      {/* KOREKSI: Penggunaan getImageUrl & penambahan onError */}
                       <img
-                        src={`${BASE_URL}${media.file_path}`}
+                        src={getImageUrl(media.file_path)}
                         alt="Galeri"
                         className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                        onError={(e) => {
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src = "/placeholder.png";
+                        }}
                       />
                       <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition flex items-center justify-center">
                         <CheckCircle className="text-white" size={24} />
@@ -401,7 +385,6 @@ export default function SizeGuideForm() {
             </h2>
 
             {isDirectUploading ? (
-              // TAMPILAN LOADING SAAT UPLOAD PC
               <div className="border-2 border-dashed border-chester-pink bg-pink-50 rounded-xl aspect-[4/3] flex flex-col items-center justify-center text-center mb-5 gap-3">
                 <div className="h-7 w-7 border-4 border-chester-pink border-t-transparent rounded-full animate-spin"></div>
                 <p className="text-sm font-bold text-chester-pink">
@@ -409,12 +392,16 @@ export default function SizeGuideForm() {
                 </p>
               </div>
             ) : formData.image_url ? (
-              // TAMPILAN PREVIEW JIKA GAMBAR SUDAH DIPILIH
               <div className="relative border border-gray-200 rounded-xl overflow-hidden aspect-[4/3] bg-gray-50 flex items-center justify-center group mb-5 shadow-inner">
+                {/* KOREKSI: Penggunaan getImageUrl & penambahan onError */}
                 <img
-                  src={`${BASE_URL}${formData.image_url}`}
+                  src={getImageUrl(formData.image_url)}
                   alt="Preview"
                   className="w-full h-full object-contain p-2"
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = "/placeholder.png";
+                  }}
                 />
                 <button
                   type="button"
@@ -425,7 +412,6 @@ export default function SizeGuideForm() {
                 </button>
               </div>
             ) : (
-              // TAMPILAN KOSONG AWAL
               <div className="border-2 border-dashed border-gray-200 bg-gray-50 rounded-xl p-8 flex flex-col items-center justify-center text-center aspect-[4/3] mb-5 text-gray-400">
                 <ImageIcon className="mb-2" size={36} strokeWidth={1.5} />
                 <p className="text-sm font-semibold">Belum ada gambar</p>
@@ -433,16 +419,15 @@ export default function SizeGuideForm() {
               </div>
             )}
 
-            {/* AREA TOMBOL PILIHAN (DIPISAH JELAS) */}
+            {/* AREA TOMBOL PILIHAN */}
             <div className="grid grid-cols-1 gap-3 border-t border-gray-100 pt-5">
               <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">
                 Ambil Gambar Dari:
               </p>
 
-              {/* TOMBOL 1: UPLOAD DARI PC */}
               <button
                 type="button"
-                onClick={() => fileInputRef.current.click()} // Memicu input file tersembunyi
+                onClick={() => fileInputRef.current.click()}
                 className="w-full py-2.5 bg-gray-800 text-white font-bold rounded-lg hover:bg-black transition flex justify-center items-center gap-2.5 text-sm shadow-sm"
               >
                 <UploadCloud size={18} /> Unggah Baru dari PC
@@ -454,7 +439,6 @@ export default function SizeGuideForm() {
                 <div className="flex-1 h-px bg-gray-100"></div>
               </div>
 
-              {/* TOMBOL 2: AMBIL DARI SERVER */}
               <button
                 type="button"
                 onClick={openGalleryModal}

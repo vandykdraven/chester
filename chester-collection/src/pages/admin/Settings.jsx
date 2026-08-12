@@ -21,7 +21,7 @@ import {
   Share2,
   Menu as MenuIcon,
   BarChart,
-  ShieldAlert, // <-- TAMBAHAN IKON UNTUK MODERASI
+  ShieldAlert,
 } from "lucide-react";
 import axios from "axios";
 
@@ -60,16 +60,13 @@ export default function Settings() {
     meta_pixel_id: "",
     google_analytics_id: "",
     gsc_verification_tag: "",
-    // --- TAMBAHAN: Field untuk Filter Kata Kotor Ulasan ---
     profanity_filter_words: "",
   });
 
-  // STATE: Rekening Bank Multiple
   const [bankAccounts, setBankAccounts] = useState([
     { bank_name: "", bank_account: "", bank_owner: "" },
   ]);
 
-  // STATE BARU: Khusus untuk Navigasi
   const [categories, setCategories] = useState([]);
   const [activeMenus, setActiveMenus] = useState([]);
 
@@ -82,10 +79,12 @@ export default function Settings() {
     role: "Editor",
   });
 
+  // --- TAMBAHAN RBAC: Menambahkan field 'role' ke dalam profileData
   const [profileData, setProfileData] = useState({
     id: "",
     fullname: "",
     email: "",
+    role: "editor", // Default aman
     currentPassword: "",
     newPassword: "",
   });
@@ -132,10 +131,8 @@ export default function Settings() {
       if (response.data.success) {
         const apiData = response.data.data;
 
-        // Memasukkan data ke form standar
         setFormData((prev) => ({ ...prev, ...apiData }));
 
-        // Parsing data rekening bank
         if (apiData.payment_accounts) {
           try {
             setBankAccounts(JSON.parse(apiData.payment_accounts));
@@ -144,7 +141,6 @@ export default function Settings() {
           }
         }
 
-        // Parsing data navigasi menu frontend
         if (apiData.frontend_active_menus) {
           try {
             setActiveMenus(JSON.parse(apiData.frontend_active_menus));
@@ -173,6 +169,7 @@ export default function Settings() {
     }
   };
 
+  // --- TAMBAHAN RBAC: Mengambil data role dari localStorage dan memasukkannya ke state
   const loadCurrentLoggedInAdmin = () => {
     let savedAdmin = JSON.parse(localStorage.getItem("admin"));
     if (!savedAdmin || !savedAdmin.id) {
@@ -180,6 +177,7 @@ export default function Settings() {
         id: 1,
         fullname: "Administrator",
         email: "admin@chester.com",
+        role: "superadmin", // Fallback safety
       };
       localStorage.setItem("admin", JSON.stringify(savedAdmin));
     }
@@ -188,6 +186,7 @@ export default function Settings() {
       id: savedAdmin.id,
       fullname: savedAdmin.fullname,
       email: savedAdmin.email,
+      role: savedAdmin.role || "editor", // Assign role ke state
     }));
   };
 
@@ -240,7 +239,6 @@ export default function Settings() {
   const handleChangeProfile = (e) =>
     setProfileData({ ...profileData, [e.target.name]: e.target.value });
 
-  // HANDLER REKENING MULTIPLE
   const handleAccountChange = (index, field, value) => {
     const updatedAccounts = [...bankAccounts];
     updatedAccounts[index][field] = value;
@@ -259,7 +257,6 @@ export default function Settings() {
     setBankAccounts(updatedAccounts);
   };
 
-  // HANDLER NAVIGASI MENU
   const toggleActiveMenu = (categoryId) => {
     setActiveMenus((prev) =>
       prev.includes(categoryId)
@@ -454,7 +451,6 @@ export default function Settings() {
             label="Pembayaran"
           />
 
-          {/* --- TAMBAHAN: TAB INTEGRASI & TRACKING --- */}
           <div className="text-xs font-bold text-gray-400 uppercase tracking-wider px-4 mb-2 mt-6">
             Marketing & SEO
           </div>
@@ -467,11 +463,16 @@ export default function Settings() {
           <div className="text-xs font-bold text-gray-400 uppercase tracking-wider px-4 mb-2 mt-6">
             Akun & Staf
           </div>
-          <TabButton
-            id="staff"
-            icon={<Users size={18} />}
-            label="Kelola Staf"
-          />
+
+          {/* --- TAMBAHAN RBAC: Tampilkan tab ini HANYA jika rolenya Superadmin --- */}
+          {(profileData.role || "").toLowerCase() === "superadmin" && (
+            <TabButton
+              id="staff"
+              icon={<Users size={18} />}
+              label="Kelola Staf"
+            />
+          )}
+
           <TabButton
             id="profile"
             icon={<UserCircle size={18} />}
@@ -668,7 +669,6 @@ export default function Settings() {
                 </div>
               </div>
 
-              {/* --- TAMBAHAN: FORM FILTER KATA KOTOR --- */}
               <div className="pt-6 border-t border-gray-100">
                 <div className="flex items-center gap-2 mb-4">
                   <ShieldAlert className="text-gray-400" size={18} />
@@ -1129,140 +1129,142 @@ export default function Settings() {
           )}
 
           {/* TAB 6: KELOLA STAF */}
-          {activeTab === "staff" && (
-            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm min-h-[400px] animate-fade-in flex flex-col gap-6">
-              <div className="flex justify-between items-end">
-                <div>
-                  <h2 className="text-lg font-bold text-gray-800 mb-1">
-                    Manajemen Staf & Hak Akses
-                  </h2>
-                  <p className="text-xs text-gray-500">
-                    Daftar personel yang berwenang mengelola admin panel toko.
-                  </p>
+          {/* --- TAMBAHAN RBAC: Pengecekan ganda agar tab isi halamannya juga tidak bisa dirender sembarangan --- */}
+          {activeTab === "staff" &&
+            (profileData.role || "").toLowerCase() === "superadmin" && (
+              <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm min-h-[400px] animate-fade-in flex flex-col gap-6">
+                <div className="flex justify-between items-end">
+                  <div>
+                    <h2 className="text-lg font-bold text-gray-800 mb-1">
+                      Manajemen Staf & Hak Akses
+                    </h2>
+                    <p className="text-xs text-gray-500">
+                      Daftar personel yang berwenang mengelola admin panel toko.
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setShowAddForm(!showAddForm)}
+                    className="bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-black transition"
+                  >
+                    {showAddForm ? <X size={16} /> : <Plus size={16} />}{" "}
+                    {showAddForm ? "Batal" : "Tambah Staf"}
+                  </button>
                 </div>
-                <button
-                  onClick={() => setShowAddForm(!showAddForm)}
-                  className="bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-black transition"
-                >
-                  {showAddForm ? <X size={16} /> : <Plus size={16} />}{" "}
-                  {showAddForm ? "Batal" : "Tambah Staf"}
-                </button>
-              </div>
 
-              {showAddForm && (
-                <form
-                  onSubmit={handleAddAdmin}
-                  className="p-5 bg-gray-50 rounded-xl border border-gray-200 flex flex-col gap-4 animate-fade-in"
-                >
-                  <h3 className="font-bold text-sm text-gray-700">
-                    Formulir Akun Staf Baru
-                  </h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <input
-                      type="text"
-                      name="fullname"
-                      value={newAdmin.fullname}
-                      onChange={handleChangeNewAdmin}
-                      placeholder="Nama Lengkap Staf"
-                      required
-                      className="bg-white border px-3 py-2 rounded-lg text-sm outline-none focus:border-chester-pink"
-                    />
-                    <input
-                      type="email"
-                      name="email"
-                      value={newAdmin.email}
-                      onChange={handleChangeNewAdmin}
-                      placeholder="Alamat Email Login"
-                      required
-                      className="bg-white border px-3 py-2 rounded-lg text-sm outline-none focus:border-chester-pink"
-                    />
-                    <input
-                      type="password"
-                      name="password"
-                      value={newAdmin.password}
-                      onChange={handleChangeNewAdmin}
-                      placeholder="Password Mula-mula"
-                      required
-                      className="bg-white border px-3 py-2 rounded-lg text-sm outline-none focus:border-chester-pink"
-                    />
-                  </div>
-                  <div className="flex justify-between items-center mt-1">
-                    <div className="flex items-center gap-2 text-sm">
-                      <span className="text-xs text-gray-500 font-bold">
-                        Role Hak Akses:
-                      </span>
-                      <select
-                        name="role"
-                        value={newAdmin.role}
+                {showAddForm && (
+                  <form
+                    onSubmit={handleAddAdmin}
+                    className="p-5 bg-gray-50 rounded-xl border border-gray-200 flex flex-col gap-4 animate-fade-in"
+                  >
+                    <h3 className="font-bold text-sm text-gray-700">
+                      Formulir Akun Staf Baru
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <input
+                        type="text"
+                        name="fullname"
+                        value={newAdmin.fullname}
                         onChange={handleChangeNewAdmin}
-                        className="border px-2 py-1 bg-white rounded-md text-xs font-semibold outline-none"
-                      >
-                        <option value="Editor">
-                          Editor (Kelola Produk/Pesanan)
-                        </option>
-                        <option value="Superadmin">
-                          Superadmin (Akses Penuh)
-                        </option>
-                      </select>
+                        placeholder="Nama Lengkap Staf"
+                        required
+                        className="bg-white border px-3 py-2 rounded-lg text-sm outline-none focus:border-chester-pink"
+                      />
+                      <input
+                        type="email"
+                        name="email"
+                        value={newAdmin.email}
+                        onChange={handleChangeNewAdmin}
+                        placeholder="Alamat Email Login"
+                        required
+                        className="bg-white border px-3 py-2 rounded-lg text-sm outline-none focus:border-chester-pink"
+                      />
+                      <input
+                        type="password"
+                        name="password"
+                        value={newAdmin.password}
+                        onChange={handleChangeNewAdmin}
+                        placeholder="Password Mula-mula"
+                        required
+                        className="bg-white border px-3 py-2 rounded-lg text-sm outline-none focus:border-chester-pink"
+                      />
                     </div>
-                    <button
-                      type="submit"
-                      className="bg-chester-pink text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-sm"
-                    >
-                      Daftarkan Staf
-                    </button>
-                  </div>
-                </form>
-              )}
+                    <div className="flex justify-between items-center mt-1">
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="text-xs text-gray-500 font-bold">
+                          Role Hak Akses:
+                        </span>
+                        <select
+                          name="role"
+                          value={newAdmin.role}
+                          onChange={handleChangeNewAdmin}
+                          className="border px-2 py-1 bg-white rounded-md text-xs font-semibold outline-none"
+                        >
+                          <option value="Editor">
+                            Editor (Kelola Produk/Pesanan)
+                          </option>
+                          <option value="Superadmin">
+                            Superadmin (Akses Penuh)
+                          </option>
+                        </select>
+                      </div>
+                      <button
+                        type="submit"
+                        className="bg-chester-pink text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-sm"
+                      >
+                        Daftarkan Staf
+                      </button>
+                    </div>
+                  </form>
+                )}
 
-              <div className="border rounded-xl overflow-hidden shadow-sm">
-                <table className="w-full text-left">
-                  <thead className="bg-gray-50 border-b text-xs text-gray-500 uppercase font-bold">
-                    <tr>
-                      <th className="p-4">Nama</th>
-                      <th className="p-4">Email</th>
-                      <th className="p-4">Role</th>
-                      <th className="p-4 text-center w-20">Aksi</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y text-sm">
-                    {admins.map((admin) => (
-                      <tr key={admin.id} className="hover:bg-gray-50/50">
-                        <td className="p-4 font-bold text-gray-800">
-                          {admin.fullname}{" "}
-                          {admin.id === profileData.id && (
-                            <span className="text-[10px] bg-gray-100 border text-gray-500 px-1.5 py-0.5 rounded-full ml-1.5 font-normal">
-                              Anda
-                            </span>
-                          )}
-                        </td>
-                        <td className="p-4 text-gray-600">{admin.email}</td>
-                        <td className="p-4">
-                          <span
-                            className={`px-2 py-0.5 rounded text-xs font-bold border ${admin.role === "Superadmin" ? "bg-purple-50 text-purple-600 border-purple-200" : "bg-blue-50 text-blue-600 border-blue-200"}`}
-                          >
-                            {admin.role}
-                          </span>
-                        </td>
-                        <td className="p-4 text-center">
-                          {admin.id !== 1 && admin.id !== profileData.id && (
-                            <button
-                              onClick={() =>
-                                handleDeleteAdmin(admin.id, admin.fullname)
-                              }
-                              className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          )}
-                        </td>
+                <div className="border rounded-xl overflow-hidden shadow-sm">
+                  <table className="w-full text-left">
+                    <thead className="bg-gray-50 border-b text-xs text-gray-500 uppercase font-bold">
+                      <tr>
+                        <th className="p-4">Nama</th>
+                        <th className="p-4">Email</th>
+                        <th className="p-4">Role</th>
+                        <th className="p-4 text-center w-20">Aksi</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y text-sm">
+                      {admins.map((admin) => (
+                        <tr key={admin.id} className="hover:bg-gray-50/50">
+                          <td className="p-4 font-bold text-gray-800">
+                            {admin.fullname}{" "}
+                            {admin.id === profileData.id && (
+                              <span className="text-[10px] bg-gray-100 border text-gray-500 px-1.5 py-0.5 rounded-full ml-1.5 font-normal">
+                                Anda
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-4 text-gray-600">{admin.email}</td>
+                          <td className="p-4">
+                            <span
+                              className={`px-2 py-0.5 rounded text-xs font-bold border ${admin.role === "Superadmin" ? "bg-purple-50 text-purple-600 border-purple-200" : "bg-blue-50 text-blue-600 border-blue-200"}`}
+                            >
+                              {admin.role}
+                            </span>
+                          </td>
+                          <td className="p-4 text-center">
+                            {admin.id !== 1 && admin.id !== profileData.id && (
+                              <button
+                                onClick={() =>
+                                  handleDeleteAdmin(admin.id, admin.fullname)
+                                }
+                                className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
           {/* TAB 7: PROFIL SAYA */}
           {activeTab === "profile" && (
