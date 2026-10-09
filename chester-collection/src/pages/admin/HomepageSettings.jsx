@@ -8,13 +8,16 @@ import {
   Image as ImageIcon,
   Upload,
 } from "lucide-react";
-import axios from "axios";
+
+// KOREKSI 1: Gunakan master API dan Image Helper
+import api from "../../api"; 
+import { getImageUrl } from "../../utils/imageHelper";
 
 export default function HomepageSettings() {
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [uploadingIndex, setUploadingIndex] = useState(null); // Efek loading khusus saat upload banner
-  const [uploadingCol, setUploadingCol] = useState(null); // Efek loading khusus saat upload koleksi
+  const [uploadingIndex, setUploadingIndex] = useState(null); 
+  const [uploadingCol, setUploadingCol] = useState(null); 
   const [customAlert, setCustomAlert] = useState({
     show: false,
     message: "",
@@ -35,8 +38,6 @@ export default function HomepageSettings() {
     linkUrl: "",
   });
 
-  const BASE_URL = import.meta.env.VITE_API_URL.replace("/api", "");
-
   useEffect(() => {
     fetchHomepageSettings();
   }, []);
@@ -44,9 +45,8 @@ export default function HomepageSettings() {
   const fetchHomepageSettings = async () => {
     setIsLoading(true);
     try {
-      const response = await axios.get(
-        `${import.meta.env.VITE_API_URL}/settings`,
-      );
+      // KOREKSI 2: Panggil API menggunakan instance master
+      const response = await api.get(`/settings`);
       if (response.data.success) {
         let apiData = response.data.data;
         if (Array.isArray(apiData)) {
@@ -78,32 +78,36 @@ export default function HomepageSettings() {
   };
 
   // =======================================================================
-  // FUNGSIONAL UTAMA: LOGIKA SUBMIT FILE GAMBAR KE BACKEND (HIBRIDA)
+  // FUNGSIONAL UTAMA: LOGIKA SUBMIT FILE GAMBAR KE BACKEND
   // =======================================================================
   const handleImageUploadAsync = async (e, targetType, index = null) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Set status loading visual agar admin tahu gambar sedang diproses kirim
+    // Validasi ukuran gambar maksimal 7MB
+    if (file.size > 7 * 1024 * 1024) {
+      showAlert("Ukuran file terlalu besar! Maksimal 7MB.", "error");
+      return;
+    }
+
     if (targetType === "banner") setUploadingIndex(index);
     if (targetType === "col1") setUploadingCol(1);
     if (targetType === "col2") setUploadingCol(2);
 
     const formData = new FormData();
-    formData.append("image", file);
+    // Gunakan key 'galleryFile' sesuai dengan konfigurasi multer di backend
+    formData.append("galleryFile", file); 
 
     try {
-      const res = await axios.post(
-        `${import.meta.env.VITE_API_URL}/upload`,
-        formData,
-        {
-          headers: { "Content-Type": "multipart/form-data" },
-        },
-      );
+      // KOREKSI 3: Tembak ke endpoint gallery/upload yang valid
+      const res = await api.post(`/gallery/upload`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
 
       if (res.data.success) {
-        // Susun URL absolut lokal (Contoh: http://localhost:5000/uploads/namafile.png)
-        const absoluteImageUrl = `${BASE_URL}${res.data.fileUrl}`;
+        // KOREKSI 4: Ekstraksi respons yang tepat dan gunakan helper
+        const uploadedFilePath = res.data.data.file_path;
+        const absoluteImageUrl = getImageUrl(uploadedFilePath);
 
         if (targetType === "banner") {
           const newBanners = [...heroBanners];
@@ -125,6 +129,8 @@ export default function HomepageSettings() {
     } finally {
       setUploadingIndex(null);
       setUploadingCol(null);
+      // Reset input agar bisa upload file yang sama berkali-kali jika diperlukan
+      e.target.value = ""; 
     }
   };
 
@@ -140,10 +146,8 @@ export default function HomepageSettings() {
         featured_collection_2: JSON.stringify(featuredCol2),
       };
 
-      const res = await axios.put(
-        `${import.meta.env.VITE_API_URL}/settings`,
-        payload,
-      );
+      // KOREKSI 5: Panggil API menggunakan instance master
+      const res = await api.put(`/settings`, payload);
       if (res.data.success)
         showAlert("Tampilan Halaman Depan berhasil diperbarui!", "success");
     } catch (err) {

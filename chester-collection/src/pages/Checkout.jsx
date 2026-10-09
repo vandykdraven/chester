@@ -7,7 +7,9 @@ import {
   ChevronLeft,
   ShoppingBag,
 } from "lucide-react";
-import axios from "axios";
+
+// KOREKSI 1: Menggunakan Master API yang sudah ada Interceptor-nya
+import api from "../api";
 
 const formatRupiah = (angka) => {
   return new Intl.NumberFormat("id-ID", {
@@ -54,12 +56,9 @@ export default function Checkout() {
   const initCheckoutData = async () => {
     setIsLoading(true);
     try {
-      const cartRes = await axios.get(
-        `${import.meta.env.VITE_API_URL}/carts/${customerUser.id}`,
-      );
-      const addrRes = await axios.get(
-        `${import.meta.env.VITE_API_URL}/users/${customerUser.id}/addresses`,
-      );
+      // KOREKSI 2: Menggunakan api.get agar token JWT otomatis terkirim
+      const cartRes = await api.get(`/carts/${customerUser.id}`);
+      const addrRes = await api.get(`/users/${customerUser.id}/addresses`);
 
       if (cartRes.data.success) {
         const formatted = cartRes.data.data.map((item) => {
@@ -105,9 +104,7 @@ export default function Checkout() {
           console.error("Meta Pixel Error (InitiateCheckout):", fbqError);
         }
 
-        const voucherRes = await axios.get(
-          `${import.meta.env.VITE_API_URL}/vouchers/storefront/${customerUser.id}`,
-        );
+        const voucherRes = await api.get(`/vouchers/storefront/${customerUser.id}`);
         if (voucherRes.data.success) {
           setMyVouchers(voucherRes.data.data.my_vouchers);
         }
@@ -131,32 +128,21 @@ export default function Checkout() {
 
   const fetchPaymentMethods = async () => {
     try {
-      const response = await axios.get(
-        `${import.meta.env.VITE_API_URL}/settings`,
-      );
+      const response = await api.get(`/settings`);
       if (response.data.success) {
-        // Data dari backend sekarang berupa objek tunggal, kita perlu memastikan cara aksesnya benar
-        // Karena di skrip Anda sebelumnya Anda menggunakan Array.find, mari kita sesuaikan agar aman.
-
-        let paymentStringData = "";
-
-        if (Array.isArray(response.data.data)) {
-          // Jika backend mengembalikan array
-          const paymentSetting = response.data.data.find(
-            (item) => item.setting_key === "payment_accounts",
-          );
-          if (paymentSetting) paymentStringData = paymentSetting.setting_value;
-        } else {
-          // Jika backend mengembalikan object (perbaikan terbaru)
-          paymentStringData = response.data.data.payment_accounts;
-        }
+        // KOREKSI 3: Menyesuaikan dengan format terbaru backend settings
+        const paymentStringData = response.data.data.payment_accounts;
 
         if (paymentStringData) {
-          const parsedAccounts = JSON.parse(paymentStringData);
-          setBankAccounts(parsedAccounts);
+          try {
+            const parsedAccounts = JSON.parse(paymentStringData);
+            setBankAccounts(parsedAccounts);
 
-          if (parsedAccounts.length > 0) {
-            setSelectedPayment(parsedAccounts[0].bank_name);
+            if (parsedAccounts.length > 0) {
+              setSelectedPayment(parsedAccounts[0].bank_name);
+            }
+          } catch (parseError) {
+            console.error("Gagal membaca struktur data bank:", parseError);
           }
         }
       }
@@ -195,20 +181,17 @@ export default function Checkout() {
     );
 
     try {
-      const res = await axios.post(
-        `${import.meta.env.VITE_API_URL}/shipping-cost`,
-        {
-          city_id: selectedAddress.city_id,
-          total_weight: totalWeight,
-          courier: "",
-          cart_items: cartItems.map((item) => ({
-            ...item,
-            weight: Math.max(item.weight || 200, 1),
-            price: Math.max(item.price || 10000, 1000),
-          })),
-          cart_value: cartTotalValue,
-        },
-      );
+      const res = await api.post(`/shipping-cost`, {
+        city_id: selectedAddress.city_id,
+        total_weight: totalWeight,
+        courier: "",
+        cart_items: cartItems.map((item) => ({
+          ...item,
+          weight: Math.max(item.weight || 200, 1),
+          price: Math.max(item.price || 10000, 1000),
+        })),
+        cart_value: cartTotalValue,
+      });
 
       if (res.data.success) {
         const rawOptions = res.data.data;
@@ -283,10 +266,7 @@ export default function Checkout() {
     };
 
     try {
-      const response = await axios.post(
-        `${import.meta.env.VITE_API_URL}/orders`,
-        orderPayload,
-      );
+      const response = await api.post(`/orders`, orderPayload);
 
       if (response.data.success) {
         // RESET KERANJANG BELANJA
@@ -584,7 +564,7 @@ export default function Checkout() {
               </div>
 
               {/* Item List */}
-              <div className="p-5 max-h-60 overflow-y-auto divide-y divide-gray-50 flex flex-col gap-3">
+              <div className="p-5 max-h-60 overflow-y-auto divide-y divide-gray-50 flex flex-col gap-3 custom-scrollbar">
                 {cartItems.map((item) => (
                   <div
                     key={item.id}
@@ -618,7 +598,7 @@ export default function Checkout() {
                   </span>
                   <button
                     onClick={() => setShowVoucherModal(true)}
-                    className="text-xs text-chester-pink font-bold hover:underline bg-pink-50 px-3 py-1 rounded-full"
+                    className="text-xs text-chester-pink font-bold hover:underline bg-pink-50 px-3 py-1 rounded-full transition"
                   >
                     {selectedVoucher ? "Ganti Voucher" : "Pilih Voucher"}
                   </button>
@@ -664,9 +644,9 @@ export default function Checkout() {
                     shippingLoading ||
                     !selectedPayment
                   }
-                  className="w-full bg-chester-pink text-white h-14 font-bold rounded-xl text-sm uppercase tracking-widest hover:bg-pink-600 transition shadow-md flex items-center justify-center gap-2 disabled:bg-gray-300"
+                  className="w-full bg-chester-pink text-white h-14 font-bold rounded-xl text-sm uppercase tracking-widest hover:bg-pink-600 transition shadow-md flex items-center justify-center gap-2 disabled:bg-gray-300 disabled:cursor-not-allowed"
                 >
-                  {isSubmitting ? "Memproses..." : "Konfirmasi & Bayar"}
+                  {isSubmitting ? "Memproses Pesanan..." : "Konfirmasi & Bayar"}
                 </button>
               </div>
             </div>
@@ -746,7 +726,7 @@ export default function Checkout() {
                     setSelectedVoucher(null);
                     setShowVoucherModal(false);
                   }}
-                  className="w-full text-xs text-red-500 font-bold py-2 hover:bg-red-50 rounded-lg"
+                  className="w-full text-xs text-red-500 font-bold py-2 hover:bg-red-50 rounded-lg transition"
                 >
                   Batalkan Penggunaan Voucher
                 </button>

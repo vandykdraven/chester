@@ -9,8 +9,9 @@ import {
 } from "react-router-dom";
 import logo from "./assets/logo.png";
 import { Search, User, ShoppingBag, Menu, X, Trash2 } from "lucide-react";
+
+// Menggunakan master API dan helper gambar untuk standarisasi
 import api from "./api";
-// KOREKSI: Mengimpor helper gambar untuk standarisasi
 import { getImageUrl } from "./utils/imageHelper";
 
 // Import Halaman Pelanggan
@@ -71,28 +72,25 @@ const Header = ({ setIsCartOpen, cartCount }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [customerName, setCustomerName] = useState("");
-
   const [activeVouchers, setActiveVouchers] = useState([]);
   const [currentVoucherIndex, setCurrentVoucherIndex] = useState(0);
-
   const [dynamicMenus, setDynamicMenus] = useState([]);
 
   const navigate = useNavigate();
   const location = useLocation();
 
   useEffect(() => {
-    const token =
-      localStorage.getItem("customerToken") ||
-      sessionStorage.getItem("customerToken");
-    const userStr =
-      localStorage.getItem("customerUser") ||
-      sessionStorage.getItem("customerUser");
+    const token = localStorage.getItem("customerToken") || sessionStorage.getItem("customerToken");
+    const userStr = localStorage.getItem("customerUser") || sessionStorage.getItem("customerUser");
 
     setIsLoggedIn(!!token);
-
     if (userStr) {
-      const userObj = JSON.parse(userStr);
-      setCustomerName(userObj.fullname.split(" ")[0]);
+      try {
+        const userObj = JSON.parse(userStr);
+        setCustomerName(userObj.fullname.split(" ")[0]);
+      } catch (e) {
+        console.error("Gagal membaca data user dari storage");
+      }
     } else {
       setCustomerName("");
     }
@@ -104,20 +102,12 @@ const Header = ({ setIsCartOpen, cartCount }) => {
         const voucherRes = await api.get("/vouchers");
         if (voucherRes.data.success && voucherRes.data.data.length > 0) {
           const now = new Date();
-
           const validVouchers = voucherRes.data.data.filter((v) => {
-            const isActive =
-              v.status === "active" ||
-              v.is_active === 1 ||
-              v.is_active === true;
+            const isActive = v.status === "active" || v.is_active === 1 || v.is_active === true;
             const expiryDateStr = v.end_date || v.valid_until || v.expired_at;
-            const isNotExpired = expiryDateStr
-              ? new Date(expiryDateStr) >= now
-              : true;
-
+            const isNotExpired = expiryDateStr ? new Date(expiryDateStr) >= now : true;
             return isActive && isNotExpired;
           });
-
           setActiveVouchers(validVouchers);
         }
 
@@ -131,9 +121,7 @@ const Header = ({ setIsCartOpen, cartCount }) => {
           const apiData = setRes.data.data;
           let settingsMap = {};
           if (Array.isArray(apiData)) {
-            apiData.forEach(
-              (i) => (settingsMap[i.setting_key] = i.setting_value),
-            );
+            apiData.forEach((i) => (settingsMap[i.setting_key] = i.setting_value));
           } else {
             settingsMap = apiData;
           }
@@ -153,7 +141,7 @@ const Header = ({ setIsCartOpen, cartCount }) => {
         if (catRes.data.success && activeMenuIds.length > 0) {
           const allCategories = catRes.data.data;
           const filteredMenus = allCategories.filter((cat) =>
-            activeMenuIds.includes(String(cat.id)),
+            activeMenuIds.includes(String(cat.id))
           );
           setDynamicMenus(filteredMenus);
         }
@@ -167,11 +155,9 @@ const Header = ({ setIsCartOpen, cartCount }) => {
 
   useEffect(() => {
     if (activeVouchers.length <= 1) return;
-
     const interval = setInterval(() => {
       setCurrentVoucherIndex((prev) => (prev + 1) % activeVouchers.length);
     }, 4000);
-
     return () => clearInterval(interval);
   }, [activeVouchers.length]);
 
@@ -216,35 +202,21 @@ const Header = ({ setIsCartOpen, cartCount }) => {
 
         <div className="container mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center">
-            <button
-              className="lg:hidden mr-4"
-              onClick={() => setIsMobileMenuOpen(true)}
-            >
+            <button className="lg:hidden mr-4" onClick={() => setIsMobileMenuOpen(true)}>
               <Menu className="h-6 w-6 text-chester-text" />
             </button>
             <Link to="/">
-              <img
-                src={logo}
-                alt="Chester Collection Logo"
-                className="h-12 lg:h-16"
-              />
+              <img src={logo} alt="Chester Collection Logo" className="h-12 lg:h-16" />
             </Link>
           </div>
 
           <nav className="hidden lg:flex flex-grow justify-center items-center gap-8">
-            <Link
-              to="/"
-              className="text-sm font-bold text-chester-text hover:text-chester-pink transition"
-            >
+            <Link to="/" className="text-sm font-bold text-chester-text hover:text-chester-pink transition">
               Beranda
             </Link>
-            <Link
-              to="/products"
-              className="text-sm font-bold text-chester-text hover:text-chester-pink transition"
-            >
+            <Link to="/products" className="text-sm font-bold text-chester-text hover:text-chester-pink transition">
               Katalog
             </Link>
-
             {dynamicMenus.map((menu) => (
               <Link
                 key={menu.id}
@@ -267,15 +239,10 @@ const Header = ({ setIsCartOpen, cartCount }) => {
             >
               <User className="h-5 w-5 text-inherit" />
               {isLoggedIn && customerName && (
-                <span className="text-sm font-bold hidden sm:block">
-                  Hai, {customerName}
-                </span>
+                <span className="text-sm font-bold hidden sm:block">Hai, {customerName}</span>
               )}
             </button>
-            <button
-              onClick={() => setIsCartOpen(true)}
-              className="flex items-center gap-1 group relative"
-            >
+            <button onClick={() => setIsCartOpen(true)} className="flex items-center gap-1 group relative">
               <ShoppingBag className="h-5 w-5 text-chester-text group-hover:text-chester-pink transition" />
               <span className="absolute -top-1.5 -right-2 bg-chester-pink text-white text-[10px] font-bold h-4 w-4 rounded-full flex items-center justify-center shadow">
                 {cartCount}
@@ -301,21 +268,12 @@ const Header = ({ setIsCartOpen, cartCount }) => {
             </button>
           </div>
           <nav className="flex flex-col gap-6 font-lora">
-            <Link
-              to="/"
-              onClick={() => setIsMobileMenuOpen(false)}
-              className="text-lg font-bold text-chester-text hover:text-chester-pink"
-            >
+            <Link to="/" onClick={() => setIsMobileMenuOpen(false)} className="text-lg font-bold text-chester-text hover:text-chester-pink">
               Beranda
             </Link>
-            <Link
-              to="/products"
-              onClick={() => setIsMobileMenuOpen(false)}
-              className="text-lg font-bold text-chester-text hover:text-chester-pink"
-            >
+            <Link to="/products" onClick={() => setIsMobileMenuOpen(false)} className="text-lg font-bold text-chester-text hover:text-chester-pink">
               Katalog
             </Link>
-
             {dynamicMenus.map((menu) => (
               <Link
                 key={menu.id}
@@ -326,7 +284,6 @@ const Header = ({ setIsCartOpen, cartCount }) => {
                 {menu.name}
               </Link>
             ))}
-
             <button
               onClick={() => {
                 setIsMobileMenuOpen(false);
@@ -379,141 +336,47 @@ const Footer = () => {
       <div className="container mx-auto px-4">
         <div className="flex flex-col md:flex-row flex-wrap justify-center items-center gap-6 md:gap-10 mb-8">
           <div className="bg-white rounded-full p-1.5 shadow-sm">
-            <img
-              src={logo}
-              alt="Chester Collection"
-              className="h-10 w-10 object-contain"
-            />
+            <img src={logo} alt="Chester Collection" className="h-10 w-10 object-contain" />
           </div>
-
           <div className="flex flex-wrap justify-center gap-6 text-sm font-medium opacity-90">
-            <Link
-              to="/page/privacy"
-              className="hover:opacity-100 hover:scale-105 transition-all duration-300"
-            >
+            <Link to="/page/privacy" className="hover:opacity-100 hover:scale-105 transition-all duration-300">
               Kebijakan Privasi
             </Link>
-            <Link
-              to="/page/faq"
-              className="hover:opacity-100 hover:scale-105 transition-all duration-300"
-            >
+            <Link to="/page/faq" className="hover:opacity-100 hover:scale-105 transition-all duration-300">
               FAQ
             </Link>
-            <Link
-              to="/page/terms"
-              className="hover:opacity-100 hover:scale-105 transition-all duration-300"
-            >
+            <Link to="/page/terms" className="hover:opacity-100 hover:scale-105 transition-all duration-300">
               Syarat & Ketentuan
             </Link>
           </div>
-
           <div className="flex items-center gap-5 md:ml-4">
             {socials.facebook && (
-              <a
-                href={socials.facebook}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="opacity-80 hover:opacity-100 hover:scale-110 transition-all duration-300"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path>
-                </svg>
+              <a href={socials.facebook} target="_blank" rel="noopener noreferrer" className="opacity-80 hover:opacity-100 hover:scale-110 transition-all duration-300">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path></svg>
               </a>
             )}
             {socials.instagram && (
-              <a
-                href={socials.instagram}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="opacity-80 hover:opacity-100 hover:scale-110 transition-all duration-300"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
-                  <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
-                  <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
-                </svg>
+              <a href={socials.instagram} target="_blank" rel="noopener noreferrer" className="opacity-80 hover:opacity-100 hover:scale-110 transition-all duration-300">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg>
               </a>
             )}
             {socials.tiktok && (
-              <a
-                href={socials.tiktok}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="opacity-80 hover:opacity-100 hover:scale-110 transition-all duration-300"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M22 4s-.7 2.1-2 3.4c1.6 10-9.4 17.3-18 11.6 2.2.1 4.4-.6 6-2C3 15.5.5 9.6 3 5c2.2 2.6 5.6 4.1 9 4-.9-4.2 4-6.6 7-3.8 1.1 0 3-1.2 3-1.2z"></path>
-                </svg>
+              <a href={socials.tiktok} target="_blank" rel="noopener noreferrer" className="opacity-80 hover:opacity-100 hover:scale-110 transition-all duration-300">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 4s-.7 2.1-2 3.4c1.6 10-9.4 17.3-18 11.6 2.2.1 4.4-.6 6-2C3 15.5.5 9.6 3 5c2.2 2.6 5.6 4.1 9 4-.9-4.2 4-6.6 7-3.8 1.1 0 3-1.2 3-1.2z"></path></svg>
               </a>
             )}
             {socials.twitter && (
-              <a
-                href={socials.twitter}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="opacity-80 hover:opacity-100 hover:scale-110 transition-all duration-300"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5v3a3 3 0 0 1-3-3v11a7 7 0 1 1-7-7v3"></path>
-                </svg>
+              <a href={socials.twitter} target="_blank" rel="noopener noreferrer" className="opacity-80 hover:opacity-100 hover:scale-110 transition-all duration-300">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 12a4 4 0 1 0 4 4V4a5 5 0 0 0 5 5v3a3 3 0 0 1-3-3v11a7 7 0 1 1-7-7v3"></path></svg>
               </a>
             )}
           </div>
         </div>
-
         <div className="text-center text-xs opacity-80 border-t border-white/20 pt-6 max-w-5xl mx-auto flex flex-col items-center gap-1">
-          <p>
-            &copy; {new Date().getFullYear()} Chester Collection. Hak Cipta
-            Dilindungi.
-          </p>
+          <p>&copy; {new Date().getFullYear()} Chester Collection. Hak Cipta Dilindungi.</p>
           <p>
             Template by{" "}
-            <a
-              href="https://servermaya.web.id"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-bold hover:underline hover:text-white transition"
-            >
+            <a href="https://servermaya.web.id" target="_blank" rel="noopener noreferrer" className="font-bold hover:underline hover:text-white transition">
               ServerMaya
             </a>
           </p>
@@ -533,12 +396,10 @@ function PageTracker() {
     const sendTrackingData = async () => {
       try {
         let productId = null;
-
         if (location.pathname.startsWith("/product/")) {
           const pathParts = location.pathname.split("/");
           productId = pathParts[pathParts.length - 1];
         }
-
         await api.post("/analytics/track", {
           page_url: location.pathname,
           product_id: productId || null,
@@ -547,7 +408,6 @@ function PageTracker() {
         console.error("Gagal mengirim log aktivitas pembeli:", error);
       }
     };
-
     sendTrackingData();
   }, [location.pathname]);
 
@@ -555,7 +415,7 @@ function PageTracker() {
 }
 
 // =======================================================================
-// KOMPONEN BARU: PENYUNTIK SCRIPT MARKETING (GA4, PIXEL, GSC)
+// KOMPONEN PENYUNTIK SCRIPT MARKETING
 // =======================================================================
 function MarketingScripts() {
   useEffect(() => {
@@ -564,9 +424,7 @@ function MarketingScripts() {
         const response = await api.get("/settings");
         if (response.data.success) {
           let settingsMap = {};
-          response.data.data.forEach(
-            (i) => (settingsMap[i.setting_key] = i.setting_value),
-          );
+          response.data.data.forEach((i) => (settingsMap[i.setting_key] = i.setting_value));
 
           const gaId = settingsMap.google_analytics_id;
           const pixelId = settingsMap.meta_pixel_id;
@@ -620,7 +478,6 @@ function MarketingScripts() {
         console.error("Gagal menarik konfigurasi skrip marketing:", error);
       }
     };
-
     injectScripts();
   }, []);
 
@@ -635,25 +492,18 @@ export default function App() {
   const [cartItems, setCartItems] = useState([]);
 
   const fetchCartItems = async () => {
-    const userStr =
-      localStorage.getItem("customerUser") ||
-      sessionStorage.getItem("customerUser");
+    const userStr = localStorage.getItem("customerUser") || sessionStorage.getItem("customerUser");
     if (!userStr) {
       setCartItems([]);
       return;
     }
-    const user = JSON.parse(userStr);
     try {
+      const user = JSON.parse(userStr);
       const response = await api.get(`/carts/${user.id}`);
       if (response.data.success) {
         const formattedItems = response.data.data.map((item) => {
-          const baseP = item.variant_id
-            ? Number(item.variant_price || 0)
-            : Number(item.base_price || 0);
-          const origP = item.variant_id
-            ? Number(item.variant_original_price || 0)
-            : Number(item.base_original_price || 0);
-
+          const baseP = item.variant_id ? Number(item.variant_price || 0) : Number(item.base_price || 0);
+          const origP = item.variant_id ? Number(item.variant_original_price || 0) : Number(item.base_original_price || 0);
           const finalSellingPrice = origP > 0 ? origP : baseP;
 
           return {
@@ -662,8 +512,7 @@ export default function App() {
             price: finalSellingPrice,
             qty: item.quantity,
             variant: item.variant_key || "Standar",
-            // KOREKSI: Menerapkan getImageUrl pada pemetaan gambar keranjang
-            image: getImageUrl(item.image),
+            image: getImageUrl(item.image), // Gambar aman dirender menggunakan Helper
           };
         });
         setCartItems(formattedItems);
@@ -688,10 +537,7 @@ export default function App() {
     }
   };
 
-  const cartTotal = cartItems.reduce(
-    (total, item) => total + item.price * item.qty,
-    0,
-  );
+  const cartTotal = cartItems.reduce((total, item) => total + item.price * item.qty, 0);
   const cartCount = cartItems.reduce((total, item) => total + item.qty, 0);
 
   return (
@@ -703,6 +549,7 @@ export default function App() {
       <Routes>
         <Route path="/admin-login" element={<AdminLogin />} />
 
+        {/* --- RUTE ADMIN TERTUTUP --- */}
         <Route element={<AdminGuard />}>
           <Route path="/admin" element={<AdminLayout />}>
             <Route index element={<Dashboard />} />
@@ -728,6 +575,7 @@ export default function App() {
           </Route>
         </Route>
 
+        {/* --- RUTE PENGUNJUNG UMUM --- */}
         <Route
           path="/*"
           element={
@@ -760,6 +608,7 @@ export default function App() {
 
               <Footer />
 
+              {/* MODAL KERANJANG (SLIDE-OVER) */}
               <div
                 className={`fixed inset-0 z-50 bg-black/40 transition-opacity duration-300 ${isCartOpen ? "opacity-100 visible" : "opacity-0 invisible"}`}
                 onClick={() => setIsCartOpen(false)}
@@ -789,7 +638,6 @@ export default function App() {
                       cartItems.map((item) => (
                         <div key={item.id} className="flex gap-4 group">
                           <div className="w-24 aspect-[3/4] bg-gray-50 flex-shrink-0 rounded-lg overflow-hidden border border-gray-100">
-                            {/* KOREKSI: Menambahkan fallback onError untuk mencegah gambar rusak jika url gagal diload */}
                             <img
                               src={item.image}
                               alt={item.name}

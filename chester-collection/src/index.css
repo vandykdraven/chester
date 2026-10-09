@@ -1,14 +1,14 @@
 /* ================================================
+   IMPORT GOOGLE FONT - LORA (WAJIB!)
+   ================================================ */
+@import url("https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400..700;1,400..700&display=swap");
+
+/* ================================================
    TAILWIND CSS DIRECTIVES
    ================================================ */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-/* ================================================
-   IMPORT GOOGLE FONT - LORA (WAJIB!)
-   ================================================ */
-@import url("https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400..700;1,400..700&display=swap");
 
 /* ================================================
    BASE STYLES - SET DEFAULT FONT KE LORA

@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useLocation } from "react-router-dom";
 import { Save, CheckCircle, AlertCircle, FileText } from "lucide-react";
-import axios from "axios";
+
+// KOREKSI 1: Menggunakan instance master API
+import api from "../../api";
 
 // PENGGUNAAN QUILL MURNI
 import Quill from "quill";
@@ -40,16 +42,15 @@ export default function StaticPageEdit() {
     pageTitle = "Halaman Tidak Dikenal";
   }
 
-  // 1. PENGAMBILAN DATA DARI API
+  // 1. PENGAMBILAN DATA DARI API SENTRAL
   useEffect(() => {
     if (!settingKey) return;
 
     const fetchPageContent = async () => {
       setIsLoading(true);
       try {
-        const response = await axios.get(
-          `${import.meta.env.VITE_API_URL}/settings`,
-        );
+        // KOREKSI 2: Menggunakan api.get, bukan axios mentah
+        const response = await api.get(`/settings`);
         if (response.data.success) {
           let apiData = response.data.data;
 
@@ -96,7 +97,7 @@ export default function StaticPageEdit() {
         quillInstance.current = null;
       }
     };
-  }, [isLoading, pageId]); // Tambahkan pageId sebagai dependency
+  }, [isLoading, pageId]);
 
   const showAlert = (message, type = "success") => {
     setCustomAlert({ show: true, message, type });
@@ -114,14 +115,14 @@ export default function StaticPageEdit() {
         [settingKey]: content,
       };
 
-      const res = await axios.put(
-        `${import.meta.env.VITE_API_URL}/settings`,
-        payload,
-      );
+      // KOREKSI 3: Menggunakan api.put untuk keamanan dan sentralisasi
+      const res = await api.put(`/settings`, payload);
+      
       if (res.data.success) {
         showAlert(`Halaman ${pageTitle} berhasil diperbarui!`, "success");
       }
     } catch (err) {
+      console.error(err);
       showAlert("Gagal menyimpan perubahan halaman.", "error");
     }
     setIsSaving(false);

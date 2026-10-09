@@ -3,6 +3,9 @@ import { Link } from "react-router-dom";
 import api from "../api"; // Menggunakan file konfigurasi master API
 import { getImageUrl } from "../utils/imageHelper";
 
+// KOMPONEN SEO BARU UNTUK OPTIMASI BERANDA
+import SEO from "../components/SEO";
+
 const formatRupiah = (angka) => {
   return new Intl.NumberFormat("id-ID", {
     style: "currency",
@@ -123,7 +126,7 @@ const NewArrivals = () => {
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between mb-10">
           <h2 className="text-2xl font-bold text-chester-text">
-            Kedatangan Terbaru
+            Produk Terbaru
           </h2>
           <Link
             to="/products"
@@ -287,10 +290,19 @@ export default function Home() {
   }, []);
 
   return (
-    <main className="animate-fade-in">
-      <Hero slides={homeData.heroSlides} />
-      <NewArrivals />
-      <FeaturedCollection col1={homeData.feat1} col2={homeData.feat2} />
-    </main>
+    <>
+      {/* PENYUNTIKAN SEO KHUSUS HALAMAN BERANDA */}
+      {/* Menggunakan gambar banner slide pertama sebagai thumbnail utama */}
+      <SEO 
+        title="Beranda" 
+        image={homeData.heroSlides && homeData.heroSlides.length > 0 ? homeData.heroSlides[0] : null}
+      />
+      
+      <main className="animate-fade-in">
+        <Hero slides={homeData.heroSlides} />
+        <NewArrivals />
+        <FeaturedCollection col1={homeData.feat1} col2={homeData.feat2} />
+      </main>
+    </>
   );
 }

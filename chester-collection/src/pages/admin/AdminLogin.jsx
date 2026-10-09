@@ -1,16 +1,29 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { ShieldCheck, ArrowLeft, Loader2 } from "lucide-react";
-import api from "../../api";
+import api from "../../api"; // Memastikan menggunakan Master API
 
 export default function AdminLogin() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const from = location.state?.from || "/admin";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  
+  // STATE BARU: Untuk fitur Ingat Saya
+  const [rememberMe, setRememberMe] = useState(false);
 
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // EFEK BARU: Cek otomatis jika admin sudah login sebelumnya
+  useEffect(() => {
+    const savedToken = localStorage.getItem("adminToken") || sessionStorage.getItem("adminToken");
+    if (savedToken) {
+      navigate(from); // Langsung arahkan ke Dashboard jika token sudah ada
+    }
+  }, [navigate, from]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -23,9 +36,16 @@ export default function AdminLogin() {
         password,
       });
 
-      // KOREKSI UTAMA: Ubah adminData menjadi admin
-      localStorage.setItem("adminToken", response.data.token);
-      localStorage.setItem("admin", JSON.stringify(response.data.admin));
+      const { token, admin } = response.data;
+
+      // Logika Remember Me
+      if (rememberMe) {
+        localStorage.setItem("adminToken", token);
+        localStorage.setItem("admin", JSON.stringify(admin));
+      } else {
+        sessionStorage.setItem("adminToken", token);
+        sessionStorage.setItem("admin", JSON.stringify(admin));
+      }
 
       navigate("/admin");
     } catch (err) {
@@ -120,6 +140,8 @@ export default function AdminLogin() {
               <input
                 id="remember-me"
                 type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
                 className="h-4 w-4 accent-chester-pink border-gray-300 rounded cursor-pointer"
               />
               <label

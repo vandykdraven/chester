@@ -11,7 +11,7 @@ import {
   CheckCircle,
   AlertCircle,
 } from "lucide-react";
-// KOREKSI: Menggunakan master API dan helper gambar terpusat
+// Menggunakan master API dan helper gambar terpusat
 import api from "../../api";
 import { getImageUrl } from "../../utils/imageHelper";
 
@@ -23,52 +23,62 @@ const formatRupiah = (angka) => {
   }).format(angka);
 };
 
-const categoryMap = {
-  cat_1: "Atasan",
-  cat_2: "Bawahan",
-  cat_3: "Gaun & Dress",
-  cat_4: "Aksesoris",
-};
-
 export default function ProductList() {
   const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]); // State untuk kategori dinamis
   const [isLoading, setIsLoading] = useState(true);
 
-  // --- STATE BARU UNTUK FILTER & SORTING ---
+  // --- STATE UNTUK FILTER & SORTING ---
   const [searchTerm, setSearchTerm] = useState("");
   const [sortBy, setSortBy] = useState("terbaru");
 
+  // --- STATE UNTUK FITUR CENTANG HAPUS MASSAL ---
+  const [selectedProducts, setSelectedProducts] = useState([]); 
+
   const [deleteModal, setDeleteModal] = useState({
     show: false,
-    id: null,
+    id: null, // Bisa berupa satu ID angka, atau array ID untuk hapus massal
     name: "",
   });
+  
   const [customAlert, setCustomAlert] = useState({
     show: false,
     message: "",
     type: "success",
   });
 
+  // Saat komponen dimuat, tarik produk dan kategori secara bersamaan
   useEffect(() => {
-    fetchProducts();
+    fetchDataInitial();
   }, []);
 
-  const fetchProducts = async () => {
+  const fetchDataInitial = async () => {
+    setIsLoading(true);
     try {
-      // KOREKSI: Pemanggilan API tersentralisasi
-      const response = await api.get("/products");
-      if (response.data.success) {
-        setProducts(response.data.data);
+      const [productsRes, categoriesRes] = await Promise.all([
+        api.get("/products"),
+        api.get("/categories")
+      ]);
+
+      if (productsRes.data.success) {
+        setProducts(productsRes.data.data);
+      }
+      if (categoriesRes.data.success) {
+        setCategories(categoriesRes.data.data);
       }
     } catch (error) {
-      console.error("Gagal mengambil data produk:", error);
-      showAlert(
-        "Gagal memuat daftar produk. Pastikan server menyala.",
-        "error",
-      );
+      console.error("Gagal mengambil data awal:", error);
+      showAlert("Gagal memuat data. Pastikan server menyala.", "error");
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Helper pintar untuk mencari nama kategori dengan pencocokan String yang aman
+  const getCategoryName = (categoryId) => {
+    if (!categoryId) return "Tanpa Kategori";
+    const cat = categories.find((c) => String(c.id) === String(categoryId));
+    return cat ? cat.name : "Tanpa Kategori";
   };
 
   const showAlert = (message, type = "success") => {
@@ -79,23 +89,49 @@ export default function ProductList() {
     );
   };
 
+  // --- HANDLER HAPUS ---
   const handleDeleteClick = (id, name) => {
     setDeleteModal({ show: true, id, name });
   };
 
+  const handleBulkDeleteClick = () => {
+    if (selectedProducts.length === 0) return;
+    setDeleteModal({ 
+      show: true, 
+      id: selectedProducts, 
+      name: `${selectedProducts.length} Produk Terpilih` 
+    });
+  };
+
   const confirmDelete = async () => {
+    setIsLoading(true);
     try {
-      // KOREKSI: Pemanggilan API tersentralisasi
-      const response = await api.delete(`/products/${deleteModal.id}`);
-      if (response.data.success) {
-        showAlert("Produk berhasil dihapus secara permanen!", "success");
-        fetchProducts();
+      if (Array.isArray(deleteModal.id)) {
+        // Hapus Massal: Mengirim request delete secara paralel
+        await Promise.all(
+          deleteModal.id.map((productId) => api.delete(`/products/${productId}`))
+        );
+        showAlert(`${deleteModal.id.length} produk berhasil diproses!`, "success");
+        setSelectedProducts([]); // Kosongkan centang setelah dihapus
+      } else {
+        // Hapus Satuan
+        const response = await api.delete(`/products/${deleteModal.id}`);
+        if (response.data.success) {
+          showAlert("Produk berhasil diproses!", "success");
+          setSelectedProducts(selectedProducts.filter(id => id !== deleteModal.id));
+        }
       }
+      
+      // Ambil ulang data katalog terbaru
+      const refreshRes = await api.get("/products");
+      if (refreshRes.data.success) setProducts(refreshRes.data.data);
+      
     } catch (error) {
       console.error("Gagal menghapus produk:", error);
-      showAlert("Terjadi kesalahan server saat menghapus produk.", "error");
+      showAlert("Terjadi kesalahan server saat memproses produk.", "error");
     } finally {
       setDeleteModal({ show: false, id: null, name: "" });
+      setIsLoading(false);
     }
   };
 
@@ -121,38 +157,43 @@ export default function ProductList() {
     }
   };
 
-  // =====================================================================
-  // LOGIKA PINTAR: FILTER & URUTKAN PRODUK SEBELUM DITAMPILKAN
-  // =====================================================================
+  // --- LOGIKA FILTER & PENGURUTAN DINAMIS ---
   const filteredProducts = products
     .filter((product) => {
-      // 1. Logika Pencarian Teks (Cari di Nama, SKU, atau Nama Kategori)
       const searchLower = searchTerm.toLowerCase();
       const nameMatch = product.name?.toLowerCase().includes(searchLower);
       const skuMatch = product.sku?.toLowerCase().includes(searchLower);
-      const catMatch = (categoryMap[product.category_id] || "")
-        .toLowerCase()
-        .includes(searchLower);
+      const catMatch = getCategoryName(product.category_id).toLowerCase().includes(searchLower);
 
       return nameMatch || skuMatch || catMatch;
     })
     .sort((a, b) => {
-      // 2. Logika Pengurutan (Dropdown)
       if (sortBy === "terbaru") {
         return new Date(b.created_at) - new Date(a.created_at);
       } else if (sortBy === "stok_habis") {
-        const stockA = a.has_variant
-          ? Number(a.total_v_stock || 0)
-          : Number(a.stock || 0);
-        const stockB = b.has_variant
-          ? Number(b.total_v_stock || 0)
-          : Number(b.stock || 0);
-        return stockA - stockB; // Mengurutkan dari stok paling kecil (0) ke besar
+        const stockA = a.has_variant ? Number(a.total_v_stock || 0) : Number(a.stock || 0);
+        const stockB = b.has_variant ? Number(b.total_v_stock || 0) : Number(b.stock || 0);
+        return stockA - stockB; 
       }
-      // Catatan: Untuk "terlaris", kita butuh tabel transaksi/pesanan nanti.
-      // Sementara kita biarkan default.
       return 0;
     });
+
+  // --- KONTROL KOTAK CENTANG (CHECKBOX) ---
+  const handleSelectAll = (e) => {
+    if (e.target.checked) {
+      setSelectedProducts(filteredProducts.map((p) => p.id));
+    } else {
+      setSelectedProducts([]);
+    }
+  };
+
+  const handleSelectOne = (id) => {
+    if (selectedProducts.includes(id)) {
+      setSelectedProducts(selectedProducts.filter((selectedId) => selectedId !== id));
+    } else {
+      setSelectedProducts([...selectedProducts, id]);
+    }
+  };
 
   return (
     <div className="max-w-6xl mx-auto pb-12 relative">
@@ -166,11 +207,7 @@ export default function ProductList() {
                 : "bg-rose-500 border-rose-400"
             }`}
           >
-            {customAlert.type === "success" ? (
-              <CheckCircle size={20} />
-            ) : (
-              <AlertCircle size={20} />
-            )}
+            {customAlert.type === "success" ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
             <span>{customAlert.message}</span>
           </div>
         </div>
@@ -185,29 +222,29 @@ export default function ProductList() {
                 <AlertTriangle size={32} />
               </div>
               <h3 className="text-xl font-bold text-gray-900 mb-2">
-                Hapus Produk?
+                Konfirmasi Hapus
               </h3>
               <p className="text-sm text-gray-500 mb-6">
                 Apakah Anda yakin ingin menghapus{" "}
                 <span className="font-bold text-gray-800">
                   "{deleteModal.name}"
                 </span>{" "}
-                secara permanen?
+                dari katalog?
               </p>
               <div className="flex gap-3 justify-center">
                 <button
-                  onClick={() =>
-                    setDeleteModal({ show: false, id: null, name: "" })
-                  }
+                  onClick={() => setDeleteModal({ show: false, id: null, name: "" })}
                   className="px-5 py-2.5 bg-white border border-gray-300 text-gray-700 font-bold rounded-lg hover:bg-gray-50 transition"
+                  disabled={isLoading}
                 >
                   Batal
                 </button>
                 <button
                   onClick={confirmDelete}
-                  className="px-5 py-2.5 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 transition shadow-sm"
+                  disabled={isLoading}
+                  className="px-5 py-2.5 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 transition shadow-sm disabled:opacity-50"
                 >
-                  Ya, Hapus Produk
+                  {isLoading ? "Memproses..." : "Ya, Hapus Produk"}
                 </button>
               </div>
             </div>
@@ -235,36 +272,43 @@ export default function ProductList() {
 
       {/* Box Tabel Utama */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-        {/* Toolbar Pencarian & Filter */}
+        {/* Toolbar Pencarian, Filter & Hapus Massal */}
         <div className="p-5 border-b border-gray-100 flex flex-col md:flex-row gap-4 justify-between items-center bg-gray-50/50">
-          <div className="relative w-full md:w-96">
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Cari nama produk, SKU, atau kategori..."
-              className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-chester-pink focus:ring-1 focus:ring-chester-pink transition"
-            />
-            <Search
-              size={18}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-            />
+          
+          <div className="flex w-full md:w-auto gap-3 items-center">
+            {/* TOMBOL DELETE MASSAL */}
+            <button
+              onClick={handleBulkDeleteClick}
+              disabled={selectedProducts.length === 0}
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg transition-colors ${
+                selectedProducts.length > 0 
+                  ? "bg-red-50 text-red-600 border border-red-200 hover:bg-red-600 hover:text-white" 
+                  : "bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed"
+              }`}
+            >
+              <Trash2 size={16} /> 
+              Hapus Terpilih ({selectedProducts.length})
+            </button>
           </div>
 
           <div className="flex w-full md:w-auto gap-3">
-            {/* Tombol Filter Spesifik */}
-            <button className="flex items-center gap-2 px-4 py-2 border border-gray-200 text-sm font-semibold text-gray-600 rounded-lg hover:bg-gray-50 transition w-full md:w-auto justify-center">
-              <Filter size={16} /> Filter
-            </button>
-
-            {/* Dropdown Pengurutan */}
+            <div className="relative w-full md:w-64">
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Cari nama, SKU, atau kategori..."
+                className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-chester-pink transition"
+              />
+              <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            </div>
+            
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
               className="px-4 py-2 border border-gray-200 text-sm font-semibold text-gray-600 rounded-lg hover:bg-gray-50 transition w-full md:w-auto focus:outline-none focus:border-chester-pink"
             >
               <option value="terbaru">Urutkan: Terbaru</option>
-              <option value="terlaris">Urutkan: Terlaris</option>
               <option value="stok_habis">Stok Paling Sedikit</option>
             </select>
           </div>
@@ -278,6 +322,8 @@ export default function ProductList() {
                 <th className="p-5 font-semibold w-12 text-center">
                   <input
                     type="checkbox"
+                    checked={filteredProducts.length > 0 && selectedProducts.length === filteredProducts.length}
+                    onChange={handleSelectAll}
                     className="w-4 h-4 accent-chester-pink cursor-pointer rounded border-gray-300"
                   />
                 </th>
@@ -315,7 +361,6 @@ export default function ProductList() {
 
                   const currentStatus = getDerivedStatus(product, actualStock);
 
-                  // LOGIKA HARGA
                   let currentPrice = 0;
                   let currentOriginalPrice = 0;
                   let isRange = false;
@@ -323,9 +368,7 @@ export default function ProductList() {
 
                   if (product.has_variant && product.min_v_price !== null) {
                     currentPrice = Number(product.min_v_price);
-                    currentOriginalPrice = Number(
-                      product.min_v_original_price || 0,
-                    );
+                    currentOriginalPrice = Number(product.min_v_original_price || 0);
                     maxRangePrice = Number(product.max_v_price);
                     if (currentPrice !== maxRangePrice) {
                       isRange = true;
@@ -335,13 +378,11 @@ export default function ProductList() {
                     currentOriginalPrice = Number(product.original_price || 0);
                   }
 
-                  // Komponen Tampilan Harga
                   const displayPriceUI = (
                     <div className="flex flex-col gap-1">
                       {isRange ? (
                         <span className="font-semibold text-chester-text">
-                          {formatRupiah(currentPrice)} -{" "}
-                          {formatRupiah(maxRangePrice)}
+                          {formatRupiah(currentPrice)} - {formatRupiah(maxRangePrice)}
                         </span>
                       ) : (
                         <>
@@ -368,6 +409,8 @@ export default function ProductList() {
                       <td className="p-5 text-center align-middle">
                         <input
                           type="checkbox"
+                          checked={selectedProducts.includes(product.id)}
+                          onChange={() => handleSelectOne(product.id)}
                           className="w-4 h-4 accent-chester-pink cursor-pointer rounded border-gray-300"
                         />
                       </td>
@@ -376,7 +419,6 @@ export default function ProductList() {
                         <div className="flex items-center gap-4">
                           <div className="w-14 h-14 rounded-lg bg-gray-100 overflow-hidden flex-shrink-0 border border-gray-200 flex items-center justify-center">
                             {product.primary_image ? (
-                              /* KOREKSI: Terapkan helper dan onError fallback */
                               <img
                                 src={getImageUrl(product.primary_image)}
                                 alt={product.name}
@@ -399,13 +441,11 @@ export default function ProductList() {
                             </Link>
                             <div className="flex items-center gap-2 mt-1">
                               <span className="text-xs text-gray-500 font-medium">
-                                {product.sku ||
-                                  `PRD-${String(product.id).padStart(3, "0")}`}
+                                {product.sku || `PRD-${String(product.id).padStart(3, "0")}`}
                               </span>
                               <span className="w-1 h-1 rounded-full bg-gray-300"></span>
                               <span className="text-xs text-gray-500">
-                                {categoryMap[product.category_id] ||
-                                  "Tanpa Kategori"}
+                                {getCategoryName(product.category_id)}
                               </span>
                             </div>
                           </div>
@@ -443,9 +483,7 @@ export default function ProductList() {
                             <Edit size={16} />
                           </Link>
                           <button
-                            onClick={() =>
-                              handleDeleteClick(product.id, product.name)
-                            }
+                            onClick={() => handleDeleteClick(product.id, product.name)}
                             className="w-8 h-8 rounded bg-gray-50 text-gray-600 hover:text-red-600 hover:bg-red-50 flex items-center justify-center transition border border-gray-200"
                           >
                             <Trash2 size={16} />
@@ -474,17 +512,6 @@ export default function ProductList() {
               </span>{" "}
               produk
             </p>
-            <div className="flex gap-1">
-              <button className="px-3 py-1 border border-gray-200 rounded text-sm text-gray-400 cursor-not-allowed">
-                Mundur
-              </button>
-              <button className="px-3 py-1 border border-chester-pink bg-chester-pink text-white rounded text-sm font-bold">
-                1
-              </button>
-              <button className="px-3 py-1 border border-gray-200 rounded text-sm text-gray-600 hover:border-chester-pink hover:text-chester-pink transition cursor-not-allowed opacity-50">
-                Maju
-              </button>
-            </div>
           </div>
         )}
       </div>

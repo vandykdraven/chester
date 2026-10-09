@@ -127,12 +127,11 @@ app.post("/api/products", cpUpload, async (req, res) => {
     await connection.beginTransaction();
 
     try {
-      // Menambahkan kolom "slug" pada query INSERT
       const [productResult] = await connection.query(
         `INSERT INTO products (name, slug, category_id, size_guide_id, description, video_url, status, price, original_price, stock, weight, sku, has_variant, variant_types_json, seo_title, seo_description, seo_keywords) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           name,
-          slug, // Memasukkan variabel slug ke database
+          slug,
           category || null,
           size_guide_id || null,
           description || null,
@@ -160,13 +159,11 @@ app.post("/api/products", cpUpload, async (req, res) => {
           const file = req.files["primaryImage"][0];
           const filePath = `/uploads/products/${file.filename}`;
 
-          // 1. Simpan relasi ke tabel produk
           await connection.query(
             `INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 1)`,
             [productId, filePath],
           );
           
-          // 2. PERBAIKAN: Daftarkan ke galeri server agar muncul di modal
           await connection.query(
             `INSERT INTO gallery_media (filename, file_path, file_size) VALUES (?, ?, ?)`,
             [file.originalname, filePath, file.size],
@@ -192,13 +189,11 @@ app.post("/api/products", cpUpload, async (req, res) => {
             const file = req.files["supportingImages"][pcUploadIndex];
             const filePath = `/uploads/products/${file.filename}`;
 
-            // 1. Simpan relasi ke tabel produk
             await connection.query(
               `INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 0)`,
               [productId, filePath],
             );
 
-            // 2. PERBAIKAN: Daftarkan ke galeri server
             await connection.query(
               `INSERT INTO gallery_media (filename, file_path, file_size) VALUES (?, ?, ?)`,
               [file.originalname, filePath, file.size],
@@ -214,10 +209,13 @@ app.post("/api/products", cpUpload, async (req, res) => {
         }
       }
 
+      // -------------------------------------------------------------
+      // PERBAIKAN: Menambahkan kolom image_url pada query variants
+      // -------------------------------------------------------------
       if (hasVariant && variantMatrix && variantMatrix.length > 0) {
         for (const variant of variantMatrix) {
           await connection.query(
-            `INSERT INTO product_variants (product_id, variant_key, price, original_price, stock, weight, sku) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO product_variants (product_id, variant_key, price, original_price, stock, weight, sku, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               productId,
               variant.key,
@@ -226,6 +224,7 @@ app.post("/api/products", cpUpload, async (req, res) => {
               variant.stock || 0,
               variant.weight || 0,
               variant.sku || null,
+              variant.image || null, // Menangkap data URL gambar variasi
             ],
           );
         }
@@ -499,7 +498,6 @@ app.put(
       imagesConfig,
     } = JSON.parse(req.body.data);
 
-    // Mencegah error jika name dari frontend tiba-tiba undefined
     const safeName = name || "Produk Tanpa Nama";
     const slug = safeName
       .toLowerCase()
@@ -510,8 +508,6 @@ app.put(
     try {
       await connection.beginTransaction();
 
-      // PERBAIKAN: Memastikan semua nilai numerik dikonversi dengan aman 
-      // (Mencegah error string kosong "" masuk ke MySQL Strict Mode)
       const finalPrice = has_variant ? 0 : (Number(price) || 0);
       const finalOriginalPrice = has_variant ? 0 : (Number(original_price) || 0);
       const finalStock = has_variant ? 0 : (Number(stock) || 0);
@@ -554,10 +550,14 @@ app.put(
       }
 
       await connection.query("DELETE FROM product_variants WHERE product_id = ?", [productId]);
+      
+      // -------------------------------------------------------------
+      // PERBAIKAN: Menambahkan kolom image_url pada query variants edit
+      // -------------------------------------------------------------
       if (has_variant && variantMatrix && variantMatrix.length > 0) {
         for (const row of variantMatrix) {
           await connection.query(
-            `INSERT INTO product_variants (product_id, variant_key, price, original_price, stock, weight, sku) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO product_variants (product_id, variant_key, price, original_price, stock, weight, sku, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               productId,
               row.key || row.variant_key || row.combination?.join("-"),
@@ -566,6 +566,7 @@ app.put(
               Number(row.stock) || 0,
               Number(row.weight) || 0,
               row.sku || null,
+              row.image || null, // Menangkap data URL gambar variasi
             ]
           );
         }
@@ -3393,77 +3394,86 @@ app.get("/api/dashboard/stats", async (req, res) => {
   }
 });
 
-// =======================================================================
-// ENDPOINT ADMIN: GENERATE STATIC SITEMAP, ROBOTS & INJEKSI GSC
-// =======================================================================
-app.get("/api/admin/generate-seo", async (req, res) => {
+// ===================================================================
+// GENERATE SEO FILES (SITEMAP, ROBOTS.TXT, GSC INJECTION)
+// ===================================================================
+// KOREKSI: Mengubah app.get menjadi app.post dan menyesuaikan rute
+app.post("/api/sitemap/generate", async (req, res) => {
   try {
     const domain = process.env.FRONTEND_URL;
     const publicPath = process.env.FRONTEND_PUBLIC_PATH || path.resolve(__dirname, "../public_html"); 
 
     // 1. BUAT FILE FISIK ROBOTS.TXT
     const robotsText = `User-agent: *\nAllow: /\nDisallow: /admin-login\nDisallow: /admin/\n\nSitemap: ${domain}/sitemap.xml`;
+    const fs = require('fs'); // Memastikan modul fs dipanggil
+    const path = require('path'); // Memastikan modul path dipanggil
+    
     fs.writeFileSync(path.join(publicPath, "robots.txt"), robotsText);
 
     // 2. BUAT FILE FISIK SITEMAP.XML
-    const [products] = await db.query("SELECT slug, updated_at FROM products WHERE status = 'available'");
-    const [categories] = await db.query("SELECT slug FROM product_categories");
+    const connection = await db.getConnection(); // Menggunakan pool koneksi yang aman
+    try {
+      const [products] = await connection.query("SELECT slug, updated_at FROM products WHERE status = 'available'");
+      const [categories] = await connection.query("SELECT slug FROM categories"); // Disesuaikan dengan nama tabel kategorimu yang umum
 
-    let urls = `
-      <url><loc>${domain}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>
-      <url><loc>${domain}/products</loc><changefreq>daily</changefreq><priority>0.8</priority></url>
-    `;
+      let urls = `
+        <url><loc>${domain}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>
+        <url><loc>${domain}/products</loc><changefreq>daily</changefreq><priority>0.8</priority></url>
+      `;
 
-    categories.forEach((category) => {
-      urls += `<url><loc>${domain}/products?category=${category.slug}</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>`;
-    });
+      categories.forEach((category) => {
+        urls += `<url><loc>${domain}/products?category=${category.slug}</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>`;
+      });
 
-    products.forEach((product) => {
-      const lastMod = product.updated_at ? new Date(product.updated_at).toISOString().split("T")[0] : new Date().toISOString().split("T")[0];
-      urls += `<url><loc>${domain}/product/${product.slug}</loc><lastmod>${lastMod}</lastmod><changefreq>weekly</changefreq><priority>0.9</priority></url>`;
-    });
+      products.forEach((product) => {
+        const lastMod = product.updated_at ? new Date(product.updated_at).toISOString().split("T")[0] : new Date().toISOString().split("T")[0];
+        urls += `<url><loc>${domain}/product/${product.slug}</loc><lastmod>${lastMod}</lastmod><changefreq>weekly</changefreq><priority>0.9</priority></url>`;
+      });
 
-    const sitemapXML = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>`;
-    fs.writeFileSync(path.join(publicPath, "sitemap.xml"), sitemapXML);
+      const sitemapXML = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>`;
+      fs.writeFileSync(path.join(publicPath, "sitemap.xml"), sitemapXML);
 
-    // ===================================================================
-    // 3. FITUR BARU: INJEKSI OTOMATIS TAG GOOGLE KE INDEX.HTML (DIPERKUAT)
-    // ===================================================================
-    const [settings] = await db.query("SELECT setting_value FROM settings WHERE setting_key = 'gsc_verification_tag'");
-    const gscTag = settings.length > 0 ? settings[0].setting_value : null;
+      // ===================================================================
+      // 3. FITUR BARU: INJEKSI OTOMATIS TAG GOOGLE KE INDEX.HTML
+      // ===================================================================
+      const [settings] = await connection.query("SELECT setting_value FROM settings WHERE setting_key = 'gsc_verification_tag'");
+      const gscTag = settings.length > 0 ? settings[0].setting_value : null;
 
-    if (gscTag) {
-      const indexPath = path.join(publicPath, "index.html");
-      
-      // Evaluasi Kritis: Jika file tidak ada, lemparkan error agar developer tahu path-nya salah
-      if (!fs.existsSync(indexPath)) {
-        throw new Error(`File index.html tidak ditemukan di target direktori: ${indexPath}. Cek FRONTEND_PUBLIC_PATH di .env.`);
+      if (gscTag) {
+        const indexPath = path.join(publicPath, "index.html");
+        
+        // Evaluasi Kritis: Jika file tidak ada, lemparkan error
+        if (!fs.existsSync(indexPath)) {
+          throw new Error(`File index.html tidak ditemukan di target direktori: ${indexPath}. Cek FRONTEND_PUBLIC_PATH di .env.`);
+        }
+
+        let htmlContent = fs.readFileSync(indexPath, "utf8");
+        const metaString = `<meta name="google-site-verification" content="${gscTag}" />`;
+
+        // Cek apakah kode verifikasi sudah pernah ditanam agar tidak ganda
+        if (!htmlContent.includes("google-site-verification")) {
+          // Gunakan Regex /<\/head>/i agar tahan terhadap perubahan kapitalisasi (<HEAD> atau </head>)
+          htmlContent = htmlContent.replace(/<\/head>/i, `  ${metaString}\n</head>`);
+          fs.writeFileSync(indexPath, htmlContent);
+        } else if (!htmlContent.includes(gscTag)) {
+          // Jika sudah ada tag GSC lama, perbarui dengan kode yang baru
+          htmlContent = htmlContent.replace(/<meta name="google-site-verification" content=".*?"\s*\/>/i, metaString);
+          fs.writeFileSync(indexPath, htmlContent);
+        }
       }
 
-      let htmlContent = fs.readFileSync(indexPath, "utf8");
-      const metaString = `<meta name="google-site-verification" content="${gscTag}" />`;
-
-      // Cek apakah kode verifikasi sudah pernah ditanam agar tidak ganda
-      if (!htmlContent.includes("google-site-verification")) {
-        // PERBAIKAN: Gunakan Regex /<\/head>/i agar tahan terhadap perubahan kapitalisasi (<HEAD> atau </head>)
-        htmlContent = htmlContent.replace(/<\/head>/i, `  ${metaString}\n</head>`);
-        fs.writeFileSync(indexPath, htmlContent);
-      } else if (!htmlContent.includes(gscTag)) {
-        // Jika sudah ada tag GSC lama, perbarui dengan kode yang baru
-        htmlContent = htmlContent.replace(/<meta name="google-site-verification" content=".*?"\s*\/>/i, metaString);
-        fs.writeFileSync(indexPath, htmlContent);
-      }
+      return res.status(200).json({ 
+        success: true, 
+        message: "Sitemap, Robots.txt, dan injeksi verifikasi Google berhasil diterapkan ke frontend.",
+        url: `${domain}/sitemap.xml`
+      });
+    } finally {
+      connection.release();
     }
-
-    return res.status(200).json({ 
-      success: true, 
-      message: "Sitemap, Robots.txt, dan injeksi verifikasi Google berhasil diterapkan ke frontend." 
-    });
   } catch (error) {
     console.error("Gagal mencetak file SEO:", error);
     return res.status(500).json({ 
       success: false, 
-      // PERBAIKAN: Mengirim pesan error spesifik ke layar frontend agar bisa dievaluasi
       message: error.message || "Terjadi kesalahan internal saat mencetak SEO." 
     });
   }

@@ -12,7 +12,9 @@ import {
   CheckCircle,
   XCircle,
 } from "lucide-react";
-import axios from "axios";
+
+// KOREKSI UTAMA: Menggunakan Master API, BUKAN axios mentah
+import api from "../../api"; 
 
 export default function OrderList() {
   const [orders, setOrders] = useState([]);
@@ -32,17 +34,15 @@ export default function OrderList() {
   const fetchOrders = async () => {
     setIsLoading(true);
     try {
-      const response = await axios.get(
-        `${import.meta.env.VITE_API_URL}/orders`,
-        {
-          params: {
-            page: currentPage,
-            limit: limit,
-            search: searchTerm,
-            status: statusFilter,
-          },
+      // Menggunakan api.get agar Token Admin otomatis terkirim via Interceptor
+      const response = await api.get(`/orders`, {
+        params: {
+          page: currentPage,
+          limit: limit,
+          search: searchTerm,
+          status: statusFilter,
         },
-      );
+      });
       if (response.data.success) {
         setOrders(response.data.data);
         setTotalPages(response.data.pagination.totalPages);
@@ -227,10 +227,10 @@ export default function OrderList() {
                     </td>
                     <td className="p-4 align-middle text-center">
                       <span
-                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${statusConfig[order.status].color}`}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${statusConfig[order.status]?.color || "bg-gray-50 text-gray-600 border-gray-200"}`}
                       >
-                        {statusConfig[order.status].icon}
-                        {statusConfig[order.status].label}
+                        {statusConfig[order.status]?.icon}
+                        {statusConfig[order.status]?.label || order.status}
                       </span>
                     </td>
                     <td className="p-4 align-middle text-center">

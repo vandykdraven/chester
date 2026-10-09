@@ -1,5 +1,10 @@
 import { Helmet } from "react-helmet-async";
 
+// Mengambil URL API Backend untuk menyusun URL gambar absolut
+const BASE_API_URL = import.meta.env.VITE_API_URL 
+  ? import.meta.env.VITE_API_URL.replace("/api", "") 
+  : "";
+
 export default function SEO({
   title,
   description,
@@ -8,31 +13,52 @@ export default function SEO({
   url,
   noindex,
 }) {
-  const defaultTitle = "Chester Collection | Pakaian Wanita Premium";
+  // 1. Identitas Default yang Kuat & Sesuai Fakta Bisnis
+  const defaultTitle = "mroblong | Produsen Kaos Polos & Sablon DTF Surakarta";
   const defaultDesc =
-    "Temukan koleksi pakaian wanita premium terbaik di Chester Collection.";
-  const defaultImage = "https://domainkamu.com/default-banner.jpg"; // Gambar default jika tidak ada
-  const siteUrl = "https://domainkamu.com";
+    "mroblong adalah produsen kaos polos terbesar di Surakarta. Menyediakan bahan cotton combed premium 30s & 24s serta melayani pemesanan kaos custom sablon DTF.";
+  const defaultKeywords =
+    "kaos polos surakarta, sablon dtf, cotton combed premium 30s, cotton combed 24s, mroblong, kaos custom murah";
+  
+  // 2. Deteksi Domain Frontend Secara Otomatis
+  const siteUrl = typeof window !== "undefined" ? window.location.origin : "";
+  const defaultImage = `${siteUrl}/logo.png`; // Pastikan file logo.png ada di dalam folder public/
+
+  // 3. Logika Pembuatan URL Gambar Absolut untuk Open Graph
+  let ogImage = defaultImage;
+  if (image) {
+    if (image.startsWith("http")) {
+      ogImage = image; // Jika sudah absolut dari internet
+    } else {
+      ogImage = `${BASE_API_URL}${image}`; // Jika path relatif dari server backend lokal kita
+    }
+  }
+
+  // 4. Logika Pembuatan URL Halaman Absolut
+  const ogUrl = url ? `${siteUrl}${url}` : siteUrl;
 
   return (
     <Helmet>
-      {/* Standar SEO */}
-      <title>{title ? `${title} | Chester Collection` : defaultTitle}</title>
+      {/* Standar SEO Google */}
+      <title>{title ? `${title} | mroblong` : defaultTitle}</title>
       <meta name="description" content={description || defaultDesc} />
-      <meta
-        name="keywords"
-        content={keywords || "fashion wanita, chester collection"}
-      />
+      <meta name="keywords" content={keywords || defaultKeywords} />
 
-      {/* Pengaturan Indexing (Mencegah Google membaca halaman rahasia) */}
+      {/* Pengaturan Indexing (Mencegah Google membaca halaman seperti Checkout/Keranjang) */}
       {noindex && <meta name="robots" content="noindex, nofollow" />}
 
-      {/* Open Graph / Sosial Media (Untuk share WA, FB, dll) */}
+      {/* Open Graph / Sosial Media (Penting untuk thumbnail WhatsApp, Facebook, dll) */}
       <meta property="og:title" content={title || defaultTitle} />
       <meta property="og:description" content={description || defaultDesc} />
-      <meta property="og:image" content={image || defaultImage} />
-      <meta property="og:url" content={url ? `${siteUrl}${url}` : siteUrl} />
+      <meta property="og:image" content={ogImage} />
+      <meta property="og:url" content={ogUrl} />
       <meta property="og:type" content="website" />
+      
+      {/* Twitter Card (Memastikan preview gambar besar jika di-share di X/Twitter) */}
+      <meta name="twitter:card" content="summary_large_image" />
+      <meta name="twitter:title" content={title || defaultTitle} />
+      <meta name="twitter:description" content={description || defaultDesc} />
+      <meta name="twitter:image" content={ogImage} />
     </Helmet>
   );
 }

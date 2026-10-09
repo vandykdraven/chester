@@ -9,13 +9,14 @@ import {
   AlertCircle,
   ArrowRight,
 } from "lucide-react";
-import axios from "axios";
-import logo from "../assets/logo.png"; // Memakai logo yang sama
+
+// KOREKSI UTAMA: Menggunakan Master API untuk konsistensi URL
+import api from "../api"; 
+import logo from "../assets/logo.png"; 
 
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
-  // Tangkap jalur sebelumnya, jika tidak ada, jadikan beranda ("/") sebagai default
   const from = location.state?.from || "/";
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -35,7 +36,7 @@ export default function Login() {
   useEffect(() => {
     const savedToken = localStorage.getItem("customerToken");
     if (savedToken) {
-      navigate(from); // Jika sudah diingat, langsung lempar ke beranda utama pembeli
+      navigate(from);
     }
   }, [navigate]);
 
@@ -52,29 +53,27 @@ export default function Login() {
     setIsSubmitting(true);
 
     try {
-      const response = await axios.post(
-        `${import.meta.env.VITE_API_URL}/auth/login`,
-        { email, password },
-      );
+      // PERBAIKAN URL: Lebih ringkas dengan api.post
+      const response = await api.post(`/auth/login`, { 
+        email, 
+        password 
+      });
 
       if (response.data.success) {
         showAlert("Selamat datang kembali! Login berhasil.", "success");
 
         const { token, user } = response.data;
 
-        // LOGIKA INGAT SAYA (REMEMBER ME) YANG SEBENARNYA:
         if (rememberMe) {
-          // Disimpan di LocalStorage (Permanen walaupun browser ditutup)
           localStorage.setItem("customerToken", token);
           localStorage.setItem("customerUser", JSON.stringify(user));
         } else {
-          // Disimpan di SessionStorage (Hilang otomatis saat tab/browser ditutup)
           sessionStorage.setItem("customerToken", token);
           sessionStorage.setItem("customerUser", JSON.stringify(user));
         }
 
         setTimeout(() => {
-          navigate(from); // Arahkan ke homepage pembeli setelah sukses
+          navigate(from); 
         }, 1500);
       }
     } catch (error) {
@@ -119,7 +118,7 @@ export default function Login() {
               Masuk Akun
             </h2>
             <p className="text-xs text-gray-400 mt-1">
-              Silakan masuk untuk melanjutkan pesanan Anda di Chester.
+              Silakan masuk untuk melanjutkan pesanan Anda di Chester Collection.
             </p>
           </div>
 

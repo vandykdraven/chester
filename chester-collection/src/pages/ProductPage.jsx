@@ -13,11 +13,10 @@ import {
   Edit,
   X,
 } from "lucide-react";
-// 1. KOREKSI: Gunakan master konfigurasi API dan Image Helper kita
 import api from "../api";
 import { getImageUrl } from "../utils/imageHelper";
+import SEO from "../components/SEO";
 
-// Fungsi untuk memformat angka menjadi format Rupiah
 const formatRupiah = (angka) => {
   return new Intl.NumberFormat("id-ID", {
     style: "currency",
@@ -26,7 +25,11 @@ const formatRupiah = (angka) => {
   }).format(angka);
 };
 
-// Fungsi untuk mendapatkan URL embed YouTube yang valid
+const stripHtmlTags = (html) => {
+  if (!html) return "";
+  return html.replace(/<[^>]*>?/gm, "").substring(0, 160) + "..."; 
+};
+
 const getYouTubeEmbedUrl = (url) => {
   if (!url) return null;
   const ytRegex =
@@ -42,7 +45,6 @@ export default function ProductPage() {
   const { slug } = useParams();
   const navigate = useNavigate();
 
-  // State untuk menyimpan data ulasan
   const [reviews, setReviews] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -51,11 +53,14 @@ export default function ProductPage() {
     totalReviews: 0,
   });
 
-  // State untuk menyimpan data produk dan interaksi halaman
   const [product, setProduct] = useState(null);
   const [relatedProducts, setRelatedProducts] = useState([]);
   const [loading, setLoading] = useState(true);
+  
+  // STATE BARU: Untuk melacak pilihan per kategori (Warna, Ukuran, dll)
+  const [selectedOptions, setSelectedOptions] = useState({});
   const [selectedVariant, setSelectedVariant] = useState(null);
+  
   const [quantity, setQuantity] = useState(1);
   const [currentImgIndex, setCurrentImgIndex] = useState(0);
   const [zoomStyle, setZoomStyle] = useState({
@@ -69,7 +74,6 @@ export default function ProductPage() {
     type: "success",
   });
 
-  // State khusus untuk mengontrol jendela popup (modal) edit ulasan
   const [editModal, setEditModal] = useState({
     isOpen: false,
     reviewId: null,
@@ -78,21 +82,17 @@ export default function ProductPage() {
     isSubmitting: false,
   });
 
-  // Mengambil data pelanggan yang sedang login dari penyimpanan browser
   const customerUser = JSON.parse(
     localStorage.getItem("customerUser") ||
       sessionStorage.getItem("customerUser"),
   );
 
-  // Efek ini berjalan otomatis saat halaman pertama kali dimuat atau slug URL berubah
   useEffect(() => {
     fetchProductDetails();
   }, [slug]);
 
-  // Mengambil data ulasan dari backend API
   const fetchProductReviews = async (productId, page = 1) => {
     try {
-      // Menggunakan master api
       const res = await api.get(
         `/products/${productId}/reviews?page=${page}&limit=5`,
       );
@@ -115,7 +115,6 @@ export default function ProductPage() {
     }
   };
 
-  // Fungsi untuk menampilkan notifikasi pop-up di layar
   const showAlert = (message, type = "success") => {
     setCustomAlert({ show: true, message, type });
     setTimeout(
@@ -124,29 +123,52 @@ export default function ProductPage() {
     );
   };
 
-  // Mengambil detail lengkap produk dari backend
   const fetchProductDetails = async () => {
     setLoading(true);
     try {
-      // Menggunakan master api
       const res = await api.get(`/products/${slug}`);
       if (res.data.success) {
         const prodData = res.data.data;
 
-        // 2. KOREKSI: Menerapkan getImageUrl pada mapping gambar produk
         const allImages =
           prodData.images && prodData.images.length > 0
             ? prodData.images.map((img) => getImageUrl(img.image_url))
             : [];
 
+        // Parsing variant_types_json agar mudah di-render di UI
+        let parsedVariantTypes = [];
+        if (prodData.variant_types_json) {
+          try {
+            parsedVariantTypes =
+              typeof prodData.variant_types_json === "string"
+                ? JSON.parse(prodData.variant_types_json)
+                : prodData.variant_types_json;
+          } catch (e) {
+            console.error(e);
+          }
+        }
+
         setProduct({
           ...prodData,
           displayImages:
             allImages.length > 0 ? allImages : ["/placeholder.png"],
+          parsedVariantTypes, // Menyimpan struktur grup variasi
         });
 
+        // Set default variasi yang dipilih saat pertama kali dimuat
         if (prodData.variants && prodData.variants.length > 0) {
-          setSelectedVariant(prodData.variants[0]);
+          const firstVariant = prodData.variants[0];
+          setSelectedVariant(firstVariant);
+
+          if (parsedVariantTypes.length > 0) {
+            const firstVariantKeys = firstVariant.variant_key.split("-");
+            const initialOptions = {};
+            parsedVariantTypes.forEach((vt, idx) => {
+              // Petakan kombinasi default ke masing-masing kategori
+              initialOptions[vt.name] = firstVariantKeys[idx] || vt.options[0];
+            });
+            setSelectedOptions(initialOptions);
+          }
         }
 
         fetchRelatedProducts(prodData.category_id, prodData.id);
@@ -155,7 +177,6 @@ export default function ProductPage() {
           checkWishlistStatus(prodData.id);
         }
 
-        // Panggil fungsi ulasan setelah ID produk didapatkan
         fetchProductReviews(prodData.id, 1);
       }
     } catch (error) {
@@ -165,10 +186,8 @@ export default function ProductPage() {
     }
   };
 
-  // Mengambil produk lain dalam kategori yang sama
   const fetchRelatedProducts = async (categoryId, currentProductId) => {
     try {
-      // Menggunakan master api
       const res = await api.get(`/products`);
       if (res.data.success) {
         let filtered = res.data.data.filter((p) => p.id !== currentProductId);
@@ -183,10 +202,8 @@ export default function ProductPage() {
     }
   };
 
-  // Mengecek apakah produk ini sudah ada di wishlist pengguna
   const checkWishlistStatus = async (currentProductId) => {
     try {
-      // Menggunakan master api
       const res = await api.get(`/users/${customerUser.id}/wishlists`);
       if (res.data.success) {
         const isExist = res.data.data.some(
@@ -199,7 +216,6 @@ export default function ProductPage() {
     }
   };
 
-  // Menambah atau menghapus produk dari wishlist
   const toggleWishlist = async () => {
     if (!customerUser) {
       showAlert("Silakan login untuk menyimpan produk ke Wishlist.", "error");
@@ -211,7 +227,6 @@ export default function ProductPage() {
       if (isWishlisted) {
         navigate("/wishlist");
       } else {
-        // Menggunakan master api
         const res = await api.post(`/wishlists`, {
           user_id: customerUser.id,
           product_id: product.id,
@@ -234,7 +249,53 @@ export default function ProductPage() {
     else setQuantity((prev) => (prev > 1 ? prev - 1 : 1));
   };
 
-  // Memproses penambahan barang ke keranjang
+  // =======================================================================
+  // LOGIKA PEMILIH OPSI VARIASI BERTINGKAT (MULTIPLE ROWS)
+  // =======================================================================
+  const handleOptionSelect = (typeName, optionValue) => {
+    // 1. Perbarui state opsi yang dipilih (misal: Ukuran berubah jadi L)
+    const newOptions = { ...selectedOptions, [typeName]: optionValue };
+    setSelectedOptions(newOptions);
+
+    if (product.parsedVariantTypes && product.variants) {
+      // 2. Gabungkan opsi menjadi format key database (misal: "Hitam-L")
+      const expectedKey = product.parsedVariantTypes
+        .map((vt) => newOptions[vt.name])
+        .join("-");
+        
+      // 3. Cari di database matriks apakah kombinasi ini ada
+      const matchedVariant = product.variants.find(
+        (v) => v.variant_key === expectedKey
+      );
+
+      if (matchedVariant) {
+        setSelectedVariant(matchedVariant);
+        
+        // 4. Ubah gambar otomatis jika kombinasi ini punya gambar khusus
+        const variantRawImage = matchedVariant.image_url || matchedVariant.image;
+        if (variantRawImage) {
+          const absoluteVariantImageUrl = getImageUrl(variantRawImage);
+          const existingIndex = product.displayImages.findIndex(
+            (img) => img === absoluteVariantImageUrl
+          );
+
+          if (existingIndex !== -1) {
+            setCurrentImgIndex(existingIndex);
+          } else {
+            setProduct((prev) => ({
+              ...prev,
+              displayImages: [absoluteVariantImageUrl, ...prev.displayImages],
+            }));
+            setCurrentImgIndex(0);
+          }
+        }
+      } else {
+        // Kombinasi tidak ada di database
+        setSelectedVariant(null);
+      }
+    }
+  };
+
   const handleAddToCart = async () => {
     if (!customerUser) {
       showAlert("Silakan login untuk menambahkan ke keranjang.", "error");
@@ -242,7 +303,7 @@ export default function ProductPage() {
       return;
     }
     if (product.has_variant === 1 && !selectedVariant) {
-      showAlert("Silakan pilih variasi produk terlebih dahulu.", "error");
+      showAlert("Pilihan variasi ini tidak tersedia atau kehabisan stok.", "error");
       return;
     }
 
@@ -254,7 +315,6 @@ export default function ProductPage() {
         quantity: quantity,
       };
 
-      // Menggunakan master api
       const res = await api.post(`/carts`, payload);
 
       if (res.data.success) {
@@ -292,7 +352,7 @@ export default function ProductPage() {
       return;
     }
     if (product.has_variant === 1 && !selectedVariant) {
-      showAlert("Silakan pilih variasi produk terlebih dahulu.", "error");
+      showAlert("Pilihan variasi ini tidak tersedia atau kehabisan stok.", "error");
       return;
     }
 
@@ -304,7 +364,6 @@ export default function ProductPage() {
         quantity: quantity,
       };
 
-      // Menggunakan master api
       const res = await api.post(`/carts`, payload);
 
       try {
@@ -354,7 +413,6 @@ export default function ProductPage() {
     }
   };
 
-  // Fungsi untuk membuka modal edit dengan data ulasan yang sudah ada
   const handleOpenEditModal = (rev) => {
     setEditModal({
       isOpen: true,
@@ -365,14 +423,10 @@ export default function ProductPage() {
     });
   };
 
-  // Fungsi untuk mengirim perubahan ulasan ke backend API
   const handleSubmitEditReview = async (e) => {
     e.preventDefault();
     try {
       setEditModal((prev) => ({ ...prev, isSubmitting: true }));
-
-      // Karena kita menggunakan instance `api`, token JWT pelanggan sudah otomatis disisipkan
-      // (jika Anda sudah mengonfigurasinya di file api.js).
       const res = await api.put(`/reviews/${editModal.reviewId}`, {
         rating: editModal.rating,
         comment: editModal.comment,
@@ -380,8 +434,6 @@ export default function ProductPage() {
 
       if (res.data.success) {
         showAlert("Ulasan Anda berhasil diperbarui!", "success");
-
-        // Memperbarui tampilan ulasan secara langsung di layar
         setReviews(
           reviews.map((r) =>
             r.id === editModal.reviewId
@@ -389,11 +441,7 @@ export default function ProductPage() {
               : r,
           ),
         );
-
-        // Menutup modal
         setEditModal((prev) => ({ ...prev, isOpen: false }));
-
-        // Mengambil ulang summary agar rata-rata bintang terbarui
         fetchProductReviews(product.id, currentPage);
       }
     } catch (error) {
@@ -406,7 +454,6 @@ export default function ProductPage() {
     }
   };
 
-  // Kontrol navigasi galeri gambar produk
   const nextImage = () =>
     setCurrentImgIndex((prev) => (prev + 1) % product.displayImages.length);
   const prevImage = () =>
@@ -427,7 +474,6 @@ export default function ProductPage() {
   const handleMouseLeave = () =>
     setZoomStyle({ transformOrigin: "center", transform: "scale(1)" });
 
-  // Tampilan layar pemuatan (loading)
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -436,7 +482,6 @@ export default function ProductPage() {
     );
   }
 
-  // Tampilan jika produk tidak ditemukan
   if (!product) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4">
@@ -448,7 +493,6 @@ export default function ProductPage() {
     );
   }
 
-  // Penentuan harga berdasarkan varian yang dipilih
   const currentPrice = selectedVariant
     ? Number(selectedVariant.price || 0)
     : Number(product.price || 0);
@@ -456,586 +500,577 @@ export default function ProductPage() {
     ? Number(selectedVariant.original_price || 0)
     : Number(product.original_price || 0);
 
+  const cleanDescriptionForSEO = product.seo_description 
+    ? product.seo_description 
+    : stripHtmlTags(product.description);
+
   return (
-    <div className="bg-white min-h-screen font-lora relative">
-      {/* Notifikasi Pop-up */}
-      {customAlert.show && (
-        <div className="fixed top-6 right-6 z-50 animate-bounce">
-          <div
-            className={`flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-xl border text-sm font-semibold text-white ${customAlert.type === "success" ? "bg-emerald-500 border-emerald-400" : "bg-rose-500 border-rose-400"}`}
-          >
-            {customAlert.type === "success" ? (
-              <CheckCircle size={20} />
-            ) : (
-              <AlertCircle size={20} />
-            )}
-            <span>{customAlert.message}</span>
-          </div>
-        </div>
-      )}
-
-      <div className="container mx-auto px-4 py-8 max-w-6xl">
-        {/* Navigasi Breadcrumb */}
-        <nav className="text-xs text-gray-500 mb-8 flex gap-2">
-          <Link to="/" className="hover:text-chester-pink">
-            Beranda
-          </Link>{" "}
-          /
-          <Link to="/products" className="hover:text-chester-pink">
-            Katalog
-          </Link>{" "}
-          /
-          <span className="text-chester-text font-medium truncate w-32 md:w-auto">
-            {product.name}
-          </span>
-        </nav>
-
-        {/* ========================================= */}
-        {/* BAGIAN ATAS: DETAIL DAN GALERI PRODUK       */}
-        {/* ========================================= */}
-        <div className="flex flex-col md:flex-row gap-10 lg:gap-16 items-start">
-          <div className="w-full md:w-1/2 flex flex-col gap-4">
-            {/* Gambar Utama */}
+    <>
+      <SEO 
+        title={product.seo_title || product.name} 
+        description={cleanDescriptionForSEO}
+        keywords={product.seo_keywords}
+        image={product.displayImages[0]}
+        url={`/product/${product.slug}`}
+      />
+      
+      <div className="bg-white min-h-screen font-lora relative">
+        {customAlert.show && (
+          <div className="fixed top-6 right-6 z-50 animate-bounce">
             <div
-              className="relative w-full aspect-[3/4] bg-gray-50 overflow-hidden cursor-crosshair group rounded-lg"
-              onMouseMove={handleMouseMove}
-              onMouseLeave={handleMouseLeave}
+              className={`flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-xl border text-sm font-semibold text-white ${customAlert.type === "success" ? "bg-emerald-500 border-emerald-400" : "bg-rose-500 border-rose-400"}`}
             >
-              <img
-                src={product.displayImages[currentImgIndex]}
-                alt={`${product.name} Main`}
-                className="w-full h-full object-cover transition-transform duration-200 ease-out"
-                style={zoomStyle}
-                onError={(e) => {
-                  e.currentTarget.onerror = null;
-                  e.currentTarget.src = "/placeholder.png";
-                }}
-              />
-
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  prevImage();
-                }}
-                className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/80 hover:bg-white text-chester-text flex items-center justify-center opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity rounded-full shadow"
-              >
-                <ChevronLeft size={20} />
-              </button>
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  nextImage();
-                }}
-                className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/80 hover:bg-white text-chester-text flex items-center justify-center opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity rounded-full shadow"
-              >
-                <ChevronRight size={20} />
-              </button>
+              {customAlert.type === "success" ? (
+                <CheckCircle size={20} />
+              ) : (
+                <AlertCircle size={20} />
+              )}
+              <span>{customAlert.message}</span>
             </div>
-
-            {/* Thumbnail Gambar */}
-            <div className="flex gap-4 overflow-x-auto pb-2 hide-scrollbar">
-              {product.displayImages.map((img, index) => (
-                <button
-                  key={index}
-                  onClick={() => setCurrentImgIndex(index)}
-                  className={`w-20 lg:w-24 aspect-[3/4] flex-shrink-0 bg-gray-50 border-2 rounded transition-all ${currentImgIndex === index ? "border-chester-pink" : "border-transparent hover:border-gray-200"}`}
-                >
-                  <img
-                    src={img}
-                    alt={`Thumbnail ${index + 1}`}
-                    className="w-full h-full object-cover rounded-sm"
-                    onError={(e) => {
-                      e.currentTarget.onerror = null;
-                      e.currentTarget.src = "/placeholder.png";
-                    }}
-                  />
-                </button>
-              ))}
-            </div>
-
-            {/* Video Produk (jika ada) */}
-            {product.video_url && (
-              <div className="mt-4 border border-gray-100 p-2 rounded-xl bg-gray-50">
-                <div className="w-full aspect-video rounded-lg overflow-hidden shadow-sm bg-gray-900">
-                  <iframe
-                    width="100%"
-                    height="100%"
-                    src={getYouTubeEmbedUrl(product.video_url)}
-                    title="Product Video"
-                    frameBorder="0"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen
-                  ></iframe>
-                </div>
-              </div>
-            )}
           </div>
+        )}
 
-          <div className="w-full md:w-1/2 pt-2">
-            <h1 className="text-3xl lg:text-4xl font-bold text-chester-text mb-4 leading-tight">
+        <div className="container mx-auto px-4 py-8 max-w-6xl">
+          <nav className="text-xs text-gray-500 mb-8 flex gap-2">
+            <Link to="/" className="hover:text-chester-pink">
+              Beranda
+            </Link>{" "}
+            /
+            <Link to="/products" className="hover:text-chester-pink">
+              Katalog
+            </Link>{" "}
+            /
+            <span className="text-chester-text font-medium truncate w-32 md:w-auto">
               {product.name}
-            </h1>
+            </span>
+          </nav>
 
-            {/* Area Harga */}
-            <div className="flex items-end gap-3 mb-8">
-              <p className="text-2xl text-chester-pink font-medium">
-                {currentOriginalPrice > 0
-                  ? formatRupiah(currentOriginalPrice)
-                  : formatRupiah(currentPrice)}
-              </p>
-
-              {currentOriginalPrice > 0 && (
-                <p className="text-lg text-gray-400 line-through decoration-gray-300 font-medium pb-0.5">
-                  {formatRupiah(currentPrice)}
-                </p>
-              )}
-            </div>
-
-            {/* Pilihan Variasi */}
-            {product.has_variant === 1 &&
-              product.variants &&
-              product.variants.length > 0 && (
-                <div className="mb-8">
-                  <div className="flex justify-between items-center mb-3">
-                    <p className="text-sm font-bold text-chester-text uppercase tracking-wider">
-                      Pilihan Variasi:{" "}
-                      <span className="font-normal text-gray-500">
-                        {selectedVariant?.variant_key}
-                      </span>
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {product.variants.map((v) => (
-                      <button
-                        key={v.id}
-                        onClick={() => setSelectedVariant(v)}
-                        className={`px-4 py-2 text-sm font-bold border rounded transition ${selectedVariant?.id === v.id ? "border-chester-text bg-chester-text text-white" : "border-gray-200 text-chester-text hover:border-gray-400"}`}
-                      >
-                        {v.variant_key}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-            {/* Tombol Interaksi (Jumlah, Beli, Keranjang) */}
-            <div className="flex flex-col gap-4 mb-10">
-              <div className="flex items-center border border-gray-300 w-full md:w-32 h-14 md:h-12 rounded-lg">
-                <button
-                  onClick={() => updateQuantity("minus")}
-                  className="w-12 md:w-10 h-full flex justify-center items-center text-gray-500 hover:text-chester-text"
-                >
-                  <Minus size={16} />
-                </button>
-                <span className="flex-1 text-center font-bold text-sm">
-                  {quantity}
-                </span>
-                <button
-                  onClick={() => updateQuantity("plus")}
-                  className="w-12 md:w-10 h-full flex justify-center items-center text-gray-500 hover:text-chester-text"
-                >
-                  <Plus size={16} />
-                </button>
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={handleAddToCart}
-                  className="flex-1 bg-chester-pink text-white h-14 rounded-lg font-bold text-sm uppercase tracking-widest hover:bg-pink-600 transition shadow-sm"
-                >
-                  Tambah ke Keranjang
-                </button>
-
-                <button
-                  onClick={toggleWishlist}
-                  className={`w-14 h-14 flex items-center justify-center border-2 rounded-lg transition-colors ${isWishlisted ? "border-chester-pink bg-pink-50 text-chester-pink" : "border-gray-200 text-gray-400 hover:border-chester-pink hover:text-chester-pink"}`}
-                  title="Simpan ke Wishlist"
-                >
-                  <Heart
-                    size={20}
-                    fill={isWishlisted ? "currentColor" : "none"}
-                  />
-                </button>
-              </div>
-
-              <button
-                onClick={handleBuyNow}
-                className="w-full bg-white text-chester-text border-2 border-chester-text h-14 rounded-lg font-bold text-sm uppercase tracking-widest hover:bg-gray-50 transition shadow-sm"
+          <div className="flex flex-col md:flex-row gap-10 lg:gap-16 items-start">
+            <div className="w-full md:w-1/2 flex flex-col gap-4">
+              <div
+                className="relative w-full aspect-[3/4] bg-gray-50 overflow-hidden cursor-crosshair group rounded-lg"
+                onMouseMove={handleMouseMove}
+                onMouseLeave={handleMouseLeave}
               >
-                Beli Sekarang
-              </button>
-            </div>
-
-            {/* Deskripsi Produk */}
-            <div className="pt-8 border-t border-gray-100">
-              <div className="mb-6">
-                <h3 className="text-sm font-bold text-chester-text uppercase tracking-wider mb-3">
-                  Deskripsi Produk
-                </h3>
-                <div
-                  className="text-sm text-gray-600 leading-relaxed [&_ul]:!list-disc [&_ul]:!pl-5 [&_ol]:!list-disc [&_ol]:!pl-5 [&_li]:!mb-2 [&_li]:!ml-4"
-                  dangerouslySetInnerHTML={{
-                    __html: product.description || "Tidak ada deskripsi.",
+                <img
+                  src={product.displayImages[currentImgIndex]}
+                  alt={`${product.name} Main`}
+                  className="w-full h-full object-cover transition-transform duration-200 ease-out"
+                  style={zoomStyle}
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = "/placeholder.png";
                   }}
                 />
-              </div>
-            </div>
 
-            <div
-              onClick={handleShare}
-              className="mt-8 pt-6 border-t border-gray-100 flex items-center gap-2 text-sm text-gray-500 cursor-pointer hover:text-chester-pink transition w-fit"
-            >
-              <Share2 size={16} />
-              <span className="underline font-medium">Bagikan Produk Ini</span>
-            </div>
-          </div>
-        </div>
-
-        {/* ========================================= */}
-        {/* BAGIAN TENGAH: AREA UI ULASAN PEMBELI       */}
-        {/* ========================================= */}
-        <div className="mt-16 pt-10 border-t border-gray-100">
-          <h3 className="text-xl font-bold text-chester-text mb-6">
-            Ulasan Pelanggan ({reviewSummary.totalReviews})
-          </h3>
-
-          {reviews.length === 0 ? (
-            <div className="bg-gray-50 rounded-xl p-8 text-center text-gray-500 text-sm">
-              Belum ada ulasan untuk produk ini. Jadilah yang pertama memberikan
-              penilaian setelah membeli!
-            </div>
-          ) : (
-            <div className="flex flex-col gap-6">
-              {/* Tampilkan Rata-rata Bintang */}
-              <div className="flex items-center gap-4 bg-pink-50/50 p-4 rounded-xl border border-pink-100 w-max mb-2">
-                <div className="text-3xl font-black text-chester-pink">
-                  {Number(reviewSummary.averageRating).toFixed(1)}
-                </div>
-                <div>
-                  <div className="flex text-yellow-400 mb-1">
-                    {[...Array(5)].map((_, i) => (
-                      <Star
-                        key={i}
-                        size={16}
-                        fill={
-                          i < Math.round(reviewSummary.averageRating)
-                            ? "currentColor"
-                            : "none"
-                        }
-                      />
-                    ))}
-                  </div>
-                  <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-                    Dari {reviewSummary.totalReviews} Penilaian
-                  </p>
-                </div>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    prevImage();
+                  }}
+                  className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/80 hover:bg-white text-chester-text flex items-center justify-center opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity rounded-full shadow"
+                >
+                  <ChevronLeft size={20} />
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    nextImage();
+                  }}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 bg-white/80 hover:bg-white text-chester-text flex items-center justify-center opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity rounded-full shadow"
+                >
+                  <ChevronRight size={20} />
+                </button>
               </div>
 
-              {/* Daftar Ulasan */}
-              <div className="divide-y divide-gray-100">
-                {reviews.map((rev) => (
-                  <div key={rev.id} className="py-6 first:pt-0 group relative">
-                    {/* TOMBOL EDIT ULASAN (Hanya terlihat oleh pembuat ulasan) */}
-                    {customerUser && customerUser.id === rev.user_id && (
-                      <button
-                        onClick={() => handleOpenEditModal(rev)}
-                        className="absolute top-6 right-0 flex items-center gap-1.5 text-xs font-bold text-gray-400 hover:text-chester-pink transition-colors bg-white px-2 py-1 rounded border border-gray-200 hover:border-chester-pink shadow-sm opacity-100 md:opacity-0 md:group-hover:opacity-100"
-                      >
-                        <Edit size={14} />
-                        Edit
-                      </button>
-                    )}
-
-                    <div className="flex justify-between items-start mb-2">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center font-bold text-gray-500 overflow-hidden">
-                          {rev.avatar ? (
-                            // 3. KOREKSI: Gunakan getImageUrl untuk Avatar Pengulas
-                            <img
-                              src={getImageUrl(rev.avatar)}
-                              alt="Avatar"
-                              className="w-full h-full object-cover"
-                              onError={(e) => {
-                                e.currentTarget.onerror = null;
-                                e.currentTarget.style.display = "none";
-                              }}
-                            />
-                          ) : (
-                            rev.customer_name?.charAt(0) || "U"
-                          )}
-                        </div>
-                        <div>
-                          <p className="text-sm font-bold text-gray-800">
-                            {rev.customer_name || "Pengguna"}
-                          </p>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <div className="flex text-yellow-400">
-                              {[...Array(5)].map((_, i) => (
-                                <Star
-                                  key={i}
-                                  size={12}
-                                  fill={
-                                    i < rev.rating ? "currentColor" : "none"
-                                  }
-                                  strokeWidth={2}
-                                />
-                              ))}
-                            </div>
-                            <span className="text-[10px] text-gray-400">
-                              {new Date(rev.created_at).toLocaleDateString(
-                                "id-ID",
-                                {
-                                  year: "numeric",
-                                  month: "long",
-                                  day: "numeric",
-                                },
-                              )}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {rev.variant_name && (
-                      <p className="text-[11px] text-gray-500 font-medium mb-3 mt-2 bg-gray-50 inline-block px-2 py-1 rounded">
-                        Varian: {rev.variant_name}
-                      </p>
-                    )}
-
-                    <p className="text-sm text-gray-700 leading-relaxed mt-2 pr-16 md:pr-0">
-                      {rev.comment ? (
-                        rev.comment
-                      ) : (
-                        <span className="italic text-gray-400">
-                          Pengguna tidak meninggalkan teks ulasan.
-                        </span>
-                      )}
-                    </p>
-
-                    {/* Balasan Admin */}
-                    {rev.admin_reply && (
-                      <div className="mt-4 bg-gray-50 p-4 rounded-xl border-l-4 border-l-chester-pink">
-                        <p className="text-xs font-bold text-chester-pink mb-1 flex items-center gap-1">
-                          <CheckCircle size={12} /> Balasan Admin :
-                        </p>
-                        <p className="text-sm text-gray-600 leading-relaxed">
-                          {rev.admin_reply}
-                        </p>
-                      </div>
-                    )}
-                  </div>
+              <div className="flex gap-4 overflow-x-auto pb-2 hide-scrollbar">
+                {product.displayImages.map((img, index) => (
+                  <button
+                    key={index}
+                    onClick={() => setCurrentImgIndex(index)}
+                    className={`w-20 lg:w-24 aspect-[3/4] flex-shrink-0 bg-gray-50 border-2 rounded transition-all ${currentImgIndex === index ? "border-chester-pink" : "border-transparent hover:border-gray-200"}`}
+                  >
+                    <img
+                      src={img}
+                      alt={`Thumbnail ${index + 1}`}
+                      className="w-full h-full object-cover rounded-sm"
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = "/placeholder.png";
+                      }}
+                    />
+                  </button>
                 ))}
               </div>
 
-              {/* Navigasi Paginasi */}
-              {totalPages > 1 && (
-                <div className="flex justify-center items-center gap-4 mt-4 pt-6 border-t border-gray-100">
-                  <button
-                    onClick={() =>
-                      fetchProductReviews(product.id, currentPage - 1)
-                    }
-                    disabled={currentPage === 1}
-                    className="flex items-center justify-center p-2 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 hover:text-chester-pink transition disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
-                    title="Halaman Sebelumnya"
-                  >
-                    <ChevronLeft size={20} />
-                  </button>
-
-                  <span className="text-sm font-bold text-gray-600 bg-gray-50 px-4 py-2 rounded-lg border border-gray-100">
-                    Halaman {currentPage} dari {totalPages}
-                  </span>
-
-                  <button
-                    onClick={() =>
-                      fetchProductReviews(product.id, currentPage + 1)
-                    }
-                    disabled={currentPage === totalPages}
-                    className="flex items-center justify-center p-2 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 hover:text-chester-pink transition disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
-                    title="Halaman Selanjutnya"
-                  >
-                    <ChevronRight size={20} />
-                  </button>
+              {product.video_url && (
+                <div className="mt-4 border border-gray-100 p-2 rounded-xl bg-gray-50">
+                  <div className="w-full aspect-video rounded-lg overflow-hidden shadow-sm bg-gray-900">
+                    <iframe
+                      width="100%"
+                      height="100%"
+                      src={getYouTubeEmbedUrl(product.video_url)}
+                      title="Product Video"
+                      frameBorder="0"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                    ></iframe>
+                  </div>
                 </div>
               )}
+            </div>
+
+            <div className="w-full md:w-1/2 pt-2">
+              <h1 className="text-3xl lg:text-4xl font-bold text-chester-text mb-4 leading-tight">
+                {product.name}
+              </h1>
+
+              <div className="flex items-end gap-3 mb-8">
+                <p className="text-2xl text-chester-pink font-medium">
+                  {currentOriginalPrice > 0
+                    ? formatRupiah(currentOriginalPrice)
+                    : formatRupiah(currentPrice)}
+                </p>
+
+                {currentOriginalPrice > 0 && (
+                  <p className="text-lg text-gray-400 line-through decoration-gray-300 font-medium pb-0.5">
+                    {formatRupiah(currentPrice)}
+                  </p>
+                )}
+              </div>
+
+              {/* RENDER OPSI VARIASI BERTINGKAT */}
+              {product.has_variant === 1 && product.parsedVariantTypes && product.parsedVariantTypes.length > 0 && (
+                <div className="mb-8 flex flex-col gap-5">
+                  {product.parsedVariantTypes.map((vt, idx) => (
+                    <div key={idx}>
+                      <p className="text-sm font-bold text-chester-text uppercase tracking-wider mb-3">
+                        {vt.name}: <span className="font-normal text-gray-500">{selectedOptions[vt.name]}</span>
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {vt.options.map((opt, optIdx) => {
+                          const isSelected = selectedOptions[vt.name] === opt;
+                          return (
+                            <button
+                              key={optIdx}
+                              onClick={() => handleOptionSelect(vt.name, opt)}
+                              className={`px-4 py-2 text-sm font-bold border rounded transition ${isSelected ? "border-chester-text bg-chester-text text-white shadow-sm" : "border-gray-200 text-chester-text hover:border-gray-400"}`}
+                            >
+                              {opt}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {/* Peringatan jika kombinasi yang diklik pembeli tidak ada di stok / database */}
+                  {!selectedVariant && (
+                    <p className="text-sm font-semibold text-rose-500 mt-2 flex items-center gap-1.5">
+                      <AlertCircle size={16} /> Kombinasi variasi ini sedang tidak tersedia.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div className="flex flex-col gap-4 mb-10">
+                <div className="flex items-center border border-gray-300 w-full md:w-32 h-14 md:h-12 rounded-lg">
+                  <button
+                    onClick={() => updateQuantity("minus")}
+                    className="w-12 md:w-10 h-full flex justify-center items-center text-gray-500 hover:text-chester-text"
+                  >
+                    <Minus size={16} />
+                  </button>
+                  <span className="flex-1 text-center font-bold text-sm">
+                    {quantity}
+                  </span>
+                  <button
+                    onClick={() => updateQuantity("plus")}
+                    className="w-12 md:w-10 h-full flex justify-center items-center text-gray-500 hover:text-chester-text"
+                  >
+                    <Plus size={16} />
+                  </button>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    onClick={handleAddToCart}
+                    className="flex-1 bg-chester-pink text-white h-14 rounded-lg font-bold text-sm uppercase tracking-widest hover:bg-pink-600 transition shadow-sm"
+                  >
+                    Tambah ke Keranjang
+                  </button>
+
+                  <button
+                    onClick={toggleWishlist}
+                    className={`w-14 h-14 flex items-center justify-center border-2 rounded-lg transition-colors ${isWishlisted ? "border-chester-pink bg-pink-50 text-chester-pink" : "border-gray-200 text-gray-400 hover:border-chester-pink hover:text-chester-pink"}`}
+                    title="Simpan ke Wishlist"
+                  >
+                    <Heart
+                      size={20}
+                      fill={isWishlisted ? "currentColor" : "none"}
+                    />
+                  </button>
+                </div>
+
+                <button
+                  onClick={handleBuyNow}
+                  className="w-full bg-white text-chester-text border-2 border-chester-text h-14 rounded-lg font-bold text-sm uppercase tracking-widest hover:bg-gray-50 transition shadow-sm"
+                >
+                  Beli Sekarang
+                </button>
+              </div>
+
+              <div className="pt-8 border-t border-gray-100">
+                <div className="mb-6">
+                  <h3 className="text-sm font-bold text-chester-text uppercase tracking-wider mb-3">
+                    Deskripsi Produk
+                  </h3>
+                  <div
+                    className="text-sm text-gray-600 leading-relaxed [&_ul]:!list-disc [&_ul]:!pl-5 [&_ol]:!list-disc [&_ol]:!pl-5 [&_li]:!mb-2 [&_li]:!ml-4"
+                    dangerouslySetInnerHTML={{
+                      __html: product.description || "Tidak ada deskripsi.",
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div
+                onClick={handleShare}
+                className="mt-8 pt-6 border-t border-gray-100 flex items-center gap-2 text-sm text-gray-500 cursor-pointer hover:text-chester-pink transition w-fit"
+              >
+                <Share2 size={16} />
+                <span className="underline font-medium">Bagikan Produk Ini</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-16 pt-10 border-t border-gray-100">
+            <h3 className="text-xl font-bold text-chester-text mb-6">
+              Ulasan Pelanggan ({reviewSummary.totalReviews})
+            </h3>
+
+            {reviews.length === 0 ? (
+              <div className="bg-gray-50 rounded-xl p-8 text-center text-gray-500 text-sm">
+                Belum ada ulasan untuk produk ini. Jadilah yang pertama memberikan
+                penilaian setelah membeli!
+              </div>
+            ) : (
+              <div className="flex flex-col gap-6">
+                <div className="flex items-center gap-4 bg-pink-50/50 p-4 rounded-xl border border-pink-100 w-max mb-2">
+                  <div className="text-3xl font-black text-chester-pink">
+                    {Number(reviewSummary.averageRating).toFixed(1)}
+                  </div>
+                  <div>
+                    <div className="flex text-yellow-400 mb-1">
+                      {[...Array(5)].map((_, i) => (
+                        <Star
+                          key={i}
+                          size={16}
+                          fill={
+                            i < Math.round(reviewSummary.averageRating)
+                              ? "currentColor"
+                              : "none"
+                          }
+                        />
+                      ))}
+                    </div>
+                    <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                      Dari {reviewSummary.totalReviews} Penilaian
+                    </p>
+                  </div>
+                </div>
+
+                <div className="divide-y divide-gray-100">
+                  {reviews.map((rev) => (
+                    <div key={rev.id} className="py-6 first:pt-0 group relative">
+                      {customerUser && customerUser.id === rev.user_id && (
+                        <button
+                          onClick={() => handleOpenEditModal(rev)}
+                          className="absolute top-6 right-0 flex items-center gap-1.5 text-xs font-bold text-gray-400 hover:text-chester-pink transition-colors bg-white px-2 py-1 rounded border border-gray-200 hover:border-chester-pink shadow-sm opacity-100 md:opacity-0 md:group-hover:opacity-100"
+                        >
+                          <Edit size={14} />
+                          Edit
+                        </button>
+                      )}
+
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center font-bold text-gray-500 overflow-hidden">
+                            {rev.avatar ? (
+                              <img
+                                src={getImageUrl(rev.avatar)}
+                                alt="Avatar"
+                                className="w-full h-full object-cover"
+                                onError={(e) => {
+                                  e.currentTarget.onerror = null;
+                                  e.currentTarget.style.display = "none";
+                                }}
+                              />
+                            ) : (
+                              rev.customer_name?.charAt(0) || "U"
+                            )}
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-gray-800">
+                              {rev.customer_name || "Pengguna"}
+                            </p>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <div className="flex text-yellow-400">
+                                {[...Array(5)].map((_, i) => (
+                                  <Star
+                                    key={i}
+                                    size={12}
+                                    fill={
+                                      i < rev.rating ? "currentColor" : "none"
+                                    }
+                                    strokeWidth={2}
+                                  />
+                                ))}
+                              </div>
+                              <span className="text-[10px] text-gray-400">
+                                {new Date(rev.created_at).toLocaleDateString(
+                                  "id-ID",
+                                  {
+                                    year: "numeric",
+                                    month: "long",
+                                    day: "numeric",
+                                  },
+                                )}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {rev.variant_name && (
+                        <p className="text-[11px] text-gray-500 font-medium mb-3 mt-2 bg-gray-50 inline-block px-2 py-1 rounded">
+                          Varian: {rev.variant_name}
+                        </p>
+                      )}
+
+                      <p className="text-sm text-gray-700 leading-relaxed mt-2 pr-16 md:pr-0">
+                        {rev.comment ? (
+                          rev.comment
+                        ) : (
+                          <span className="italic text-gray-400">
+                            Pengguna tidak meninggalkan teks ulasan.
+                          </span>
+                        )}
+                      </p>
+
+                      {rev.admin_reply && (
+                        <div className="mt-4 bg-gray-50 p-4 rounded-xl border-l-4 border-l-chester-pink">
+                          <p className="text-xs font-bold text-chester-pink mb-1 flex items-center gap-1">
+                            <CheckCircle size={12} /> Balasan Admin :
+                          </p>
+                          <p className="text-sm text-gray-600 leading-relaxed">
+                            {rev.admin_reply}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {totalPages > 1 && (
+                  <div className="flex justify-center items-center gap-4 mt-4 pt-6 border-t border-gray-100">
+                    <button
+                      onClick={() =>
+                        fetchProductReviews(product.id, currentPage - 1)
+                      }
+                      disabled={currentPage === 1}
+                      className="flex items-center justify-center p-2 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 hover:text-chester-pink transition disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+                      title="Halaman Sebelumnya"
+                    >
+                      <ChevronLeft size={20} />
+                    </button>
+
+                    <span className="text-sm font-bold text-gray-600 bg-gray-50 px-4 py-2 rounded-lg border border-gray-100">
+                      Halaman {currentPage} dari {totalPages}
+                    </span>
+
+                    <button
+                      onClick={() =>
+                        fetchProductReviews(product.id, currentPage + 1)
+                      }
+                      disabled={currentPage === totalPages}
+                      className="flex items-center justify-center p-2 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-100 hover:text-chester-pink transition disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+                      title="Halaman Selanjutnya"
+                    >
+                      <ChevronRight size={20} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {relatedProducts.length > 0 && (
+            <div className="mt-16 pt-10 border-t border-gray-100">
+              <div className="flex justify-between items-end mb-10">
+                <h2 className="text-2xl lg:text-3xl font-bold text-chester-text">
+                  Produk Terkait
+                </h2>
+                <Link
+                  to="/products"
+                  className="text-sm font-semibold text-gray-500 hover:text-chester-pink underline hidden sm:block"
+                >
+                  Lihat Semua
+                </Link>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
+                {relatedProducts.map((rel) => {
+                  const relPrice =
+                    rel.has_variant === 1
+                      ? Number(rel.min_v_price || 0)
+                      : Number(rel.price || 0);
+                  const relOriginalPrice =
+                    rel.has_variant === 1
+                      ? Number(rel.min_v_original_price || 0)
+                      : Number(rel.original_price || 0);
+
+                  return (
+                    <Link
+                      key={rel.id}
+                      to={`/product/${rel.slug}`}
+                      className="group font-lora block cursor-pointer"
+                    >
+                      <div className="aspect-[4/5] overflow-hidden mb-4 bg-gray-100 relative rounded-lg">
+                        <img
+                          src={getImageUrl(rel.primary_image)}
+                          alt={rel.name}
+                          className={`w-full h-full object-cover transition-transform duration-500 ${rel.status !== "available" ? "opacity-70 grayscale" : "group-hover:scale-105"}`}
+                          onError={(e) => {
+                            e.currentTarget.onerror = null;
+                            e.currentTarget.src = "/placeholder.png";
+                          }}
+                        />
+                        {rel.status === "sold" && (
+                          <span className="absolute top-2 left-2 bg-gray-900 text-white text-[10px] font-bold uppercase tracking-wider px-2 py-1 shadow-sm z-10 rounded">
+                            Sold Out
+                          </span>
+                        )}
+                      </div>
+
+                      <h3 className="text-sm font-medium text-chester-text group-hover:text-chester-pink transition mb-1 line-clamp-1">
+                        {rel.name}
+                      </h3>
+
+                      <div className="flex flex-wrap items-center gap-2 mt-1">
+                        <p className="text-sm font-semibold text-chester-pink">
+                          {relOriginalPrice > 0
+                            ? formatRupiah(relOriginalPrice)
+                            : formatRupiah(relPrice)}
+                        </p>
+
+                        {relOriginalPrice > 0 && (
+                          <p className="text-[11px] text-gray-400 line-through decoration-gray-300 font-medium">
+                            {formatRupiah(relPrice)}
+                          </p>
+                        )}
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+              <Link
+                to="/products"
+                className="sm:hidden block mt-8 text-center text-sm font-bold text-chester-text border border-chester-text py-3 rounded-lg uppercase tracking-widest"
+              >
+                Lihat Semua Produk
+              </Link>
             </div>
           )}
         </div>
 
-        {/* ========================================= */}
-        {/* BAGIAN BAWAH: PRODUK TERKAIT              */}
-        {/* ========================================= */}
-        {relatedProducts.length > 0 && (
-          <div className="mt-16 pt-10 border-t border-gray-100">
-            <div className="flex justify-between items-end mb-10">
-              <h2 className="text-2xl lg:text-3xl font-bold text-chester-text">
-                Produk Terkait
-              </h2>
-              <Link
-                to="/products"
-                className="text-sm font-semibold text-gray-500 hover:text-chester-pink underline hidden sm:block"
-              >
-                Lihat Semua
-              </Link>
-            </div>
+        {editModal.isOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex justify-between items-center p-5 border-b border-gray-100 bg-gray-50">
+                <h3 className="font-bold text-gray-800">Edit Ulasan Saya</h3>
+                <button
+                  onClick={() => setEditModal({ ...editModal, isOpen: false })}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X size={20} />
+                </button>
+              </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
-              {relatedProducts.map((rel) => {
-                const relPrice =
-                  rel.has_variant === 1
-                    ? Number(rel.min_v_price || 0)
-                    : Number(rel.price || 0);
-                const relOriginalPrice =
-                  rel.has_variant === 1
-                    ? Number(rel.min_v_original_price || 0)
-                    : Number(rel.original_price || 0);
+              <form onSubmit={handleSubmitEditReview} className="p-6">
+                <div className="mb-5 text-center">
+                  <label className="block text-sm font-bold text-gray-700 mb-3">
+                    Berapa bintang untuk produk ini?
+                  </label>
+                  <div className="flex justify-center gap-2 text-gray-300">
+                    {[1, 2, 3, 4, 5].map((starValue) => (
+                      <button
+                        type="button"
+                        key={starValue}
+                        onClick={() =>
+                          setEditModal({ ...editModal, rating: starValue })
+                        }
+                        className="hover:scale-110 transition-transform focus:outline-none"
+                      >
+                        <Star
+                          size={32}
+                          fill={
+                            starValue <= editModal.rating ? "#facc15" : "none"
+                          }
+                          color={
+                            starValue <= editModal.rating
+                              ? "#facc15"
+                              : "currentColor"
+                          }
+                        />
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-                return (
-                  <Link
-                    key={rel.id}
-                    to={`/product/${rel.slug}`}
-                    className="group font-lora block cursor-pointer"
+                <div className="mb-6">
+                  <label className="block text-sm font-bold text-gray-700 mb-2">
+                    Ceritakan pengalaman Anda
+                  </label>
+                  <textarea
+                    required
+                    rows={4}
+                    value={editModal.comment}
+                    onChange={(e) =>
+                      setEditModal({ ...editModal, comment: e.target.value })
+                    }
+                    placeholder="Bagaimana kualitas bahan, jahitan, atau sablonnya?"
+                    className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-chester-pink focus:ring-1 focus:ring-chester-pink transition-colors"
+                  ></textarea>
+                </div>
+
+                <div className="flex justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setEditModal({ ...editModal, isOpen: false })}
+                    className="px-5 py-2.5 text-sm font-bold text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
                   >
-                    <div className="aspect-[4/5] overflow-hidden mb-4 bg-gray-100 relative rounded-lg">
-                      {/* 4. KOREKSI: Gunakan getImageUrl untuk thumbnail produk terkait */}
-                      <img
-                        src={getImageUrl(rel.primary_image)}
-                        alt={rel.name}
-                        className={`w-full h-full object-cover transition-transform duration-500 ${rel.status !== "available" ? "opacity-70 grayscale" : "group-hover:scale-105"}`}
-                        onError={(e) => {
-                          e.currentTarget.onerror = null;
-                          e.currentTarget.src = "/placeholder.png";
-                        }}
-                      />
-                      {rel.status === "sold" && (
-                        <span className="absolute top-2 left-2 bg-gray-900 text-white text-[10px] font-bold uppercase tracking-wider px-2 py-1 shadow-sm z-10 rounded">
-                          Sold Out
-                        </span>
-                      )}
-                    </div>
-
-                    <h3 className="text-sm font-medium text-chester-text group-hover:text-chester-pink transition mb-1 line-clamp-1">
-                      {rel.name}
-                    </h3>
-
-                    <div className="flex flex-wrap items-center gap-2 mt-1">
-                      <p className="text-sm font-semibold text-chester-pink">
-                        {relOriginalPrice > 0
-                          ? formatRupiah(relOriginalPrice)
-                          : formatRupiah(relPrice)}
-                      </p>
-
-                      {relOriginalPrice > 0 && (
-                        <p className="text-[11px] text-gray-400 line-through decoration-gray-300 font-medium">
-                          {formatRupiah(relPrice)}
-                        </p>
-                      )}
-                    </div>
-                  </Link>
-                );
-              })}
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={editModal.isSubmitting}
+                    className="px-5 py-2.5 text-sm font-bold text-white bg-chester-pink rounded-lg hover:bg-pink-600 transition-colors disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {editModal.isSubmitting ? (
+                      <span className="animate-pulse">Menyimpan...</span>
+                    ) : (
+                      "Simpan Perubahan"
+                    )}
+                  </button>
+                </div>
+              </form>
             </div>
-            <Link
-              to="/products"
-              className="sm:hidden block mt-8 text-center text-sm font-bold text-chester-text border border-chester-text py-3 rounded-lg uppercase tracking-widest"
-            >
-              Lihat Semua Produk
-            </Link>
           </div>
         )}
       </div>
-
-      {/* ========================================= */}
-      {/* MODAL EDIT ULASAN PELANGGAN                 */}
-      {/* ========================================= */}
-      {editModal.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex justify-between items-center p-5 border-b border-gray-100 bg-gray-50">
-              <h3 className="font-bold text-gray-800">Edit Ulasan Saya</h3>
-              <button
-                onClick={() => setEditModal({ ...editModal, isOpen: false })}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <form onSubmit={handleSubmitEditReview} className="p-6">
-              {/* Interaksi Pilihan Bintang */}
-              <div className="mb-5 text-center">
-                <label className="block text-sm font-bold text-gray-700 mb-3">
-                  Berapa bintang untuk produk ini?
-                </label>
-                <div className="flex justify-center gap-2 text-gray-300">
-                  {[1, 2, 3, 4, 5].map((starValue) => (
-                    <button
-                      type="button"
-                      key={starValue}
-                      onClick={() =>
-                        setEditModal({ ...editModal, rating: starValue })
-                      }
-                      className="hover:scale-110 transition-transform focus:outline-none"
-                    >
-                      <Star
-                        size={32}
-                        fill={
-                          starValue <= editModal.rating ? "#facc15" : "none"
-                        }
-                        color={
-                          starValue <= editModal.rating
-                            ? "#facc15"
-                            : "currentColor"
-                        }
-                      />
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Input Kotak Teks Komentar */}
-              <div className="mb-6">
-                <label className="block text-sm font-bold text-gray-700 mb-2">
-                  Ceritakan pengalaman Anda
-                </label>
-                <textarea
-                  required
-                  rows={4}
-                  value={editModal.comment}
-                  onChange={(e) =>
-                    setEditModal({ ...editModal, comment: e.target.value })
-                  }
-                  placeholder="Bagaimana kualitas bahan, jahitan, atau sablonnya?"
-                  className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-chester-pink focus:ring-1 focus:ring-chester-pink transition-colors"
-                ></textarea>
-              </div>
-
-              {/* Tombol Simpan atau Batal */}
-              <div className="flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setEditModal({ ...editModal, isOpen: false })}
-                  className="px-5 py-2.5 text-sm font-bold text-gray-600 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  disabled={editModal.isSubmitting}
-                  className="px-5 py-2.5 text-sm font-bold text-white bg-chester-pink rounded-lg hover:bg-pink-600 transition-colors disabled:opacity-50 flex items-center gap-2"
-                >
-                  {editModal.isSubmitting ? (
-                    <span className="animate-pulse">Menyimpan...</span>
-                  ) : (
-                    "Simpan Perubahan"
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-    </div>
+    </>
   );
 }

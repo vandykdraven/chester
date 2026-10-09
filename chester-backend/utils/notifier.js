@@ -63,7 +63,7 @@ class Notifier {
       const transporter = nodemailer.createTransport({
         host: config.smtp_host,
         port: parseInt(config.smtp_port) || 465,
-        secure: parseInt(config.smtp_port) === 465, // True jika port 465, false jika 587
+        secure: parseInt(config.smtp_port) === 465, 
         auth: {
           user: config.smtp_user,
           pass: config.smtp_password,
@@ -90,12 +90,22 @@ class Notifier {
 
     const invoice = orderData.invoice_number;
     const totalBayar = formatRupiahBackend(orderData.total_amount);
+    
+    // PERBAIKAN: Menangani qty undefined dan menyembunyikan variasi kosong
     const detailProduk = items
-      .map((item) => `- ${item.name} (${item.variant}) x${item.quantity}`)
+      .map((item) => {
+        const variantText = (item.variant && item.variant !== 'Standar') ? ` (${item.variant})` : '';
+        const qty = item.quantity || item.qty || 1;
+        return `- ${item.name}${variantText} x${qty}`;
+      })
       .join("\n");
 
+    // Menarik domain dari environment, default ke chestercollection.id
+    const frontendUrl = process.env.FRONTEND_URL || "https://chestercollection.id";
+
     // --- A. UNTUK KONSUMEN ---
-    const waCustomer = `Halo Kak ${customerData.fullname}, terima kasih sudah berbelanja di ${config.shop_name || "Chester Collection"}! 🛍️\n\nPesanan Kakak dengan nomor *${invoice}* telah berhasil kami terima dan sedang menunggu pembayaran.\n\n*Rincian Belanja:*\n${detailProduk}\n\n*Total Tagihan:* *${totalBayar}*\n\nJika Kakak belum melakukan transfer, Kakak bisa melihat instruksi pembayaran dan rekening toko melalui tautan berikut:\nhttps://domainanda.com/payment-confirmation/${orderData.id}\n\nTerima kasih! ✨`;
+    // PERBAIKAN: Spasi pada tanda bintang (*) diperbaiki dan link disesuaikan
+    const waCustomer = `Halo Kak ${customerData.fullname}, terima kasih sudah berbelanja di ${config.shop_name || "Chester Collection"}! 🛍️\n\nPesanan Kakak dengan nomor *${invoice}* telah berhasil kami terima dan sedang menunggu pembayaran.\n\n*Rincian Belanja:*\n${detailProduk}\n\n*Total Tagihan:* *${totalBayar}*\n\nJika Kakak belum melakukan transfer, Kakak bisa melihat instruksi pembayaran dan rekening toko melalui tautan berikut:\n${frontendUrl}/payment-confirmation/${orderData.id}\n\nTerima kasih! ✨`;
 
     const emailCustomerHtml = `
       <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #f0f0f0; padding: 20px; rounded: 12px;">
@@ -126,6 +136,7 @@ class Notifier {
 
     // --- B. UNTUK ADMIN TOKO ---
     if (config.shop_phone || config.smtp_user) {
+      // PERBAIKAN: Spasi pada tanda bintang (*) dirapikan
       const waAdmin = `📢 *NOTIFIKASI ORDER BARU MASUK!* 📢\n\nAda pesanan baru dengan nomor *${invoice}* oleh pelanggan *${customerData.fullname}* (${customerData.phone}).\n\n*Item Pesanan:*\n${detailProduk}\n\n*Total Nilai Transaksi:* *${totalBayar}*\n\nHarap segera periksa dashboard admin untuk memproses pesanan tersebut! 🚀`;
 
       const emailAdminHtml = `
@@ -144,7 +155,7 @@ class Notifier {
         </div>
       `;
 
-      // Kirim ke Admin Toko (Menggunakan config HP Toko & email pengirim smtp sebagai email admin)
+      // Kirim ke Admin Toko
       await this.sendWhatsApp(
         config.fonnte_api_key,
         config.shop_phone,
@@ -173,6 +184,7 @@ class Notifier {
 
     const namaKurir = String(courierCompany).toUpperCase();
 
+    // PERBAIKAN: Spasi pada tanda bintang (*) dirapikan
     const waShipping = `Kabar gembira Kak ${customerData.fullname}! 🎉\n\nPesanan Kakak dengan nomor invoice *${invoiceNumber}* telah selesai kami kemas dan *SEDANG DIKIRIM* oleh kurir.\n\n*Ekspedisi:* ${namaKurir}\n*Nomor Resi (AWB):* *${airwayBill}*\n\nKakak sudah bisa melakukan pelacakan resi secara berkala langsung di website ekspedisi terkait atau via menu profil di website kami.\n\nTerima kasih atas kepercayaannya berbelanja di ${config.shop_name || "Chester Collection"}! ❤️`;
 
     const emailShippingHtml = `

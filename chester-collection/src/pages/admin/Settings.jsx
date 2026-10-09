@@ -22,8 +22,11 @@ import {
   Menu as MenuIcon,
   BarChart,
   ShieldAlert,
+  Globe, // Tambahan ikon untuk Sitemap
 } from "lucide-react";
-import axios from "axios";
+
+// KOREKSI: Menggunakan Master API, BUKAN axios mentah
+import api from "../../api"; 
 
 export default function Settings() {
   const [activeTab, setActiveTab] = useState("general");
@@ -79,15 +82,17 @@ export default function Settings() {
     role: "Editor",
   });
 
-  // --- TAMBAHAN RBAC: Menambahkan field 'role' ke dalam profileData
   const [profileData, setProfileData] = useState({
     id: "",
     fullname: "",
     email: "",
-    role: "editor", // Default aman
+    role: "editor",
     currentPassword: "",
     newPassword: "",
   });
+
+  // STATE BARU UNTUK SITEMAP
+  const [isGeneratingSitemap, setIsGeneratingSitemap] = useState(false);
 
   useEffect(() => {
     initPage();
@@ -112,9 +117,7 @@ export default function Settings() {
 
   const fetchCategories = async () => {
     try {
-      const response = await axios.get(
-        `${import.meta.env.VITE_API_URL}/categories`,
-      );
+      const response = await api.get(`/categories`);
       if (response.data.success) {
         setCategories(response.data.data);
       }
@@ -125,9 +128,7 @@ export default function Settings() {
 
   const fetchSettings = async () => {
     try {
-      const response = await axios.get(
-        `${import.meta.env.VITE_API_URL}/settings`,
-      );
+      const response = await api.get(`/settings`);
       if (response.data.success) {
         const apiData = response.data.data;
 
@@ -160,16 +161,13 @@ export default function Settings() {
 
   const fetchAdmins = async () => {
     try {
-      const response = await axios.get(
-        `${import.meta.env.VITE_API_URL}/admins`,
-      );
+      const response = await api.get(`/admins`);
       if (response.data.success) setAdmins(response.data.data);
     } catch (e) {
       console.error(e);
     }
   };
 
-  // --- TAMBAHAN RBAC: Mengambil data role dari localStorage dan memasukkannya ke state
   const loadCurrentLoggedInAdmin = () => {
     let savedAdmin = JSON.parse(localStorage.getItem("admin"));
     if (!savedAdmin || !savedAdmin.id) {
@@ -177,7 +175,7 @@ export default function Settings() {
         id: 1,
         fullname: "Administrator",
         email: "admin@chester.com",
-        role: "superadmin", // Fallback safety
+        role: "superadmin",
       };
       localStorage.setItem("admin", JSON.stringify(savedAdmin));
     }
@@ -186,7 +184,7 @@ export default function Settings() {
       id: savedAdmin.id,
       fullname: savedAdmin.fullname,
       email: savedAdmin.email,
-      role: savedAdmin.role || "editor", // Assign role ke state
+      role: savedAdmin.role || "editor",
     }));
   };
 
@@ -213,9 +211,7 @@ export default function Settings() {
     setShowAreaDropdown(true);
 
     try {
-      const res = await axios.get(
-        `${import.meta.env.VITE_API_URL}/shipping/areas?search=${keyword}`,
-      );
+      const res = await api.get(`/shipping/areas?search=${keyword}`);
       if (res.data.success) {
         setAreaResults(res.data.data);
       }
@@ -268,10 +264,7 @@ export default function Settings() {
   const handleSaveSettings = async (e) => {
     e.preventDefault();
     if (activeTab === "general" && !formData.store_area_id) {
-      showAlert(
-        "Harap pilih Area ID Pengiriman dari hasil pencarian!",
-        "error",
-      );
+      showAlert("Harap pilih Area ID Pengiriman dari hasil pencarian!", "error");
       return;
     }
 
@@ -283,14 +276,11 @@ export default function Settings() {
         frontend_active_menus: JSON.stringify(activeMenus),
       };
 
-      const res = await axios.put(
-        `${import.meta.env.VITE_API_URL}/settings`,
-        payloadToSave,
-      );
+      const res = await api.put(`/settings`, payloadToSave);
       if (res.data.success)
         showAlert("Pengaturan berhasil disimpan!", "success");
     } catch (err) {
-      showAlert("Gagal menyimpan.", "error");
+      showAlert("Gagal menyimpan pengaturan.", "error");
     }
     setIsSaving(false);
   };
@@ -298,10 +288,7 @@ export default function Settings() {
   const handleAddAdmin = async (e) => {
     e.preventDefault();
     try {
-      const res = await axios.post(
-        `${import.meta.env.VITE_API_URL}/admins`,
-        newAdmin,
-      );
+      const res = await api.post(`/admins`, newAdmin);
       if (res.data.success) {
         showAlert(res.data.message, "success");
         setNewAdmin({ fullname: "", email: "", password: "", role: "Editor" });
@@ -309,24 +296,14 @@ export default function Settings() {
         fetchAdmins();
       }
     } catch (err) {
-      showAlert(
-        err.response?.data?.message || "Gagal menambah admin.",
-        "error",
-      );
+      showAlert(err.response?.data?.message || "Gagal menambah admin.", "error");
     }
   };
 
   const handleDeleteAdmin = async (id, name) => {
-    if (
-      !window.confirm(
-        `Apakah Anda yakin ingin menghapus akses admin untuk ${name}?`,
-      )
-    )
-      return;
+    if (!window.confirm(`Apakah Anda yakin ingin menghapus akses admin untuk ${name}?`)) return;
     try {
-      const res = await axios.delete(
-        `${import.meta.env.VITE_API_URL}/admins/${id}`,
-      );
+      const res = await api.delete(`/admins/${id}`);
       if (res.data.success) {
         showAlert(res.data.message, "success");
         fetchAdmins();
@@ -339,10 +316,7 @@ export default function Settings() {
   const handleSaveProfile = async (e) => {
     e.preventDefault();
     try {
-      const res = await axios.put(
-        `${import.meta.env.VITE_API_URL}/admins/profile`,
-        profileData,
-      );
+      const res = await api.put(`/admins/profile`, profileData);
       if (res.data.success) {
         showAlert(res.data.message, "success");
         const currentLocal = JSON.parse(localStorage.getItem("admin")) || {};
@@ -357,10 +331,23 @@ export default function Settings() {
         }));
       }
     } catch (err) {
-      showAlert(
-        err.response?.data?.message || "Gagal memperbarui profil.",
-        "error",
-      );
+      showAlert(err.response?.data?.message || "Gagal memperbarui profil.", "error");
+    }
+  };
+
+  // FUNGSI BARU: Generate Sitemap SEO
+  const handleGenerateSitemap = async () => {
+    setIsGeneratingSitemap(true);
+    try {
+      const res = await api.post("/sitemap/generate");
+      if (res.data.success) {
+        showAlert(`Berhasil! Sitemap diperbarui: ${res.data.url}`, "success");
+      }
+    } catch (error) {
+      console.error(error);
+      showAlert("Gagal memperbarui sitemap. Cek koneksi server atau perizinan folder.", "error");
+    } finally {
+      setIsGeneratingSitemap(false);
     }
   };
 
@@ -397,11 +384,7 @@ export default function Settings() {
                 : "bg-rose-500 border-rose-400"
             }`}
           >
-            {customAlert.type === "success" ? (
-              <CheckCircle size={20} />
-            ) : (
-              <AlertCircle size={20} />
-            )}
+            {customAlert.type === "success" ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
             <span>{customAlert.message}</span>
           </div>
         </div>
@@ -410,12 +393,10 @@ export default function Settings() {
       {/* HEADER */}
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-chester-text mb-1 flex items-center gap-2">
-          <SettingsIcon size={24} className="text-chester-pink" /> Pengaturan
-          Sistem
+          <SettingsIcon size={24} className="text-chester-pink" /> Pengaturan Sistem
         </h1>
         <p className="text-sm text-gray-500">
-          Konfigurasi operasional toko, integrasi logistik, notifikasi otomatis,
-          serta manajemen otorisasi staf.
+          Konfigurasi operasional toko, integrasi logistik, notifikasi otomatis, serta manajemen otorisasi staf.
         </p>
       </div>
 
@@ -425,246 +406,113 @@ export default function Settings() {
           <div className="text-xs font-bold text-gray-400 uppercase tracking-wider px-4 mb-2 mt-2">
             Sistem Toko
           </div>
-          <TabButton
-            id="general"
-            icon={<Store size={18} />}
-            label="Informasi Toko"
-          />
-          <TabButton
-            id="navigation"
-            icon={<MenuIcon size={18} />}
-            label="Navigasi Website"
-          />
-          <TabButton
-            id="shipping"
-            icon={<Truck size={18} />}
-            label="API Logistik"
-          />
-          <TabButton
-            id="notification"
-            icon={<Bell size={18} />}
-            label="Notifikasi (Email & WA)"
-          />
-          <TabButton
-            id="payment"
-            icon={<CreditCard size={18} />}
-            label="Pembayaran"
-          />
+          <TabButton id="general" icon={<Store size={18} />} label="Informasi Toko" />
+          <TabButton id="navigation" icon={<MenuIcon size={18} />} label="Navigasi Website" />
+          <TabButton id="shipping" icon={<Truck size={18} />} label="API Logistik" />
+          <TabButton id="notification" icon={<Bell size={18} />} label="Notifikasi (Email & WA)" />
+          <TabButton id="payment" icon={<CreditCard size={18} />} label="Pembayaran" />
 
           <div className="text-xs font-bold text-gray-400 uppercase tracking-wider px-4 mb-2 mt-6">
             Marketing & SEO
           </div>
-          <TabButton
-            id="integration"
-            icon={<BarChart size={18} />}
-            label="Integrasi & Pelacakan"
-          />
+          <TabButton id="integration" icon={<BarChart size={18} />} label="Integrasi & Pelacakan" />
 
           <div className="text-xs font-bold text-gray-400 uppercase tracking-wider px-4 mb-2 mt-6">
             Akun & Staf
           </div>
-
-          {/* --- TAMBAHAN RBAC: Tampilkan tab ini HANYA jika rolenya Superadmin --- */}
           {(profileData.role || "").toLowerCase() === "superadmin" && (
-            <TabButton
-              id="staff"
-              icon={<Users size={18} />}
-              label="Kelola Staf"
-            />
+            <TabButton id="staff" icon={<Users size={18} />} label="Kelola Staf" />
           )}
-
-          <TabButton
-            id="profile"
-            icon={<UserCircle size={18} />}
-            label="Profil Saya"
-          />
+          <TabButton id="profile" icon={<UserCircle size={18} />} label="Profil Saya" />
         </div>
 
         {/* CONTENT AREA */}
         <div className="md:col-span-3">
           {/* TAB 1: INFORMASI TOKO */}
           {activeTab === "general" && (
-            <form
-              onSubmit={handleSaveSettings}
-              className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm min-h-[400px] animate-fade-in flex flex-col gap-6"
-            >
+            <form onSubmit={handleSaveSettings} className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm min-h-[400px] animate-fade-in flex flex-col gap-6">
               <div>
-                <h2 className="text-lg font-bold text-gray-800 mb-1">
-                  Informasi Dasar Toko
-                </h2>
-                <p className="text-xs text-gray-500">
-                  Data ini digunakan untuk keperluan struk dan lokasi awal
-                  pengiriman (Origin).
-                </p>
+                <h2 className="text-lg font-bold text-gray-800 mb-1">Informasi Dasar Toko</h2>
+                <p className="text-xs text-gray-500">Data ini digunakan untuk keperluan struk dan lokasi awal pengiriman (Origin).</p>
               </div>
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">
-                  Nama Toko
-                </label>
-                <input
-                  type="text"
-                  name="shop_name"
-                  value={formData.shop_name || ""}
-                  onChange={handleChangeSetting}
-                  className="w-full border px-4 py-2.5 rounded-lg focus:border-chester-pink outline-none"
-                />
+                <label className="block text-sm font-bold text-gray-700 mb-2">Nama Toko</label>
+                <input type="text" name="shop_name" value={formData.shop_name || ""} onChange={handleChangeSetting} className="w-full border px-4 py-2.5 rounded-lg focus:border-chester-pink outline-none" />
               </div>
               <div className="flex flex-col sm:flex-row gap-4">
                 <div className="w-full">
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Nomor WhatsApp (CS)
-                  </label>
-                  <input
-                    type="text"
-                    name="shop_phone"
-                    value={formData.shop_phone || ""}
-                    onChange={handleChangeSetting}
-                    className="w-full border px-4 py-2.5 rounded-lg focus:border-chester-pink outline-none"
-                  />
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Nomor WhatsApp (CS)</label>
+                  <input type="text" name="shop_phone" value={formData.shop_phone || ""} onChange={handleChangeSetting} className="w-full border px-4 py-2.5 rounded-lg focus:border-chester-pink outline-none" />
                 </div>
                 {/* FORM PENCARIAN AREA ID BITESHIP */}
                 <div className="w-full relative" ref={dropdownRef}>
                   <label className="block text-sm font-bold text-gray-700 mb-2 text-chester-pink flex items-center gap-1">
-                    Area ID Pengiriman (Origin){" "}
-                    <span className="text-red-500">*</span>
+                    Area ID Pengiriman (Origin) <span className="text-red-500">*</span>
                   </label>
                   <div className="relative">
                     <input
                       type="text"
                       value={areaQuery}
                       onChange={handleAreaSearchChange}
-                      onFocus={() => {
-                        if (areaResults.length > 0) setShowAreaDropdown(true);
-                      }}
+                      onFocus={() => { if (areaResults.length > 0) setShowAreaDropdown(true); }}
                       placeholder="Ketik nama kecamatan..."
                       className="w-full border px-4 py-2.5 pl-10 rounded-lg focus:border-chester-pink outline-none border-pink-200 bg-pink-50/20 text-sm"
                     />
-                    <Search
-                      className="absolute left-3 top-3 text-pink-400"
-                      size={18}
-                    />
+                    <Search className="absolute left-3 top-3 text-pink-400" size={18} />
                   </div>
                   {showAreaDropdown && (
                     <div className="absolute z-10 w-full mt-1 bg-white border rounded-xl shadow-xl max-h-60 overflow-y-auto">
                       {isSearchingArea ? (
-                        <div className="p-4 text-center text-sm text-gray-500">
-                          Sedang mencari lokasi...
-                        </div>
+                        <div className="p-4 text-center text-sm text-gray-500">Sedang mencari lokasi...</div>
                       ) : areaResults.length > 0 ? (
                         <ul className="py-2">
                           {areaResults.map((area) => (
-                            <li
-                              key={area.id}
-                              onClick={() => handleSelectArea(area)}
-                              className="px-4 py-3 hover:bg-pink-50 cursor-pointer flex items-start gap-3 border-b last:border-0 transition"
-                            >
-                              <MapPin
-                                size={18}
-                                className="text-chester-pink mt-0.5 shrink-0"
-                              />
+                            <li key={area.id} onClick={() => handleSelectArea(area)} className="px-4 py-3 hover:bg-pink-50 cursor-pointer flex items-start gap-3 border-b last:border-0 transition">
+                              <MapPin size={18} className="text-chester-pink mt-0.5 shrink-0" />
                               <div>
-                                <p className="text-sm font-bold text-gray-800 leading-tight">
-                                  {area.name}
-                                </p>
-                                <p className="text-[10px] text-gray-400 font-mono mt-1">
-                                  ID: {area.id}
-                                </p>
+                                <p className="text-sm font-bold text-gray-800 leading-tight">{area.name}</p>
+                                <p className="text-[10px] text-gray-400 font-mono mt-1">ID: {area.id}</p>
                               </div>
                             </li>
                           ))}
                         </ul>
                       ) : (
-                        areaQuery.length >= 3 && (
-                          <div className="p-4 text-center text-sm text-gray-500">
-                            Lokasi tidak ditemukan.
-                          </div>
-                        )
+                        areaQuery.length >= 3 && <div className="p-4 text-center text-sm text-gray-500">Lokasi tidak ditemukan.</div>
                       )}
                     </div>
                   )}
-                  {areaQuery &&
-                    !formData.store_area_id &&
-                    !showAreaDropdown && (
-                      <p className="text-[10px] text-red-500 mt-1 font-bold">
-                        ⚠️ Harap pilih lokasi dari daftar rekomendasi.
-                      </p>
-                    )}
+                  {areaQuery && !formData.store_area_id && !showAreaDropdown && (
+                    <p className="text-[10px] text-red-500 mt-1 font-bold">⚠️ Harap pilih lokasi dari daftar rekomendasi.</p>
+                  )}
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">
-                  Alamat Fisik Toko
-                </label>
-                <textarea
-                  name="shop_address"
-                  value={formData.shop_address || ""}
-                  onChange={handleChangeSetting}
-                  rows="3"
-                  className="w-full border px-4 py-3 rounded-lg focus:border-chester-pink outline-none resize-none"
-                  placeholder="Nama jalan, gedung, RT/RW..."
-                ></textarea>
+                <label className="block text-sm font-bold text-gray-700 mb-2">Alamat Fisik Toko</label>
+                <textarea name="shop_address" value={formData.shop_address || ""} onChange={handleChangeSetting} rows="3" className="w-full border px-4 py-3 rounded-lg focus:border-chester-pink outline-none resize-none" placeholder="Nama jalan, gedung, RT/RW..."></textarea>
               </div>
 
               {/* INPUT MEDIA SOSIAL */}
               <div className="pt-6 border-t border-gray-100">
                 <div className="flex items-center gap-2 mb-4">
                   <Share2 className="text-gray-400" size={18} />
-                  <h3 className="text-sm font-bold text-gray-800">
-                    Tautan Media Sosial
-                  </h3>
+                  <h3 className="text-sm font-bold text-gray-800">Tautan Media Sosial</h3>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-gray-600 mb-1">
-                      Facebook URL
-                    </label>
-                    <input
-                      type="url"
-                      name="social_facebook"
-                      value={formData.social_facebook || ""}
-                      onChange={handleChangeSetting}
-                      placeholder="https://facebook.com/..."
-                      className="w-full border px-3 py-2 rounded-lg text-sm outline-none focus:border-chester-pink"
-                    />
+                    <label className="block text-xs font-bold text-gray-600 mb-1">Facebook URL</label>
+                    <input type="url" name="social_facebook" value={formData.social_facebook || ""} onChange={handleChangeSetting} placeholder="https://facebook.com/..." className="w-full border px-3 py-2 rounded-lg text-sm outline-none focus:border-chester-pink" />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-gray-600 mb-1">
-                      Instagram URL
-                    </label>
-                    <input
-                      type="url"
-                      name="social_instagram"
-                      value={formData.social_instagram || ""}
-                      onChange={handleChangeSetting}
-                      placeholder="https://instagram.com/..."
-                      className="w-full border px-3 py-2 rounded-lg text-sm outline-none focus:border-chester-pink"
-                    />
+                    <label className="block text-xs font-bold text-gray-600 mb-1">Instagram URL</label>
+                    <input type="url" name="social_instagram" value={formData.social_instagram || ""} onChange={handleChangeSetting} placeholder="https://instagram.com/..." className="w-full border px-3 py-2 rounded-lg text-sm outline-none focus:border-chester-pink" />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-gray-600 mb-1">
-                      TikTok URL
-                    </label>
-                    <input
-                      type="url"
-                      name="social_tiktok"
-                      value={formData.social_tiktok || ""}
-                      onChange={handleChangeSetting}
-                      placeholder="https://tiktok.com/@..."
-                      className="w-full border px-3 py-2 rounded-lg text-sm outline-none focus:border-chester-pink"
-                    />
+                    <label className="block text-xs font-bold text-gray-600 mb-1">TikTok URL</label>
+                    <input type="url" name="social_tiktok" value={formData.social_tiktok || ""} onChange={handleChangeSetting} placeholder="https://tiktok.com/@..." className="w-full border px-3 py-2 rounded-lg text-sm outline-none focus:border-chester-pink" />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-gray-600 mb-1">
-                      Twitter / X URL
-                    </label>
-                    <input
-                      type="url"
-                      name="social_twitter"
-                      value={formData.social_twitter || ""}
-                      onChange={handleChangeSetting}
-                      placeholder="https://twitter.com/..."
-                      className="w-full border px-3 py-2 rounded-lg text-sm outline-none focus:border-chester-pink"
-                    />
+                    <label className="block text-xs font-bold text-gray-600 mb-1">Twitter / X URL</label>
+                    <input type="url" name="social_twitter" value={formData.social_twitter || ""} onChange={handleChangeSetting} placeholder="https://twitter.com/..." className="w-full border px-3 py-2 rounded-lg text-sm outline-none focus:border-chester-pink" />
                   </div>
                 </div>
               </div>
@@ -672,99 +520,49 @@ export default function Settings() {
               <div className="pt-6 border-t border-gray-100">
                 <div className="flex items-center gap-2 mb-4">
                   <ShieldAlert className="text-gray-400" size={18} />
-                  <h3 className="text-sm font-bold text-gray-800">
-                    Moderasi Konten (Ulasan Pembeli)
-                  </h3>
+                  <h3 className="text-sm font-bold text-gray-800">Moderasi Konten (Ulasan Pembeli)</h3>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-gray-600 mb-1">
-                    Daftar Kata Kotor (Profanity Filter)
-                  </label>
-                  <textarea
-                    name="profanity_filter_words"
-                    value={formData.profanity_filter_words || ""}
-                    onChange={handleChangeSetting}
-                    rows="3"
-                    className="w-full border px-4 py-3 rounded-lg focus:border-chester-pink outline-none resize-none text-sm"
-                    placeholder="Contoh: jelek, penipu, cacat, bangsat"
-                  ></textarea>
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Pisahkan kata dengan <b>koma (,)</b>. Sistem akan otomatis
-                    menyensor kata-kata ini menjadi tanda bintang (***) pada
-                    ulasan produk.
-                  </p>
+                  <label className="block text-xs font-bold text-gray-600 mb-1">Daftar Kata Kotor (Profanity Filter)</label>
+                  <textarea name="profanity_filter_words" value={formData.profanity_filter_words || ""} onChange={handleChangeSetting} rows="3" className="w-full border px-4 py-3 rounded-lg focus:border-chester-pink outline-none resize-none text-sm" placeholder="Contoh: jelek, penipu, cacat, bangsat"></textarea>
+                  <p className="text-[11px] text-gray-500 mt-1">Pisahkan kata dengan <b>koma (,)</b>. Sistem otomatis menyensor kata ini pada ulasan.</p>
                 </div>
               </div>
 
-              <button
-                type="submit"
-                disabled={isSaving}
-                className="bg-chester-pink text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 w-max shadow-sm mt-2"
-              >
+              <button type="submit" disabled={isSaving} className="bg-chester-pink text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 w-max shadow-sm mt-2">
                 <Save size={18} /> Simpan Pengaturan
               </button>
             </form>
           )}
 
-          {/* TAB BARU: NAVIGASI WEBSITE */}
+          {/* TAB 2: NAVIGASI WEBSITE */}
           {activeTab === "navigation" && (
-            <form
-              onSubmit={handleSaveSettings}
-              className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm min-h-[400px] animate-fade-in flex flex-col gap-6"
-            >
+            <form onSubmit={handleSaveSettings} className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm min-h-[400px] animate-fade-in flex flex-col gap-6">
               <div>
-                <h2 className="text-lg font-bold text-gray-800 mb-1">
-                  Navigasi Website (Menu Frontend)
-                </h2>
-                <p className="text-xs text-gray-500">
-                  Centang kategori produk yang ingin Anda tampilkan sebagai menu
-                  di header (navbar) pengunjung. Menu "Beranda" dan "Katalog"
-                  akan selalu tampil secara default.
-                </p>
+                <h2 className="text-lg font-bold text-gray-800 mb-1">Navigasi Website (Menu Frontend)</h2>
+                <p className="text-xs text-gray-500">Centang kategori produk yang ingin ditampilkan sebagai menu di header website.</p>
               </div>
 
               <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm">
                 <div className="bg-gray-50 px-5 py-3 border-b border-gray-200 flex justify-between items-center">
-                  <span className="text-sm font-bold text-gray-700">
-                    Daftar Kategori Tersedia
-                  </span>
-                  <span className="text-xs text-chester-pink font-bold bg-pink-50 px-2 py-1 rounded">
-                    {activeMenus.length} Menu Terpilih
-                  </span>
+                  <span className="text-sm font-bold text-gray-700">Daftar Kategori Tersedia</span>
+                  <span className="text-xs text-chester-pink font-bold bg-pink-50 px-2 py-1 rounded">{activeMenus.length} Menu Terpilih</span>
                 </div>
                 <div className="p-5 flex flex-col gap-4">
                   {categories.length === 0 ? (
-                    <p className="text-sm text-gray-500 italic text-center py-4">
-                      Belum ada kategori produk yang dibuat.
-                    </p>
+                    <p className="text-sm text-gray-500 italic text-center py-4">Belum ada kategori produk.</p>
                   ) : (
                     categories.map((cat) => (
-                      <label
-                        key={cat.id}
-                        className="flex items-center gap-3 cursor-pointer group w-max"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={activeMenus.includes(cat.id)}
-                          onChange={() => toggleActiveMenu(cat.id)}
-                          className="w-4 h-4 accent-chester-pink cursor-pointer rounded border-gray-300"
-                        />
-                        <span
-                          className={`text-sm font-medium transition ${activeMenus.includes(cat.id) ? "text-chester-pink font-bold" : "text-gray-700 group-hover:text-chester-pink"}`}
-                        >
-                          {cat.name}
-                        </span>
+                      <label key={cat.id} className="flex items-center gap-3 cursor-pointer group w-max">
+                        <input type="checkbox" checked={activeMenus.includes(cat.id)} onChange={() => toggleActiveMenu(cat.id)} className="w-4 h-4 accent-chester-pink cursor-pointer rounded border-gray-300" />
+                        <span className={`text-sm font-medium transition ${activeMenus.includes(cat.id) ? "text-chester-pink font-bold" : "text-gray-700 group-hover:text-chester-pink"}`}>{cat.name}</span>
                       </label>
                     ))
                   )}
                 </div>
               </div>
 
-              <button
-                type="submit"
-                disabled={isSaving}
-                className="bg-chester-pink text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 w-max shadow-sm"
-              >
+              <button type="submit" disabled={isSaving} className="bg-chester-pink text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 w-max shadow-sm">
                 <Save size={18} /> Simpan Navigasi
               </button>
             </form>
@@ -772,36 +570,16 @@ export default function Settings() {
 
           {/* TAB 3: BITESHIP */}
           {activeTab === "shipping" && (
-            <form
-              onSubmit={handleSaveSettings}
-              className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm min-h-[400px] animate-fade-in flex flex-col gap-6"
-            >
+            <form onSubmit={handleSaveSettings} className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm min-h-[400px] animate-fade-in flex flex-col gap-6">
               <div>
-                <h2 className="text-lg font-bold text-gray-800 mb-1">
-                  Integrasi Logistik Biteship
-                </h2>
-                <p className="text-xs text-gray-500">
-                  Masukkan API Key dari dashboard Biteship Anda.
-                </p>
+                <h2 className="text-lg font-bold text-gray-800 mb-1">Integrasi Logistik Biteship</h2>
+                <p className="text-xs text-gray-500">Masukkan API Key dari dashboard Biteship Anda.</p>
               </div>
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">
-                  API Key Biteship
-                </label>
-                <input
-                  type="password"
-                  name="biteship_api_key"
-                  value={formData.biteship_api_key || ""}
-                  onChange={handleChangeSetting}
-                  placeholder="Paste API Key Biteship Anda di sini..."
-                  className="w-full border px-4 py-2.5 rounded-lg font-mono text-sm outline-none focus:border-chester-pink bg-gray-50"
-                />
+                <label className="block text-sm font-bold text-gray-700 mb-2">API Key Biteship</label>
+                <input type="password" name="biteship_api_key" value={formData.biteship_api_key || ""} onChange={handleChangeSetting} placeholder="Paste API Key Biteship Anda di sini..." className="w-full border px-4 py-2.5 rounded-lg font-mono text-sm outline-none focus:border-chester-pink bg-gray-50" />
               </div>
-              <button
-                type="submit"
-                disabled={isSaving}
-                className="bg-chester-pink text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 w-max shadow-sm"
-              >
+              <button type="submit" disabled={isSaving} className="bg-chester-pink text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 w-max shadow-sm">
                 <Save size={18} /> Simpan API Logistik
               </button>
             </form>
@@ -809,95 +587,37 @@ export default function Settings() {
 
           {/* TAB 4: NOTIFIKASI */}
           {activeTab === "notification" && (
-            <form
-              onSubmit={handleSaveSettings}
-              className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm min-h-[400px] animate-fade-in flex flex-col gap-6"
-            >
+            <form onSubmit={handleSaveSettings} className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm min-h-[400px] animate-fade-in flex flex-col gap-6">
               <div>
-                <h2 className="text-lg font-bold text-gray-800 mb-1">
-                  Gateway Notifikasi
-                </h2>
-                <p className="text-xs text-gray-500">
-                  Pengaturan untuk mengirim email dan WhatsApp otomatis.
-                </p>
+                <h2 className="text-lg font-bold text-gray-800 mb-1">Gateway Notifikasi</h2>
+                <p className="text-xs text-gray-500">Pengaturan untuk mengirim email dan WhatsApp otomatis.</p>
               </div>
               <div className="pb-6 border-b border-gray-100">
-                <label className="block text-sm font-bold text-gray-700 mb-2">
-                  Fonnte API Key (WhatsApp Gateway)
-                </label>
-                <input
-                  type="password"
-                  name="fonnte_api_key"
-                  value={formData.fonnte_api_key || ""}
-                  onChange={handleChangeSetting}
-                  placeholder="Masukkan Token dari Fonnte..."
-                  className="w-full border px-4 py-2.5 rounded-lg font-mono text-sm outline-none focus:border-chester-pink bg-gray-50"
-                />
+                <label className="block text-sm font-bold text-gray-700 mb-2">Fonnte API Key (WhatsApp Gateway)</label>
+                <input type="password" name="fonnte_api_key" value={formData.fonnte_api_key || ""} onChange={handleChangeSetting} placeholder="Masukkan Token dari Fonnte..." className="w-full border px-4 py-2.5 rounded-lg font-mono text-sm outline-none focus:border-chester-pink bg-gray-50" />
               </div>
               <div>
-                <h3 className="text-sm font-bold text-gray-700 mb-4 flex items-center gap-2">
-                  Konfigurasi Email SMTP
-                </h3>
+                <h3 className="text-sm font-bold text-gray-700 mb-4 flex items-center gap-2">Konfigurasi Email SMTP</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-bold text-gray-600 mb-2">
-                      SMTP Host
-                    </label>
-                    <input
-                      type="text"
-                      name="smtp_host"
-                      value={formData.smtp_host || ""}
-                      onChange={handleChangeSetting}
-                      placeholder="contoh: smtp.gmail.com"
-                      className="w-full border px-4 py-2.5 rounded-lg text-sm outline-none focus:border-chester-pink"
-                    />
+                    <label className="block text-xs font-bold text-gray-600 mb-2">SMTP Host</label>
+                    <input type="text" name="smtp_host" value={formData.smtp_host || ""} onChange={handleChangeSetting} placeholder="contoh: smtp.gmail.com" className="w-full border px-4 py-2.5 rounded-lg text-sm outline-none focus:border-chester-pink" />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-gray-600 mb-2">
-                      SMTP Port
-                    </label>
-                    <input
-                      type="text"
-                      name="smtp_port"
-                      value={formData.smtp_port || ""}
-                      onChange={handleChangeSetting}
-                      placeholder="contoh: 465 atau 587"
-                      className="w-full border px-4 py-2.5 rounded-lg text-sm outline-none focus:border-chester-pink"
-                    />
+                    <label className="block text-xs font-bold text-gray-600 mb-2">SMTP Port</label>
+                    <input type="text" name="smtp_port" value={formData.smtp_port || ""} onChange={handleChangeSetting} placeholder="contoh: 465 atau 587" className="w-full border px-4 py-2.5 rounded-lg text-sm outline-none focus:border-chester-pink" />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-gray-600 mb-2">
-                      Username / Email
-                    </label>
-                    <input
-                      type="email"
-                      name="smtp_user"
-                      value={formData.smtp_user || ""}
-                      onChange={handleChangeSetting}
-                      placeholder="email.toko@gmail.com"
-                      className="w-full border px-4 py-2.5 rounded-lg text-sm outline-none focus:border-chester-pink"
-                    />
+                    <label className="block text-xs font-bold text-gray-600 mb-2">Username / Email</label>
+                    <input type="email" name="smtp_user" value={formData.smtp_user || ""} onChange={handleChangeSetting} placeholder="email.toko@gmail.com" className="w-full border px-4 py-2.5 rounded-lg text-sm outline-none focus:border-chester-pink" />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-gray-600 mb-2">
-                      Password / App Password
-                    </label>
-                    <input
-                      type="password"
-                      name="smtp_password"
-                      value={formData.smtp_password || ""}
-                      onChange={handleChangeSetting}
-                      placeholder="Masukkan kata sandi..."
-                      className="w-full border px-4 py-2.5 rounded-lg text-sm outline-none focus:border-chester-pink"
-                    />
+                    <label className="block text-xs font-bold text-gray-600 mb-2">Password / App Password</label>
+                    <input type="password" name="smtp_password" value={formData.smtp_password || ""} onChange={handleChangeSetting} placeholder="Masukkan kata sandi..." className="w-full border px-4 py-2.5 rounded-lg text-sm outline-none focus:border-chester-pink" />
                   </div>
                 </div>
               </div>
-              <button
-                type="submit"
-                disabled={isSaving}
-                className="bg-chester-pink text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 w-max shadow-sm mt-4"
-              >
+              <button type="submit" disabled={isSaving} className="bg-chester-pink text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 w-max shadow-sm mt-4">
                 <Save size={18} /> Simpan Pengaturan
               </button>
             </form>
@@ -905,449 +625,221 @@ export default function Settings() {
 
           {/* TAB 5: PEMBAYARAN */}
           {activeTab === "payment" && (
-            <form
-              onSubmit={handleSaveSettings}
-              className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm min-h-[400px] animate-fade-in flex flex-col gap-6"
-            >
+            <form onSubmit={handleSaveSettings} className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm min-h-[400px] animate-fade-in flex flex-col gap-6">
               <div className="flex justify-between items-end">
                 <div>
-                  <h2 className="text-lg font-bold text-gray-800 mb-1">
-                    Rekening Pembayaran Toko
-                  </h2>
-                  <p className="text-xs text-gray-500">
-                    Anda dapat menambahkan lebih dari satu rekening tujuan
-                    transfer untuk pelanggan.
-                  </p>
+                  <h2 className="text-lg font-bold text-gray-800 mb-1">Rekening Pembayaran Toko</h2>
+                  <p className="text-xs text-gray-500">Tambahkan lebih dari satu rekening tujuan transfer untuk pelanggan.</p>
                 </div>
-                <button
-                  type="button"
-                  onClick={addBankAccount}
-                  className="bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-black transition"
-                >
+                <button type="button" onClick={addBankAccount} className="bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-black transition">
                   <Plus size={16} /> Tambah Rekening
                 </button>
               </div>
 
               <div className="space-y-6">
                 {bankAccounts.map((account, index) => (
-                  <div
-                    key={index}
-                    className="p-5 border border-gray-200 rounded-xl bg-gray-50 relative animate-fade-in"
-                  >
+                  <div key={index} className="p-5 border border-gray-200 rounded-xl bg-gray-50 relative animate-fade-in">
                     {bankAccounts.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeBankAccount(index)}
-                        className="absolute top-4 right-4 p-2 bg-white text-red-500 hover:bg-red-50 rounded-lg shadow-sm transition"
-                        title="Hapus Rekening Ini"
-                      >
+                      <button type="button" onClick={() => removeBankAccount(index)} className="absolute top-4 right-4 p-2 bg-white text-red-500 hover:bg-red-50 rounded-lg shadow-sm transition" title="Hapus Rekening Ini">
                         <Trash2 size={16} />
                       </button>
                     )}
-
-                    <h3 className="font-bold text-sm text-gray-700 mb-4">
-                      Data Rekening ke-{index + 1}
-                    </h3>
-
+                    <h3 className="font-bold text-sm text-gray-700 mb-4">Data Rekening ke-{index + 1}</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-1.5">
-                        <label className="block text-xs font-bold text-gray-500">
-                          Nama Bank Tujuan
-                        </label>
+                        <label className="block text-xs font-bold text-gray-500">Nama Bank Tujuan</label>
                         <div className="relative">
-                          <input
-                            type="text"
-                            value={account.bank_name}
-                            onChange={(e) =>
-                              handleAccountChange(
-                                index,
-                                "bank_name",
-                                e.target.value,
-                              )
-                            }
-                            placeholder="Contoh: BANK BCA, BANK MANDIRI"
-                            className="w-full border px-4 py-2.5 pl-10 rounded-lg outline-none focus:border-chester-pink text-sm uppercase"
-                          />
-                          <Landmark
-                            size={16}
-                            className="absolute left-3.5 top-3 text-gray-400"
-                          />
+                          <input type="text" value={account.bank_name} onChange={(e) => handleAccountChange(index, "bank_name", e.target.value)} placeholder="Contoh: BANK BCA, BANK MANDIRI" className="w-full border px-4 py-2.5 pl-10 rounded-lg outline-none focus:border-chester-pink text-sm uppercase" />
+                          <Landmark size={16} className="absolute left-3.5 top-3 text-gray-400" />
                         </div>
                       </div>
-
                       <div className="space-y-1.5">
-                        <label className="block text-xs font-bold text-gray-500">
-                          Nomor Rekening
-                        </label>
+                        <label className="block text-xs font-bold text-gray-500">Nomor Rekening</label>
                         <div className="relative">
-                          <input
-                            type="text"
-                            value={account.bank_account}
-                            onChange={(e) =>
-                              handleAccountChange(
-                                index,
-                                "bank_account",
-                                e.target.value,
-                              )
-                            }
-                            placeholder="Contoh: 7310244555"
-                            className="w-full border px-4 py-2.5 pl-10 rounded-lg outline-none focus:border-chester-pink text-sm font-mono tracking-wider"
-                          />
-                          <Hash
-                            size={16}
-                            className="absolute left-3.5 top-3 text-gray-400"
-                          />
+                          <input type="text" value={account.bank_account} onChange={(e) => handleAccountChange(index, "bank_account", e.target.value)} placeholder="Contoh: 7310244555" className="w-full border px-4 py-2.5 pl-10 rounded-lg outline-none focus:border-chester-pink text-sm font-mono tracking-wider" />
+                          <Hash size={16} className="absolute left-3.5 top-3 text-gray-400" />
                         </div>
                       </div>
-
                       <div className="space-y-1.5 md:col-span-2">
-                        <label className="block text-xs font-bold text-gray-500">
-                          Atas Nama (Pemilik Rekening)
-                        </label>
+                        <label className="block text-xs font-bold text-gray-500">Atas Nama (Pemilik Rekening)</label>
                         <div className="relative">
-                          <input
-                            type="text"
-                            value={account.bank_owner}
-                            onChange={(e) =>
-                              handleAccountChange(
-                                index,
-                                "bank_owner",
-                                e.target.value,
-                              )
-                            }
-                            placeholder="Contoh: PT Chester Busana Indonesia"
-                            className="w-full border px-4 py-2.5 pl-10 rounded-lg outline-none focus:border-chester-pink text-sm"
-                          />
-                          <User
-                            size={16}
-                            className="absolute left-3.5 top-3 text-gray-400"
-                          />
+                          <input type="text" value={account.bank_owner} onChange={(e) => handleAccountChange(index, "bank_owner", e.target.value)} placeholder="Contoh: PT Chester Busana Indonesia" className="w-full border px-4 py-2.5 pl-10 rounded-lg outline-none focus:border-chester-pink text-sm" />
+                          <User size={16} className="absolute left-3.5 top-3 text-gray-400" />
                         </div>
                       </div>
                     </div>
                   </div>
                 ))}
               </div>
-
               <div className="border-t border-gray-100 pt-4 mt-2">
-                <button
-                  type="submit"
-                  disabled={isSaving}
-                  className="bg-chester-pink text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 w-max shadow-sm"
-                >
+                <button type="submit" disabled={isSaving} className="bg-chester-pink text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 w-max shadow-sm">
                   <Save size={18} /> Simpan Data Rekening
                 </button>
               </div>
             </form>
           )}
 
-          {/* --- TAB 8 INTEGRASI & PELACAKAN --- */}
+          {/* --- TAB 8: INTEGRASI & PELACAKAN (DITAMBAH SITEMAP!) --- */}
           {activeTab === "integration" && (
-            <form
-              onSubmit={handleSaveSettings}
-              className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm min-h-[400px] animate-fade-in flex flex-col gap-6"
-            >
-              <div>
-                <h2 className="text-lg font-bold text-gray-800 mb-1">
-                  Integrasi Marketing & SEO
-                </h2>
-                <p className="text-xs text-gray-500">
-                  Masukkan ID atau Tag verifikasi Anda di sini. Script akan
-                  secara otomatis ditambahkan ke toko online Anda tanpa perlu
-                  mengubah kode secara manual.
+            <div className="flex flex-col gap-6">
+              {/* TOMBOL SITEMAP GENERATOR */}
+              <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm animate-fade-in">
+                <h2 className="text-lg font-bold text-gray-800 mb-2">Alat SEO Otomatis (Sitemap)</h2>
+                <p className="text-sm text-gray-500 mb-5">
+                  Setiap kali Anda menambah, mengubah, atau menghapus produk, Anda disarankan untuk memperbarui peta situs agar Google dapat mengindeks halaman chester dengan akurat.
                 </p>
-              </div>
-
-              {/* Meta Pixel */}
-              <div className="p-5 border border-gray-200 rounded-xl bg-gray-50">
-                <label className="block text-sm font-bold text-gray-800 mb-2">
-                  Meta Pixel ID
-                </label>
-                <input
-                  type="text"
-                  name="meta_pixel_id"
-                  value={formData.meta_pixel_id || ""}
-                  onChange={handleChangeSetting}
-                  placeholder="Contoh: 123456789012345"
-                  className="w-full border px-4 py-2.5 rounded-lg font-mono text-sm outline-none focus:border-chester-pink bg-white"
-                />
-                <p className="text-[11px] text-gray-500 mt-2">
-                  Digunakan untuk melacak pengunjung dari Facebook dan Instagram
-                  Ads. Hanya masukkan angka ID-nya saja, bukan seluruh kodenya.
-                </p>
-              </div>
-
-              {/* Google Analytics */}
-              <div className="p-5 border border-gray-200 rounded-xl bg-gray-50">
-                <label className="block text-sm font-bold text-gray-800 mb-2">
-                  Google Analytics Measurement ID (GA4)
-                </label>
-                <input
-                  type="text"
-                  name="google_analytics_id"
-                  value={formData.google_analytics_id || ""}
-                  onChange={handleChangeSetting}
-                  placeholder="Contoh: G-XXXXXXXXXX"
-                  className="w-full border px-4 py-2.5 rounded-lg font-mono text-sm outline-none focus:border-chester-pink bg-white uppercase"
-                />
-                <p className="text-[11px] text-gray-500 mt-2">
-                  Digunakan untuk Google Ads dan Analitik. Masukkan kode yang
-                  diawali dengan awalan 'G-' atau 'AW-'.
-                </p>
-              </div>
-
-              {/* Google Search Console */}
-              <div className="p-5 border border-gray-200 rounded-xl bg-gray-50">
-                <label className="block text-sm font-bold text-gray-800 mb-2">
-                  Google Search Console (Tag Verifikasi HTML)
-                </label>
-                <input
-                  type="text"
-                  name="gsc_verification_tag"
-                  value={formData.gsc_verification_tag || ""}
-                  onChange={handleChangeSetting}
-                  placeholder="Contoh: abcdefghijklmnopqrstuvwxyz123456789"
-                  className="w-full border px-4 py-2.5 rounded-lg font-mono text-sm outline-none focus:border-chester-pink bg-white"
-                />
-                <p className="text-[11px] text-gray-500 mt-2">
-                  Digunakan untuk verifikasi kepemilikan domain di Google Search
-                  Console. Copy bagian &lt;content="..."&gt; dari tag meta yang
-                  diberikan Google.
-                </p>
-              </div>
-
-              <div className="border-t border-gray-100 pt-4 mt-2">
                 <button
-                  type="submit"
-                  disabled={isSaving}
-                  className="bg-chester-pink text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 w-max shadow-sm"
+                  onClick={handleGenerateSitemap}
+                  disabled={isGeneratingSitemap}
+                  className="bg-gray-800 text-white px-5 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-black transition shadow-sm disabled:opacity-50"
                 >
-                  <Save size={18} /> Simpan Integrasi
+                  {isGeneratingSitemap ? (
+                    <span className="animate-pulse flex items-center gap-2">Memproses XML...</span>
+                  ) : (
+                    <><Globe size={18} /> Update Sitemap.xml Sekarang</>
+                  )}
                 </button>
               </div>
-            </form>
+
+              {/* FORM TRACKING SEO LAINNYA */}
+              <form onSubmit={handleSaveSettings} className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm animate-fade-in flex flex-col gap-6">
+                <div>
+                  <h2 className="text-lg font-bold text-gray-800 mb-1">Integrasi Marketing & Pelacakan</h2>
+                  <p className="text-xs text-gray-500">Script pelacakan otomatis ditambahkan ke toko online Anda tanpa modifikasi kode manual.</p>
+                </div>
+
+                <div className="p-5 border border-gray-200 rounded-xl bg-gray-50">
+                  <label className="block text-sm font-bold text-gray-800 mb-2">Meta Pixel ID</label>
+                  <input type="text" name="meta_pixel_id" value={formData.meta_pixel_id || ""} onChange={handleChangeSetting} placeholder="Contoh: 123456789012345" className="w-full border px-4 py-2.5 rounded-lg font-mono text-sm outline-none focus:border-chester-pink bg-white" />
+                  <p className="text-[11px] text-gray-500 mt-2">Hanya masukkan angka ID-nya saja, bukan seluruh kodenya.</p>
+                </div>
+
+                <div className="p-5 border border-gray-200 rounded-xl bg-gray-50">
+                  <label className="block text-sm font-bold text-gray-800 mb-2">Google Analytics Measurement ID (GA4)</label>
+                  <input type="text" name="google_analytics_id" value={formData.google_analytics_id || ""} onChange={handleChangeSetting} placeholder="Contoh: G-XXXXXXXXXX" className="w-full border px-4 py-2.5 rounded-lg font-mono text-sm outline-none focus:border-chester-pink bg-white uppercase" />
+                  <p className="text-[11px] text-gray-500 mt-2">Masukkan kode yang diawali dengan awalan 'G-' atau 'AW-'.</p>
+                </div>
+
+                <div className="p-5 border border-gray-200 rounded-xl bg-gray-50">
+                  <label className="block text-sm font-bold text-gray-800 mb-2">Google Search Console (Tag Verifikasi HTML)</label>
+                  <input type="text" name="gsc_verification_tag" value={formData.gsc_verification_tag || ""} onChange={handleChangeSetting} placeholder="Contoh: abcdefghijklmnopqrstuvwxyz123456789" className="w-full border px-4 py-2.5 rounded-lg font-mono text-sm outline-none focus:border-chester-pink bg-white" />
+                  <p className="text-[11px] text-gray-500 mt-2">Copy bagian &lt;content="..."&gt; dari tag meta yang diberikan Google.</p>
+                </div>
+
+                <div className="border-t border-gray-100 pt-4 mt-2">
+                  <button type="submit" disabled={isSaving} className="bg-chester-pink text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 w-max shadow-sm">
+                    <Save size={18} /> Simpan Integrasi
+                  </button>
+                </div>
+              </form>
+            </div>
           )}
 
           {/* TAB 6: KELOLA STAF */}
-          {/* --- TAMBAHAN RBAC: Pengecekan ganda agar tab isi halamannya juga tidak bisa dirender sembarangan --- */}
-          {activeTab === "staff" &&
-            (profileData.role || "").toLowerCase() === "superadmin" && (
-              <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm min-h-[400px] animate-fade-in flex flex-col gap-6">
-                <div className="flex justify-between items-end">
-                  <div>
-                    <h2 className="text-lg font-bold text-gray-800 mb-1">
-                      Manajemen Staf & Hak Akses
-                    </h2>
-                    <p className="text-xs text-gray-500">
-                      Daftar personel yang berwenang mengelola admin panel toko.
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setShowAddForm(!showAddForm)}
-                    className="bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-black transition"
-                  >
-                    {showAddForm ? <X size={16} /> : <Plus size={16} />}{" "}
-                    {showAddForm ? "Batal" : "Tambah Staf"}
-                  </button>
+          {activeTab === "staff" && (profileData.role || "").toLowerCase() === "superadmin" && (
+            <div className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm min-h-[400px] animate-fade-in flex flex-col gap-6">
+              <div className="flex justify-between items-end">
+                <div>
+                  <h2 className="text-lg font-bold text-gray-800 mb-1">Manajemen Staf & Hak Akses</h2>
+                  <p className="text-xs text-gray-500">Daftar personel yang berwenang mengelola admin panel toko.</p>
                 </div>
-
-                {showAddForm && (
-                  <form
-                    onSubmit={handleAddAdmin}
-                    className="p-5 bg-gray-50 rounded-xl border border-gray-200 flex flex-col gap-4 animate-fade-in"
-                  >
-                    <h3 className="font-bold text-sm text-gray-700">
-                      Formulir Akun Staf Baru
-                    </h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                      <input
-                        type="text"
-                        name="fullname"
-                        value={newAdmin.fullname}
-                        onChange={handleChangeNewAdmin}
-                        placeholder="Nama Lengkap Staf"
-                        required
-                        className="bg-white border px-3 py-2 rounded-lg text-sm outline-none focus:border-chester-pink"
-                      />
-                      <input
-                        type="email"
-                        name="email"
-                        value={newAdmin.email}
-                        onChange={handleChangeNewAdmin}
-                        placeholder="Alamat Email Login"
-                        required
-                        className="bg-white border px-3 py-2 rounded-lg text-sm outline-none focus:border-chester-pink"
-                      />
-                      <input
-                        type="password"
-                        name="password"
-                        value={newAdmin.password}
-                        onChange={handleChangeNewAdmin}
-                        placeholder="Password Mula-mula"
-                        required
-                        className="bg-white border px-3 py-2 rounded-lg text-sm outline-none focus:border-chester-pink"
-                      />
-                    </div>
-                    <div className="flex justify-between items-center mt-1">
-                      <div className="flex items-center gap-2 text-sm">
-                        <span className="text-xs text-gray-500 font-bold">
-                          Role Hak Akses:
-                        </span>
-                        <select
-                          name="role"
-                          value={newAdmin.role}
-                          onChange={handleChangeNewAdmin}
-                          className="border px-2 py-1 bg-white rounded-md text-xs font-semibold outline-none"
-                        >
-                          <option value="Editor">
-                            Editor (Kelola Produk/Pesanan)
-                          </option>
-                          <option value="Superadmin">
-                            Superadmin (Akses Penuh)
-                          </option>
-                        </select>
-                      </div>
-                      <button
-                        type="submit"
-                        className="bg-chester-pink text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-sm"
-                      >
-                        Daftarkan Staf
-                      </button>
-                    </div>
-                  </form>
-                )}
-
-                <div className="border rounded-xl overflow-hidden shadow-sm">
-                  <table className="w-full text-left">
-                    <thead className="bg-gray-50 border-b text-xs text-gray-500 uppercase font-bold">
-                      <tr>
-                        <th className="p-4">Nama</th>
-                        <th className="p-4">Email</th>
-                        <th className="p-4">Role</th>
-                        <th className="p-4 text-center w-20">Aksi</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y text-sm">
-                      {admins.map((admin) => (
-                        <tr key={admin.id} className="hover:bg-gray-50/50">
-                          <td className="p-4 font-bold text-gray-800">
-                            {admin.fullname}{" "}
-                            {admin.id === profileData.id && (
-                              <span className="text-[10px] bg-gray-100 border text-gray-500 px-1.5 py-0.5 rounded-full ml-1.5 font-normal">
-                                Anda
-                              </span>
-                            )}
-                          </td>
-                          <td className="p-4 text-gray-600">{admin.email}</td>
-                          <td className="p-4">
-                            <span
-                              className={`px-2 py-0.5 rounded text-xs font-bold border ${admin.role === "Superadmin" ? "bg-purple-50 text-purple-600 border-purple-200" : "bg-blue-50 text-blue-600 border-blue-200"}`}
-                            >
-                              {admin.role}
-                            </span>
-                          </td>
-                          <td className="p-4 text-center">
-                            {admin.id !== 1 && admin.id !== profileData.id && (
-                              <button
-                                onClick={() =>
-                                  handleDeleteAdmin(admin.id, admin.fullname)
-                                }
-                                className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition"
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <button onClick={() => setShowAddForm(!showAddForm)} className="bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-black transition">
+                  {showAddForm ? <X size={16} /> : <Plus size={16} />} {showAddForm ? "Batal" : "Tambah Staf"}
+                </button>
               </div>
-            )}
+
+              {showAddForm && (
+                <form onSubmit={handleAddAdmin} className="p-5 bg-gray-50 rounded-xl border border-gray-200 flex flex-col gap-4 animate-fade-in">
+                  <h3 className="font-bold text-sm text-gray-700">Formulir Akun Staf Baru</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <input type="text" name="fullname" value={newAdmin.fullname} onChange={handleChangeNewAdmin} placeholder="Nama Lengkap" required className="bg-white border px-3 py-2 rounded-lg text-sm outline-none focus:border-chester-pink" />
+                    <input type="email" name="email" value={newAdmin.email} onChange={handleChangeNewAdmin} placeholder="Alamat Email Login" required className="bg-white border px-3 py-2 rounded-lg text-sm outline-none focus:border-chester-pink" />
+                    <input type="password" name="password" value={newAdmin.password} onChange={handleChangeNewAdmin} placeholder="Password Mula-mula" required className="bg-white border px-3 py-2 rounded-lg text-sm outline-none focus:border-chester-pink" />
+                  </div>
+                  <div className="flex justify-between items-center mt-1">
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="text-xs text-gray-500 font-bold">Role Hak Akses:</span>
+                      <select name="role" value={newAdmin.role} onChange={handleChangeNewAdmin} className="border px-2 py-1 bg-white rounded-md text-xs font-semibold outline-none">
+                        <option value="Editor">Editor (Kelola Produk/Pesanan)</option>
+                        <option value="Superadmin">Superadmin (Akses Penuh)</option>
+                      </select>
+                    </div>
+                    <button type="submit" className="bg-chester-pink text-white px-4 py-1.5 rounded-lg text-xs font-bold shadow-sm">
+                      Daftarkan Staf
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              <div className="border rounded-xl overflow-hidden shadow-sm">
+                <table className="w-full text-left">
+                  <thead className="bg-gray-50 border-b text-xs text-gray-500 uppercase font-bold">
+                    <tr>
+                      <th className="p-4">Nama</th>
+                      <th className="p-4">Email</th>
+                      <th className="p-4">Role</th>
+                      <th className="p-4 text-center w-20">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y text-sm">
+                    {admins.map((admin) => (
+                      <tr key={admin.id} className="hover:bg-gray-50/50">
+                        <td className="p-4 font-bold text-gray-800">
+                          {admin.fullname} {admin.id === profileData.id && (<span className="text-[10px] bg-gray-100 border text-gray-500 px-1.5 py-0.5 rounded-full ml-1.5 font-normal">Anda</span>)}
+                        </td>
+                        <td className="p-4 text-gray-600">{admin.email}</td>
+                        <td className="p-4">
+                          <span className={`px-2 py-0.5 rounded text-xs font-bold border ${admin.role === "Superadmin" ? "bg-purple-50 text-purple-600 border-purple-200" : "bg-blue-50 text-blue-600 border-blue-200"}`}>
+                            {admin.role}
+                          </span>
+                        </td>
+                        <td className="p-4 text-center">
+                          {admin.id !== 1 && admin.id !== profileData.id && (
+                            <button onClick={() => handleDeleteAdmin(admin.id, admin.fullname)} className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition">
+                              <Trash2 size={16} />
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* TAB 7: PROFIL SAYA */}
           {activeTab === "profile" && (
-            <form
-              onSubmit={handleSaveProfile}
-              className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm min-h-[400px] animate-fade-in flex flex-col gap-6"
-            >
+            <form onSubmit={handleSaveProfile} className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-100 shadow-sm min-h-[400px] animate-fade-in flex flex-col gap-6">
               <div>
-                <h2 className="text-lg font-bold text-gray-800 mb-1">
-                  Keamanan & Profil Personal
-                </h2>
-                <p className="text-xs text-gray-500">
-                  Perbarui informasi identitas akun login pribadi Anda.
-                </p>
+                <h2 className="text-lg font-bold text-gray-800 mb-1">Keamanan & Profil Personal</h2>
+                <p className="text-xs text-gray-500">Perbarui informasi identitas akun login pribadi Anda.</p>
               </div>
               <div className="flex flex-col sm:flex-row gap-4">
                 <div className="w-full">
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Nama Lengkap Anda
-                  </label>
-                  <input
-                    type="text"
-                    name="fullname"
-                    value={profileData.fullname}
-                    onChange={handleChangeProfile}
-                    required
-                    className="w-full border px-4 py-2.5 rounded-lg outline-none focus:border-chester-pink"
-                  />
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Nama Lengkap Anda</label>
+                  <input type="text" name="fullname" value={profileData.fullname} onChange={handleChangeProfile} required className="w-full border px-4 py-2.5 rounded-lg outline-none focus:border-chester-pink" />
                 </div>
                 <div className="w-full">
-                  <label className="block text-sm font-bold text-gray-700 mb-2">
-                    Alamat Email (Permanen)
-                  </label>
-                  <input
-                    type="email"
-                    name="email"
-                    value={profileData.email}
-                    disabled
-                    className="w-full border px-4 py-2.5 rounded-lg bg-gray-50 text-gray-400 cursor-not-allowed"
-                  />
+                  <label className="block text-sm font-bold text-gray-700 mb-2">Alamat Email (Permanen)</label>
+                  <input type="email" name="email" value={profileData.email} disabled className="w-full border px-4 py-2.5 rounded-lg bg-gray-50 text-gray-400 cursor-not-allowed" />
                 </div>
               </div>
               <div className="pt-4 border-t mt-2">
-                <h3 className="font-bold text-sm text-gray-800 mb-1">
-                  Form Ganti Kata Sandi
-                </h3>
-                <p className="text-xs text-gray-400 mb-4">
-                  Biarkan kedua kolom ini kosong jika Anda hanya ingin mengubah
-                  nama saja.
-                </p>
+                <h3 className="font-bold text-sm text-gray-800 mb-1">Form Ganti Kata Sandi</h3>
+                <p className="text-xs text-gray-400 mb-4">Biarkan kedua kolom ini kosong jika Anda hanya ingin mengubah nama.</p>
                 <div className="flex flex-col sm:flex-row gap-4">
                   <div className="w-full">
-                    <label className="block text-sm font-bold text-gray-700 mb-2">
-                      Kata Sandi Saat Ini
-                    </label>
-                    <input
-                      type="password"
-                      name="currentPassword"
-                      value={profileData.currentPassword}
-                      onChange={handleChangeProfile}
-                      placeholder="Ketik sandi sekarang"
-                      className="w-full border px-4 py-2.5 rounded-lg outline-none focus:border-chester-pink"
-                    />
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Kata Sandi Saat Ini</label>
+                    <input type="password" name="currentPassword" value={profileData.currentPassword} onChange={handleChangeProfile} placeholder="Ketik sandi sekarang" className="w-full border px-4 py-2.5 rounded-lg outline-none focus:border-chester-pink" />
                   </div>
                   <div className="w-full">
-                    <label className="block text-sm font-bold text-gray-700 mb-2">
-                      Kata Sandi Baru
-                    </label>
-                    <input
-                      type="password"
-                      name="newPassword"
-                      value={profileData.newPassword}
-                      onChange={handleChangeProfile}
-                      placeholder="Minimal 6 karakter"
-                      className="w-full border px-4 py-2.5 rounded-lg outline-none focus:border-chester-pink"
-                    />
+                    <label className="block text-sm font-bold text-gray-700 mb-2">Kata Sandi Baru</label>
+                    <input type="password" name="newPassword" value={profileData.newPassword} onChange={handleChangeProfile} placeholder="Minimal 6 karakter" className="w-full border px-4 py-2.5 rounded-lg outline-none focus:border-chester-pink" />
                   </div>
                 </div>
               </div>
-              <button
-                type="submit"
-                className="bg-gray-900 text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 w-max shadow-sm hover:bg-black transition"
-              >
+              <button type="submit" className="bg-gray-900 text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 w-max shadow-sm hover:bg-black transition">
                 <Save size={18} /> Perbarui Profil
               </button>
             </form>

@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { ChevronRight } from "lucide-react";
-import axios from "axios";
+// Menggunakan instance master API
+import api from "../api";
 
 export default function StaticPage() {
   const { pageId } = useParams(); // 'privacy', 'faq', atau 'terms'
@@ -34,9 +35,9 @@ export default function StaticPage() {
   const fetchPageContent = async () => {
     setIsLoading(true);
     try {
-      const response = await axios.get(
-        `${import.meta.env.VITE_API_URL}/settings`,
-      );
+      // Pemanggilan tersentralisasi menggunakan instance api
+      const response = await api.get(`/settings`);
+      
       if (response.data.success) {
         let apiData = response.data.data;
         if (Array.isArray(apiData)) {

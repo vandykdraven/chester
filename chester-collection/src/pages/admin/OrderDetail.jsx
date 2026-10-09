@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import {
   ArrowLeft,
   MapPin,
@@ -12,9 +12,10 @@ import {
   Clock,
   XCircle,
   Save,
-  Star,
 } from "lucide-react";
-import axios from "axios";
+
+// KOREKSI 1: Gunakan Master API untuk otorisasi Token otomatis
+import api from "../../api";
 
 export default function OrderDetail() {
   const { id } = useParams();
@@ -26,7 +27,6 @@ export default function OrderDetail() {
   const [isBooking, setIsBooking] = useState(false);
   const [showConfirmPickup, setShowConfirmPickup] = useState(false);
 
-  // --- State Baru untuk Tanggal & Jam Pickup ---
   const [pickupDate, setPickupDate] = useState("");
   const [pickupTime, setPickupTime] = useState("");
   const [newStatus, setNewStatus] = useState("");
@@ -38,16 +38,10 @@ export default function OrderDetail() {
     type: "success",
   });
 
-  // --- State Khusus untuk Ulasan (Review) ---
-  const [showReviewModal, setShowReviewModal] = useState(false);
-  const [selectedItem, setSelectedItem] = useState(null);
-  const [reviewForm, setReviewForm] = useState({ rating: 5, comment: "" });
-
-  // --- Kalkulasi Hari Ini dan Besok untuk Dropdown ---
   const todayObj = new Date();
   const tomorrowObj = new Date(todayObj);
   tomorrowObj.setDate(tomorrowObj.getDate() + 1);
-  const formatDateForInput = (date) => date.toISOString().split("T")[0]; // YYYY-MM-DD
+  const formatDateForInput = (date) => date.toISOString().split("T")[0];
 
   useEffect(() => {
     fetchOrderDetail();
@@ -56,9 +50,8 @@ export default function OrderDetail() {
   const fetchOrderDetail = async () => {
     setIsLoading(true);
     try {
-      const response = await axios.get(
-        `${import.meta.env.VITE_API_URL}/orders/${id}`,
-      );
+      // KOREKSI 2: Panggilan bersih tanpa env manual
+      const response = await api.get(`/orders/${id}`);
       if (response.data.success) {
         setOrder(response.data.data);
         setNewStatus(response.data.data.status);
@@ -84,21 +77,17 @@ export default function OrderDetail() {
     e.preventDefault();
     setIsUpdating(true);
     try {
-      const response = await axios.put(
-        `${import.meta.env.VITE_API_URL}/orders/${id}/status`,
-        {
-          status: newStatus,
-          airway_bill: newResi,
-        },
-      );
+      const response = await api.put(`/orders/${id}/status`, {
+        status: newStatus,
+        airway_bill: newResi,
+      });
       if (response.data.success) {
         showAlert("Status pesanan berhasil diperbarui!", "success");
-        fetchOrderDetail(); // Refresh data
+        fetchOrderDetail(); 
       }
     } catch (error) {
       showAlert("Gagal memperbarui status.", "error");
     } finally {
-      setIsLoading(false);
       setIsUpdating(false);
     }
   };
@@ -112,13 +101,10 @@ export default function OrderDetail() {
     setShowConfirmPickup(false);
     setIsBooking(true);
     try {
-      const response = await axios.post(
-        `${import.meta.env.VITE_API_URL}/orders/${id}/book-shipping`,
-        {
-          delivery_date: pickupDate,
-          delivery_time: pickupTime,
-        },
-      );
+      const response = await api.post(`/orders/${id}/book-shipping`, {
+        delivery_date: pickupDate,
+        delivery_time: pickupTime,
+      });
       if (response.data.success) {
         showAlert(
           "Berhasil request pickup! Resi otomatis diterbitkan.",
@@ -135,59 +121,6 @@ export default function OrderDetail() {
       setIsBooking(false);
     }
   };
-
-  // --- FUNGSI UNTUK ULASAN PRODUK ---
-  const openReviewModal = (item) => {
-    setSelectedItem(item);
-    setReviewForm({ rating: 5, comment: "" });
-    setShowReviewModal(true);
-  };
-
-  const submitReview = async (e) => {
-    e.preventDefault();
-
-    const customerUser = JSON.parse(
-      localStorage.getItem("customerUser") ||
-        sessionStorage.getItem("customerUser"),
-    );
-
-    if (!customerUser) {
-      showAlert("Anda harus login untuk memberikan ulasan.", "error");
-      return;
-    }
-
-    try {
-      const namaVariasi =
-        selectedItem.variant_key || selectedItem.variant_name || null;
-      const payload = {
-        order_id: order.id,
-        product_id: selectedItem.product_id,
-        user_id: customerUser.id,
-        rating: reviewForm.rating,
-        comment: reviewForm.comment,
-        // Ini kunci utamanya: mengirim variasi ke database
-        variant_name: namaVariasi,
-      };
-
-      console.log("Data Ulasan yang akan dikirim:", payload);
-
-      const res = await axios.post(
-        `${import.meta.env.VITE_API_URL}/reviews`,
-        payload,
-      );
-
-      if (res.data.success) {
-        showAlert("Ulasan berhasil dikirim!", "success");
-        setShowReviewModal(false);
-      }
-    } catch (error) {
-      showAlert(
-        error.response?.data?.message || "Gagal mengirim ulasan.",
-        "error",
-      );
-    }
-  };
-  // ----------------------------------
 
   const formatRupiah = (number) => {
     return new Intl.NumberFormat("id-ID", {
@@ -283,10 +216,10 @@ export default function OrderDetail() {
             <h1 className="text-2xl font-bold text-chester-text flex items-center gap-3">
               {order.invoice_number}
               <span
-                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${statusConfig[order.status].color}`}
+                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${statusConfig[order.status]?.color || "bg-gray-50 text-gray-600 border-gray-200"}`}
               >
-                {statusConfig[order.status].icon}{" "}
-                {statusConfig[order.status].label}
+                {statusConfig[order.status]?.icon} 
+                {statusConfig[order.status]?.label || order.status}
               </span>
             </h1>
             <p className="text-sm text-gray-500 mt-1">
@@ -317,7 +250,7 @@ export default function OrderDetail() {
                     <h3 className="font-bold text-gray-800">
                       {item.product_name}
                     </h3>
-                    <div className="flex gap-3 text-xs text-gray-500 mt-1 mb-2">
+                    <div className="flex gap-3 text-xs text-gray-500 mt-1">
                       {item.variant_key && (
                         <span>
                           Variasi:{" "}
@@ -339,16 +272,6 @@ export default function OrderDetail() {
                         </span>
                       </span>
                     </div>
-
-                    {/* TOMBOL BERI ULASAN DISISIPKAN DI SINI */}
-                    {order.status === "completed" && (
-                      <button
-                        onClick={() => openReviewModal(item)}
-                        className="text-xs font-bold bg-white text-chester-pink border border-chester-pink px-3 py-1.5 rounded-lg hover:bg-pink-50 transition w-max flex items-center"
-                      >
-                        <Star size={12} className="inline mr-1" /> Beri Ulasan
-                      </button>
-                    )}
                   </div>
 
                   <div className="sm:text-right mt-2 sm:mt-0">
@@ -603,87 +526,6 @@ export default function OrderDetail() {
                 Booking Kurir
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL / POP-UP FORMULIR ULASAN */}
-      {showReviewModal && selectedItem && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 animate-fade-in backdrop-blur-sm">
-          <div className="bg-white p-6 rounded-2xl w-full max-w-md shadow-2xl">
-            <h3 className="font-bold text-lg text-gray-900 mb-1">
-              Nilai Produk Ini
-            </h3>
-            <p className="text-sm text-gray-500 mb-4 line-clamp-1">
-              {selectedItem.product_name}{" "}
-              {selectedItem.variant_key ? `(${selectedItem.variant_key})` : ""}
-            </p>
-
-            <form onSubmit={submitReview} className="flex flex-col gap-4">
-              {/* Pilihan Bintang */}
-              <div className="flex flex-col items-center gap-2 mb-2">
-                <span className="text-xs font-bold text-gray-400 uppercase">
-                  Kualitas Produk
-                </span>
-                <div className="flex gap-2">
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <button
-                      key={star}
-                      type="button"
-                      onClick={() =>
-                        setReviewForm({ ...reviewForm, rating: star })
-                      }
-                      className="focus:outline-none transition-transform hover:scale-110"
-                    >
-                      <Star
-                        size={32}
-                        fill={
-                          star <= reviewForm.rating ? "#FBBF24" : "transparent"
-                        }
-                        className={
-                          star <= reviewForm.rating
-                            ? "text-yellow-400"
-                            : "text-gray-300"
-                        }
-                      />
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Input Komentar */}
-              <div>
-                <label className="block text-xs font-bold text-gray-600 uppercase mb-2">
-                  Ceritakan Pengalaman Anda
-                </label>
-                <textarea
-                  rows="4"
-                  placeholder="Bagaimana kualitas bahan dan jahitannya? Beritahu pembeli lain!"
-                  value={reviewForm.comment}
-                  onChange={(e) =>
-                    setReviewForm({ ...reviewForm, comment: e.target.value })
-                  }
-                  className="w-full border border-gray-200 text-gray-700 px-3 py-2.5 rounded-lg text-sm focus:outline-none focus:border-chester-pink resize-none"
-                ></textarea>
-              </div>
-
-              {/* Tombol Aksi */}
-              <div className="flex gap-3 mt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowReviewModal(false)}
-                  className="flex-1 py-2.5 bg-gray-50 text-gray-600 border border-gray-200 rounded-xl text-sm font-bold hover:bg-gray-100 transition"
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 bg-chester-pink text-white rounded-xl text-sm font-bold hover:bg-pink-600 transition"
-                >
-                  Kirim Ulasan
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}
