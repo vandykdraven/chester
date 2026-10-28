@@ -14,12 +14,12 @@ export default function SEO({
   noindex,
 }) {
   // 1. Identitas Default yang Kuat & Sesuai Fakta Bisnis
-  const defaultTitle = "mroblong | Produsen Kaos Polos & Sablon DTF Surakarta";
+  const defaultTitle = "Chester Collection | All About Fashion";
   const defaultDesc =
-    "mroblong adalah produsen kaos polos terbesar di Surakarta. Menyediakan bahan cotton combed premium 30s & 24s serta melayani pemesanan kaos custom sablon DTF.";
+    "Fashion Wanita terlengkap di Solo Raya dengan koleksi pakaian dan aksesoris wanita yang stylish dan berkualitas tinggi. Temukan tren terbaru dan penawaran eksklusif hanya di Chester Collection.";
   const defaultKeywords =
-    "kaos polos surakarta, sablon dtf, cotton combed premium 30s, cotton combed 24s, mroblong, kaos custom murah";
-  
+    "chester collection, Fashion Wanita, Solo Raya, Pakaian Wanita, Aksesoris Wanita";
+
   // 2. Deteksi Domain Frontend Secara Otomatis
   const siteUrl = typeof window !== "undefined" ? window.location.origin : "";
   const defaultImage = `${siteUrl}/logo.png`; // Pastikan file logo.png ada di dalam folder public/
@@ -40,7 +40,7 @@ export default function SEO({
   return (
     <Helmet>
       {/* Standar SEO Google */}
-      <title>{title ? `${title} | mroblong` : defaultTitle}</title>
+      <title>{title ? `${title} | All About Fashion` : defaultTitle}</title>
       <meta name="description" content={description || defaultDesc} />
       <meta name="keywords" content={keywords || defaultKeywords} />
 

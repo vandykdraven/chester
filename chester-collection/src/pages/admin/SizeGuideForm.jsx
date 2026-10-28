@@ -293,6 +293,7 @@ export default function SizeGuideForm() {
                       <img
                         src={getImageUrl(media.file_path)}
                         alt="Galeri"
+                        loading="lazy"
                         className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
                         onError={(e) => {
                           e.currentTarget.onerror = null;
@@ -397,6 +398,7 @@ export default function SizeGuideForm() {
                 <img
                   src={getImageUrl(formData.image_url)}
                   alt="Preview"
+                  loading="lazy"
                   className="w-full h-full object-contain p-2"
                   onError={(e) => {
                     e.currentTarget.onerror = null;

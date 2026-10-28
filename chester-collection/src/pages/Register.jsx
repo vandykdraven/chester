@@ -105,7 +105,7 @@ export default function Register() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 font-lora">
+    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 font-geova">
       {/* ALERT NOTIFIKASI KUSTOM */}
       {customAlert.show && (
         <div className="fixed top-6 right-6 z-50 animate-fade-in">

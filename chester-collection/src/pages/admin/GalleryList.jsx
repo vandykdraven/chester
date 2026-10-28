@@ -283,6 +283,7 @@ export default function GalleryList() {
                   <img
                     src={getImageUrl(item.file_path)}
                     alt={item.filename}
+                    loading="lazy"
                     className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
                     onError={(e) => {
                       e.currentTarget.onerror = null;

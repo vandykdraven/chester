@@ -208,7 +208,7 @@ export default function AddressBook() {
   if (!userData) return null;
 
   return (
-    <div className="min-h-screen bg-gray-50 py-10 font-lora relative">
+    <div className="min-h-screen bg-gray-50 py-10 font-geova relative">
       {/* CUSTOM ALERTS MENGGANTIKAN WINDOW.ALERT */}
       {customAlert.show && (
         <div className="fixed top-6 right-6 z-50 animate-bounce">
@@ -235,6 +235,7 @@ export default function AddressBook() {
                     <img
                       src={avatarPreview}
                       alt="Avatar"
+                      loading="lazy"
                       className="w-full h-full object-cover"
                     />
                   ) : (

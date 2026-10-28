@@ -110,7 +110,7 @@ export default function Wishlist() {
   if (!userData) return null;
 
   return (
-    <div className="min-h-screen bg-gray-50 py-10 font-lora relative">
+    <div className="min-h-screen bg-gray-50 py-10 font-geova relative">
       {/* AREA NOTIFIKASI */}
       {customAlert.show && (
         <div className="fixed top-6 right-6 z-50 animate-bounce">
@@ -138,6 +138,7 @@ export default function Wishlist() {
                     <img
                       src={avatarPreview}
                       alt="Avatar"
+                      loading="lazy"
                       className="w-full h-full object-cover"
                       onError={(e) => {
                         e.currentTarget.onerror = null;
@@ -255,6 +256,7 @@ export default function Wishlist() {
                           <img
                             src={getImageUrl(item.primary_image)}
                             alt={item.name}
+                            loading="lazy"
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                             onError={(e) => {
                               e.currentTarget.onerror = null;

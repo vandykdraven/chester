@@ -107,7 +107,7 @@ export default function ShippingSettings() {
   }
 
   return (
-    <div className="max-w-4xl font-lora">
+    <div className="max-w-4xl font-geova">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-chester-text flex items-center gap-3">
           <Truck size={28} className="text-chester-pink" />

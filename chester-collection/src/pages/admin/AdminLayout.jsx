@@ -150,7 +150,7 @@ export default function AdminLayout() {
   ];
 
   return (
-    <div className="flex h-screen bg-gray-50 font-lora overflow-hidden">
+    <div className="flex h-screen bg-gray-50 font-geova overflow-hidden">
       {/* SIDEBAR KIRI */}
       <aside
         className={`fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200 transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0 flex flex-col ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"}`}

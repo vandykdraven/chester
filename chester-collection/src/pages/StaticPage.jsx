@@ -60,7 +60,7 @@ export default function StaticPage() {
 
   if (!settingKey) {
     return (
-      <div className="min-h-[50vh] flex flex-col items-center justify-center font-lora">
+      <div className="min-h-[50vh] flex flex-col items-center justify-center font-geova">
         <h1 className="text-2xl font-bold mb-4">Halaman Tidak Ditemukan</h1>
         <Link to="/" className="text-chester-pink hover:underline">
           Kembali ke Beranda
@@ -70,7 +70,7 @@ export default function StaticPage() {
   }
 
   return (
-    <div className="bg-white min-h-[60vh] font-lora">
+    <div className="bg-white min-h-[60vh] font-geova">
       {/* Breadcrumb */}
       <div className="bg-gray-50 border-b border-gray-100">
         <div className="container mx-auto px-4 py-4 flex items-center gap-2 text-xs text-gray-500">

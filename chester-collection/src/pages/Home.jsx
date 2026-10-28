@@ -17,12 +17,13 @@ const formatRupiah = (angka) => {
 const ProductCard = ({ slug, image, name, price, original_price }) => (
   <Link
     to={`/product/${slug}`}
-    className="group font-lora block cursor-pointer"
+    className="group font-geova block cursor-pointer"
   >
     <div className="group aspect-[4/5] overflow-hidden mb-4 bg-gray-100 rounded-lg relative">
       <img
         src={image}
         alt={name}
+        loading="lazy" // <-- PENERAPAN LAZY LOAD
         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
         onError={(e) => {
           e.currentTarget.onerror = null;
@@ -77,6 +78,7 @@ const Hero = ({ slides }) => {
           <img
             src={slide}
             alt={`Banner ${index + 1}`}
+            loading={index === 0 ? "eager" : "lazy"} // <-- LAZY LOAD CERDAS (Eager untuk slide 1, Lazy untuk sisanya)
             className="w-full h-full object-cover object-center"
           />
         </div>
@@ -122,7 +124,7 @@ const NewArrivals = () => {
   }, []);
 
   return (
-    <section className="py-16 font-lora">
+    <section className="py-16 font-geova">
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between mb-10">
           <h2 className="text-2xl font-bold text-chester-text">
@@ -174,13 +176,14 @@ const FeaturedCollection = ({ col1, col2 }) => {
   if (!col1 || !col2) return null;
 
   return (
-    <section className="py-16 bg-chester-gray font-lora">
+    <section className="py-16 bg-chester-gray font-geova">
       <div className="container mx-auto px-4">
         <div className="grid md:grid-cols-2 gap-8">
           <div className="relative group overflow-hidden cursor-pointer aspect-square md:aspect-auto md:h-[500px] rounded-xl shadow-md">
             <img
               src={col1.image}
               alt={col1.title}
+              loading="lazy" // <-- PENERAPAN LAZY LOAD
               className="w-full h-full object-cover group-hover:scale-105 transition duration-700"
             />
             <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition duration-500"></div>
@@ -201,6 +204,7 @@ const FeaturedCollection = ({ col1, col2 }) => {
             <img
               src={col2.image}
               alt={col2.title}
+              loading="lazy" // <-- PENERAPAN LAZY LOAD
               className="w-full h-full object-cover group-hover:scale-105 transition duration-700"
             />
             <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition duration-500"></div>

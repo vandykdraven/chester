@@ -422,6 +422,7 @@ export default function ProductList() {
                               <img
                                 src={getImageUrl(product.primary_image)}
                                 alt={product.name}
+                                loading="lazy"
                                 className="w-full h-full object-cover"
                                 onError={(e) => {
                                   e.currentTarget.onerror = null;

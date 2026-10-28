@@ -1,16 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
-  ArrowLeft,
-  Save,
-  Image as ImageIcon,
-  Plus,
-  Trash2,
-  X,
-  CheckCircle,
-  AlertCircle,
-  UploadCloud,
-  Database,
+  ArrowLeft, Save, Image as ImageIcon, Plus, Trash2, X,
+  CheckCircle, AlertCircle, UploadCloud, Database,
 } from "lucide-react";
 import Quill from "quill";
 import "quill/dist/quill.snow.css";
@@ -39,36 +31,21 @@ export default function ProductEdit() {
   const [categories, setCategories] = useState([]);
   const [tags, setTags] = useState([]);
 
-  const [customAlert, setCustomAlert] = useState({
-    show: false,
-    message: "",
-    type: "success",
-  });
+  const [customAlert, setCustomAlert] = useState({ show: false, message: "", type: "success" });
 
   const showAlert = (message, type = "success") => {
     setCustomAlert({ show: true, message, type });
-    if (type === "error")
-      setTimeout(() => setCustomAlert({ show: false, message: "", type: "success" }), 4000);
+    if (type === "error") setTimeout(() => setCustomAlert({ show: false, message: "", type: "success" }), 4000);
   };
 
   const [formData, setFormData] = useState({
-    name: "",
-    category_id: "",
-    size_guide_id: "",
-    description: "",
-    video_url: "",
-    price: "",
-    original_price: "",
-    stock: "",
-    sku: "",
-    weight: "",
-    status: "available",
-    seo_title: "",
-    seo_description: "",
-    seo_keywords: "",
+    name: "", category_id: "", size_guide_id: "", description: "", video_url: "",
+    price: "", original_price: "", stock: "", sku: "", weight: "", status: "available",
+    seo_title: "", seo_description: "", seo_keywords: "",
   });
 
-  const [images, setImages] = useState([null, null, null, null, null]);
+  // KOREKSI: State dinamis, dimulai dengan 1 slot kosong (atau diisi otomatis oleh data server nanti)
+  const [images, setImages] = useState([null]);
   const [showGallery, setShowGallery] = useState(false);
   const [galleryMedia, setGalleryMedia] = useState([]);
   const [isGalleryLoading, setIsGalleryLoading] = useState(false);
@@ -84,9 +61,7 @@ export default function ProductEdit() {
     const fetchMasterData = async () => {
       try {
         const [guidesRes, catsRes, tagsRes] = await Promise.all([
-          api.get("/size-guides"),
-          api.get("/categories"),
-          api.get("/tags"),
+          api.get("/size-guides"), api.get("/categories"), api.get("/tags"),
         ]);
         if (guidesRes.data.success) setSizeGuides(guidesRes.data.data);
         if (catsRes.data.success) setCategories(catsRes.data.data);
@@ -107,60 +82,40 @@ export default function ProductEdit() {
           const p = response.data.data;
           setOriginalProductId(p.id);
           setFormData({
-            name: p.name || "",
-            category_id: p.category_id || "",
-            size_guide_id: p.size_guide_id || "",
-            description: p.description || "",
-            video_url: p.video_url || "",
-            price: p.price || "",
-            original_price: p.original_price || "",
-            stock: p.stock || "",
-            sku: p.sku || "",
-            weight: p.weight || "",
-            status: p.status || "available",
-            seo_title: p.seo_title || "",
-            seo_description: p.seo_description || "",
-            seo_keywords: p.seo_keywords || "",
+            name: p.name || "", category_id: p.category_id || "", size_guide_id: p.size_guide_id || "",
+            description: p.description || "", video_url: p.video_url || "", price: p.price || "",
+            original_price: p.original_price || "", stock: p.stock || "", sku: p.sku || "",
+            weight: p.weight || "", status: p.status || "available", seo_title: p.seo_title || "",
+            seo_description: p.seo_description || "", seo_keywords: p.seo_keywords || "",
           });
 
           setHasVariant(p.has_variant === 1);
           if (p.has_variant === 1 && p.variant_types_json) {
             setVariantTypes(JSON.parse(p.variant_types_json));
-            // Pemetaan varian dari database, memasukkan image_url
-            const mappedVariants = p.variants.map((v) => ({
-              ...v,
-              image: v.image_url || "",
-            }));
+            const mappedVariants = p.variants.map((v) => ({ ...v, image: v.image_url || "" }));
             setVariantMatrix(mappedVariants);
           }
 
           if (p.wholesales) {
-            setWholesales(
-              p.wholesales.map((w) => ({ minQty: w.min_qty, price: w.wholesale_price }))
-            );
+            setWholesales(p.wholesales.map((w) => ({ minQty: w.min_qty, price: w.wholesale_price })));
           }
 
-          // Konstruksi Gambar
-          const loadedImages = [null, null, null, null, null];
-          const primaryImg = p.images.find((img) => img.is_primary === 1);
-          if (primaryImg) {
-            loadedImages[0] = {
+          // KOREKSI: Memuat gambar produk lama secara dinamis tanpa batasan slot
+          let loadedImages = [];
+          if (p.images && p.images.length > 0) {
+            // Pastikan gambar utama (is_primary = 1) berada di urutan pertama array
+            const primary = p.images.find(img => img.is_primary === 1);
+            const others = p.images.filter(img => img.is_primary === 0);
+            const sortedImages = primary ? [primary, ...others] : others;
+
+            loadedImages = sortedImages.map((img) => ({
               type: "existing",
-              path: primaryImg.image_url,
-              url: getImageUrl(primaryImg.image_url),
-            };
+              path: img.image_url,
+              url: getImageUrl(img.image_url),
+            }));
           }
-
-          const supportingImgs = p.images.filter((img) => img.is_primary === 0);
-          supportingImgs.forEach((img, index) => {
-            if (index < 4) {
-              loadedImages[index + 1] = {
-                type: "existing",
-                path: img.image_url,
-                url: getImageUrl(img.image_url),
-              };
-            }
-          });
+          
+          if (loadedImages.length === 0) loadedImages = [null];
           setImages(loadedImages);
 
           if (quillInstance.current && p.description) {
@@ -181,8 +136,7 @@ export default function ProductEdit() {
   useEffect(() => {
     if (!editorRef.current || quillInstance.current) return;
     quillInstance.current = new Quill(editorRef.current, {
-      theme: "snow",
-      modules: quillModules,
+      theme: "snow", modules: quillModules,
     });
     quillInstance.current.on("text-change", () => {
       setFormData((prev) => ({ ...prev, description: quillInstance.current.root.innerHTML }));
@@ -192,7 +146,9 @@ export default function ProductEdit() {
 
   const handleChange = (e) => setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
 
-  // --- 4. MEDIA HANDLERS ---
+  // --- 4. MEDIA HANDLERS DINAMIS ---
+  const addMoreImageSlot = () => setImages([...images, null]);
+
   const triggerPCUpload = (slotIdx) => {
     setActiveSlot(slotIdx);
     setActiveVariantSlot(null);
@@ -214,6 +170,21 @@ export default function ProductEdit() {
       return;
     }
 
+    // KOREKSI: Jika upload untuk katalog, jadikan preview lokal (tidak langsung ke server)
+    if (activeSlot !== null) {
+      const newImages = [...images];
+      newImages[activeSlot] = {
+        type: "pc",
+        file: file,
+        url: URL.createObjectURL(file), // Preview instan
+      };
+      setImages(newImages);
+      setActiveSlot(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    // Jika upload untuk variasi produk (langsung ke server gallery)
     setIsDirectUploading(true);
     const directUploadData = new FormData();
     directUploadData.append("galleryFile", file);
@@ -225,22 +196,11 @@ export default function ProductEdit() {
 
       if (response.data.success) {
         const uploadedFilePath = response.data.data.file_path;
-        
-        // Update gallery media secara realtime
         setGalleryMedia((prev) => [{ id: Date.now(), file_path: uploadedFilePath }, ...prev]);
 
         if (activeVariantSlot !== null) {
           updateMatrixValue(activeVariantSlot, "image", uploadedFilePath);
           setActiveVariantSlot(null);
-        } else if (activeSlot !== null) {
-          const newImages = [...images];
-          newImages[activeSlot] = {
-            type: "server",
-            path: uploadedFilePath,
-            url: getImageUrl(uploadedFilePath),
-          };
-          setImages(newImages);
-          setActiveSlot(null);
         }
         showAlert("Gambar berhasil diunggah!", "success");
       }
@@ -298,39 +258,32 @@ export default function ProductEdit() {
 
   const removeImageSlot = (slotIdx, e) => {
     e.preventDefault();
-    const newImages = [...images];
-    newImages[slotIdx] = null;
-    setImages(newImages);
+    if (images.length === 1 && slotIdx === 0) {
+      setImages([null]); // Kosongkan saja jika tersisa 1
+    } else {
+      const newImages = [...images];
+      newImages.splice(slotIdx, 1);
+      setImages(newImages);
+    }
   };
 
   // --- SMART TAGGING ---
   const [tagInput, setTagInput] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
 
-  const currentKeywords = formData.seo_keywords
-    ? formData.seo_keywords.split(",").map((k) => k.trim()).filter((k) => k)
-    : [];
-
-  const suggestedTags = tags.filter(
-    (t) =>
-      t.name.toLowerCase().includes(tagInput.toLowerCase()) &&
-      !currentKeywords.map((k) => k.toLowerCase()).includes(t.name.toLowerCase())
-  );
+  const currentKeywords = formData.seo_keywords ? formData.seo_keywords.split(",").map((k) => k.trim()).filter((k) => k) : [];
+  const suggestedTags = tags.filter((t) => t.name.toLowerCase().includes(tagInput.toLowerCase()) && !currentKeywords.map((k) => k.toLowerCase()).includes(t.name.toLowerCase()));
 
   const addTagToSEO = async (tagName) => {
     const trimmedName = tagName.trim();
     if (!trimmedName) return;
-    if (currentKeywords.map((k) => k.toLowerCase()).includes(trimmedName.toLowerCase())) {
-      setTagInput(""); return;
-    }
+    if (currentKeywords.map((k) => k.toLowerCase()).includes(trimmedName.toLowerCase())) { setTagInput(""); return; }
     const isExistInDB = tags.find((t) => t.name.toLowerCase() === trimmedName.toLowerCase());
     if (!isExistInDB) {
       try {
         await api.post("/tags", { name: trimmedName });
         setTags([...tags, { id: Date.now(), name: trimmedName }]);
-      } catch (error) {
-        console.error("Gagal auto-save tag:", error);
-      }
+      } catch (error) { console.error("Gagal auto-save tag:", error); }
     }
     const newKeywords = [...currentKeywords, trimmedName];
     setFormData((prev) => ({ ...prev, seo_keywords: newKeywords.join(", ") }));
@@ -344,13 +297,10 @@ export default function ProductEdit() {
   };
 
   const handleTagKeyDown = (e) => {
-    if (e.key === "Enter" || e.key === ",") {
-      e.preventDefault();
-      addTagToSEO(tagInput);
-    }
+    if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addTagToSEO(tagInput); }
   };
 
-  // --- 5. SUBMIT HANDLER ---
+  // --- 5. SUBMIT HANDLER DINAMIS ---
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!originalProductId) { showAlert("Data produk belum dimuat.", "error"); return; }
@@ -359,15 +309,21 @@ export default function ProductEdit() {
     setIsSubmitting(true);
     try {
       const dataToSend = new FormData();
-      if (images[0].type === "pc" && images[0].file) dataToSend.append("primaryImage", images[0].file);
-      for (let i = 1; i <= 4; i++) {
-        if (images[i] && images[i].type === "pc" && images[i].file)
-          dataToSend.append("supportingImages", images[i].file);
-      }
+      
+      // KOREKSI: Masukkan seluruh gambar PC baru ke array productImages
+      images.forEach((img) => {
+        if (img && img.type === "pc" && img.file) {
+          dataToSend.append("productImages", img.file);
+        }
+      });
 
-      const imagesConfig = images.map((img) =>
-        img ? { type: img.type, path: (img.type === "server" || img.type === "existing") ? img.path : null } : null
-      );
+      const imagesConfig = images.map((img) => {
+        if (!img) return null;
+        return {
+          type: img.type,
+          path: (img.type === "server" || img.type === "existing") ? img.path : null,
+        };
+      });
 
       const payload = {
         ...formData,
@@ -388,6 +344,7 @@ export default function ProductEdit() {
         setTimeout(() => navigate("/admin/products"), 2000);
       }
     } catch (error) {
+      console.error(error);
       showAlert("Terjadi kesalahan saat menyimpan produk.", "error");
       setIsSubmitting(false);
     }
@@ -449,14 +406,7 @@ export default function ProductEdit() {
         const existing = prevMatrix.find((p) => p.key === key || p.variant_key === key);
         return (
           existing || {
-            key,
-            combination: combo,
-            price: "",
-            original_price: "",
-            stock: "",
-            weight: "",
-            sku: "",
-            image: "",
+            key, combination: combo, price: "", original_price: "", stock: "", weight: "", sku: "", image: "",
           }
         );
       });
@@ -473,13 +423,7 @@ export default function ProductEdit() {
 
   return (
     <div className="max-w-5xl mx-auto pb-12 relative">
-      <input
-        type="file"
-        accept="image/*"
-        ref={fileInputRef}
-        onChange={handlePCFileChange}
-        className="hidden"
-      />
+      <input type="file" accept="image/*" ref={fileInputRef} onChange={handlePCFileChange} className="hidden" />
 
       {customAlert.show && (
         <div className="fixed top-6 right-6 z-50 animate-bounce">
@@ -495,10 +439,7 @@ export default function ProductEdit() {
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden animate-scale-up">
             <div className="px-6 py-4 border-b flex justify-between items-center bg-gray-50">
               <h3 className="font-bold text-lg text-gray-800">Pilih Foto dari Galeri Server</h3>
-              <button
-                onClick={() => { setShowGallery(false); setActiveSlot(null); setActiveVariantSlot(null); }}
-                className="p-2 text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50"
-              >
+              <button onClick={() => { setShowGallery(false); setActiveSlot(null); setActiveVariantSlot(null); }} className="p-2 text-gray-400 hover:text-red-500 rounded-lg hover:bg-red-50">
                 <X size={20} />
               </button>
             </div>
@@ -512,17 +453,8 @@ export default function ProductEdit() {
               ) : (
                 <div className="grid grid-cols-4 sm:grid-cols-5 gap-4">
                   {galleryMedia.map((media) => (
-                    <div
-                      key={media.id}
-                      onClick={() => handleSelectFromGallery(media.file_path)}
-                      className="cursor-pointer aspect-square rounded-xl overflow-hidden border hover:border-chester-pink transition shadow-sm"
-                    >
-                      <img
-                        src={getImageUrl(media.file_path)}
-                        alt="Media"
-                        className="w-full h-full object-cover"
-                        onError={(e) => { e.currentTarget.src = "/placeholder.png"; }}
-                      />
+                    <div key={media.id} onClick={() => handleSelectFromGallery(media.file_path)} className="cursor-pointer aspect-square rounded-xl overflow-hidden border hover:border-chester-pink transition shadow-sm">
+                      <img src={getImageUrl(media.file_path)} alt="Media" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.src = "/placeholder.png"; }} />
                     </div>
                   ))}
                 </div>
@@ -539,11 +471,7 @@ export default function ProductEdit() {
           </Link>
           <h1 className="text-2xl font-bold text-chester-text">Edit Produk</h1>
         </div>
-        <button
-          onClick={handleSubmit}
-          disabled={isSubmitting || isDirectUploading}
-          className="bg-chester-pink text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-gray-900 transition disabled:opacity-50"
-        >
+        <button onClick={handleSubmit} disabled={isSubmitting || isDirectUploading} className="bg-chester-pink text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-gray-900 transition disabled:opacity-50">
           <Save size={18} /> {isSubmitting ? "Menyimpan..." : (isDirectUploading ? "Mengunggah..." : "Simpan Perubahan")}
         </button>
       </div>
@@ -620,7 +548,6 @@ export default function ProductEdit() {
                   <Plus size={16} /> Tambah Kategori Variasi
                 </button>
 
-                {/* MODIFIKASI: PENAMBAHAN KOLOM GAMBAR PADA TABEL EDIT */}
                 {variantMatrix.length > 0 && (
                   <div className="overflow-x-auto border rounded-xl mt-4">
                     <table className="w-full text-left min-w-[800px]">
@@ -641,7 +568,6 @@ export default function ProductEdit() {
                             <td className="p-3 text-sm font-bold text-chester-pink align-middle">
                               {item.variant_key || item.key || item.combination?.join("-")}
                             </td>
-                            {/* SEL TAMPILAN GAMBAR VARIASI */}
                             <td className="p-3 text-center align-middle">
                               <div className="flex flex-col items-center gap-2">
                                 {item.image ? (
@@ -652,52 +578,21 @@ export default function ProductEdit() {
                                       className="w-full h-full object-cover" 
                                       onError={(e) => { e.currentTarget.src = "/placeholder.png"; }}
                                     />
-                                    <button
-                                      type="button"
-                                      onClick={() => updateMatrixValue(index, "image", "")}
-                                      className="absolute inset-0 bg-black/50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                                      title="Hapus Gambar"
-                                    >
-                                      <X size={14} />
-                                    </button>
+                                    <button type="button" onClick={() => updateMatrixValue(index, "image", "")} className="absolute inset-0 bg-black/50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" title="Hapus Gambar"><X size={14} /></button>
                                   </div>
                                 ) : (
                                   <div className="flex gap-1.5 justify-center">
-                                    <button
-                                      type="button"
-                                      onClick={() => triggerVariantPCUpload(index)}
-                                      className="w-8 h-8 border border-gray-300 rounded flex items-center justify-center text-gray-500 hover:text-white hover:bg-gray-800 transition bg-white shadow-sm"
-                                      title="Upload langsung dari PC"
-                                    >
-                                      <UploadCloud size={14} />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => triggerVariantGallery(index)}
-                                      className="w-8 h-8 border border-gray-300 rounded flex items-center justify-center text-chester-pink hover:text-white hover:bg-chester-pink transition bg-white shadow-sm"
-                                      title="Pilih dari Galeri Server"
-                                    >
-                                      <Database size={14} />
-                                    </button>
+                                    <button type="button" onClick={() => triggerVariantPCUpload(index)} className="w-8 h-8 border border-gray-300 rounded flex items-center justify-center text-gray-500 hover:text-white hover:bg-gray-800 transition bg-white shadow-sm" title="Upload langsung dari PC"><UploadCloud size={14} /></button>
+                                    <button type="button" onClick={() => triggerVariantGallery(index)} className="w-8 h-8 border border-gray-300 rounded flex items-center justify-center text-chester-pink hover:text-white hover:bg-chester-pink transition bg-white shadow-sm" title="Pilih dari Galeri Server"><Database size={14} /></button>
                                   </div>
                                 )}
                               </div>
                             </td>
-                            <td className="p-3 align-middle">
-                              <input type="number" value={item.price} onChange={(e) => updateMatrixValue(index, "price", e.target.value)} className="w-full p-2 border rounded text-sm outline-none focus:border-chester-pink" />
-                            </td>
-                            <td className="p-3 align-middle">
-                              <input type="number" value={item.original_price} onChange={(e) => updateMatrixValue(index, "original_price", e.target.value)} className="w-full p-2 border rounded text-sm outline-none focus:border-chester-pink" />
-                            </td>
-                            <td className="p-3 align-middle">
-                              <input type="number" value={item.stock} onChange={(e) => updateMatrixValue(index, "stock", e.target.value)} className="w-full p-2 border rounded text-sm outline-none focus:border-chester-pink" />
-                            </td>
-                            <td className="p-3 align-middle">
-                              <input type="number" value={item.weight} onChange={(e) => updateMatrixValue(index, "weight", e.target.value)} className="w-full p-2 border rounded text-sm outline-none focus:border-chester-pink" />
-                            </td>
-                            <td className="p-3 align-middle">
-                              <input type="text" value={item.sku} onChange={(e) => updateMatrixValue(index, "sku", e.target.value)} className="w-full p-2 border rounded text-sm uppercase outline-none focus:border-chester-pink" />
-                            </td>
+                            <td className="p-3 align-middle"><input type="number" value={item.price} onChange={(e) => updateMatrixValue(index, "price", e.target.value)} className="w-full p-2 border rounded text-sm outline-none focus:border-chester-pink" /></td>
+                            <td className="p-3 align-middle"><input type="number" value={item.original_price} onChange={(e) => updateMatrixValue(index, "original_price", e.target.value)} className="w-full p-2 border rounded text-sm outline-none focus:border-chester-pink" /></td>
+                            <td className="p-3 align-middle"><input type="number" value={item.stock} onChange={(e) => updateMatrixValue(index, "stock", e.target.value)} className="w-full p-2 border rounded text-sm outline-none focus:border-chester-pink" /></td>
+                            <td className="p-3 align-middle"><input type="number" value={item.weight} onChange={(e) => updateMatrixValue(index, "weight", e.target.value)} className="w-full p-2 border rounded text-sm outline-none focus:border-chester-pink" /></td>
+                            <td className="p-3 align-middle"><input type="text" value={item.sku} onChange={(e) => updateMatrixValue(index, "sku", e.target.value)} className="w-full p-2 border rounded text-sm uppercase outline-none focus:border-chester-pink" /></td>
                           </tr>
                         ))}
                       </tbody>
@@ -721,14 +616,10 @@ export default function ProductEdit() {
                     <label className="block text-xs font-bold mb-1">Harga (Rp)</label>
                     <input type="number" value={ws.price} onChange={(e) => updateWholesale(index, "price", e.target.value)} className="w-full border px-4 py-2 rounded-lg text-sm" />
                   </div>
-                  <button type="button" onClick={() => removeWholesale(index)} className="mt-5 p-2 text-gray-400 hover:text-red-500">
-                    <Trash2 size={20} />
-                  </button>
+                  <button type="button" onClick={() => removeWholesale(index)} className="mt-5 p-2 text-gray-400 hover:text-red-500"><Trash2 size={20} /></button>
                 </div>
               ))}
-              <button type="button" onClick={addWholesale} className="w-max mt-2 text-sm font-bold text-chester-pink flex items-center gap-1">
-                <Plus size={16} /> Tambah Grosir
-              </button>
+              <button type="button" onClick={addWholesale} className="w-max mt-2 text-sm font-bold text-chester-pink flex items-center gap-1"><Plus size={16} /> Tambah Grosir</button>
             </div>
           </div>
 
@@ -751,21 +642,10 @@ export default function ProductEdit() {
                     {currentKeywords.map((kw, idx) => (
                       <span key={idx} className="bg-pink-50 text-chester-pink border border-pink-200 px-2.5 py-1 rounded-md text-xs font-bold flex items-center gap-1.5 shadow-sm">
                         {kw}
-                        <button type="button" onClick={() => removeTagFromSEO(idx)} className="hover:bg-red-500 hover:text-white rounded-full p-0.5 transition-colors">
-                          <X size={12} />
-                        </button>
+                        <button type="button" onClick={() => removeTagFromSEO(idx)} className="hover:bg-red-500 hover:text-white rounded-full p-0.5 transition-colors"><X size={12} /></button>
                       </span>
                     ))}
-                    <input
-                      type="text"
-                      value={tagInput}
-                      onChange={(e) => { setTagInput(e.target.value); setShowSuggestions(true); }}
-                      onKeyDown={handleTagKeyDown}
-                      onFocus={() => setShowSuggestions(true)}
-                      onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-                      placeholder={currentKeywords.length === 0 ? "Ketik lalu tekan Enter..." : "Ketik lagi..."}
-                      className="flex-1 min-w-[150px] outline-none bg-transparent text-sm text-gray-700 placeholder-gray-400"
-                    />
+                    <input type="text" value={tagInput} onChange={(e) => { setTagInput(e.target.value); setShowSuggestions(true); }} onKeyDown={handleTagKeyDown} onFocus={() => setShowSuggestions(true)} onBlur={() => setTimeout(() => setShowSuggestions(false), 200)} placeholder={currentKeywords.length === 0 ? "Ketik lalu tekan Enter..." : "Ketik lagi..."} className="flex-1 min-w-[150px] outline-none bg-transparent text-sm text-gray-700 placeholder-gray-400" />
                   </div>
 
                   {showSuggestions && tagInput && (
@@ -790,51 +670,37 @@ export default function ProductEdit() {
         </div>
 
         <div className="flex flex-col gap-8">
+          
+          {/* MEDIA KATALOG DINAMIS */}
           <div className="bg-white p-6 rounded-xl border shadow-sm">
-            <h2 className="text-lg font-bold text-chester-text mb-4">Media Katalog</h2>
-            <div className="relative border-2 border-dashed border-gray-200 bg-gray-50 rounded-xl p-4 flex flex-col items-center justify-center text-center aspect-square mb-4 overflow-hidden group">
-              {images[0] ? (
-                <>
-                  <img src={images[0].url} alt="Utama" className="absolute inset-0 w-full h-full object-cover z-10" onError={(e) => { e.currentTarget.src = "/placeholder.png"; }} />
-                  <button type="button" onClick={(e) => removeImageSlot(0, e)} className="absolute top-3 right-3 bg-white text-red-500 rounded p-1.5 shadow-md z-20 hover:bg-red-500 hover:text-white">
-                    <Trash2 size={16} />
-                  </button>
-                </>
-              ) : (
-                <div className="z-10 flex flex-col items-center">
-                  <ImageIcon className="text-gray-300 mb-2" size={32} />
-                  <p className="text-xs font-bold text-gray-500 mb-3">Foto Utama</p>
-                  <div className="flex gap-2">
-                    <button type="button" onClick={() => triggerPCUpload(0)} className="px-2.5 py-1.5 bg-gray-800 text-white text-xs rounded font-semibold flex items-center gap-1 hover:bg-black">
-                      <UploadCloud size={12} /> PC
-                    </button>
-                    <button type="button" onClick={() => triggerServerGallery(0)} className="px-2.5 py-1.5 bg-white text-chester-pink border border-chester-pink text-xs rounded font-semibold flex items-center gap-1 hover:bg-pink-50">
-                      <Database size={12} /> Server
-                    </button>
-                  </div>
-                </div>
-              )}
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-bold text-chester-text">Media Katalog</h2>
+              <button type="button" onClick={addMoreImageSlot} className="text-sm font-bold text-chester-pink hover:text-gray-900 flex items-center gap-1 transition">
+                <Plus size={16} /> Tambah Kolom
+              </button>
             </div>
-
-            <div className="grid grid-cols-4 gap-2">
-              {[1, 2, 3, 4].map((idx) => (
-                <div key={idx} className="relative border-2 border-dashed border-gray-200 bg-gray-50 rounded-lg aspect-square flex flex-col items-center justify-center text-center overflow-hidden group">
-                  {images[idx] ? (
+            
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              {images.map((img, idx) => (
+                <div key={idx} className="relative border-2 border-dashed border-gray-200 bg-gray-50 rounded-xl flex flex-col items-center justify-center text-center aspect-square overflow-hidden group">
+                  {img ? (
                     <>
-                      <img src={images[idx].url} alt="Pendukung" className="absolute inset-0 w-full h-full object-cover z-10" onError={(e) => { e.currentTarget.src = "/placeholder.png"; }} />
-                      <button type="button" onClick={(e) => removeImageSlot(idx, e)} className="absolute top-1 right-1 bg-white/80 text-red-500 rounded p-1 z-20">
-                        <X size={12} />
+                      <img src={img.url} alt={`Gambar ${idx}`} className="absolute inset-0 w-full h-full object-cover z-10" onError={(e) => { e.currentTarget.src = "/placeholder.png"; }} />
+                      <button type="button" onClick={(e) => removeImageSlot(idx, e)} className="absolute top-2 right-2 bg-white text-red-500 rounded p-1.5 shadow-md z-20 hover:bg-red-500 hover:text-white transition">
+                        <Trash2 size={16} />
                       </button>
+                      {idx === 0 && <span className="absolute bottom-0 left-0 right-0 bg-chester-pink text-white text-[10px] font-bold py-1 z-20 uppercase tracking-widest">Utama</span>}
                     </>
                   ) : (
-                    <div className="flex flex-col items-center gap-1 p-0.5">
-                      <Plus size={14} className="text-gray-400" />
-                      <div className="flex flex-col gap-1">
-                        <button type="button" onClick={() => triggerPCUpload(idx)} className="p-1 bg-gray-800 text-white rounded text-[9px] font-bold">
-                          <UploadCloud size={10} className="mx-auto" />
+                    <div className="z-10 flex flex-col items-center p-2">
+                      <ImageIcon className="text-gray-300 mb-2" size={28} />
+                      <p className="text-[11px] font-bold text-gray-500 mb-3">{idx === 0 ? "Foto Utama *" : "Foto Pendukung"}</p>
+                      <div className="flex flex-col w-full gap-1.5">
+                        <button type="button" onClick={() => triggerPCUpload(idx)} className="w-full py-1.5 bg-gray-800 text-white text-[10px] rounded font-semibold flex justify-center items-center gap-1 hover:bg-black">
+                          <UploadCloud size={12} /> PC
                         </button>
-                        <button type="button" onClick={() => triggerServerGallery(idx)} className="p-1 bg-white text-chester-pink border border-chester-pink rounded text-[9px] font-bold">
-                          <Database size={10} className="mx-auto" />
+                        <button type="button" onClick={() => triggerServerGallery(idx)} className="w-full py-1.5 bg-white text-chester-pink border border-chester-pink text-[10px] rounded font-semibold flex justify-center items-center gap-1 hover:bg-pink-50">
+                          <Database size={12} /> Server
                         </button>
                       </div>
                     </div>

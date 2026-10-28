@@ -1,21 +1,12 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  ArrowLeft,
-  Save,
-  Image as ImageIcon,
-  Plus,
-  Trash2,
-  X,
-  CheckCircle,
-  AlertCircle,
-  UploadCloud,
-  Database,
+  ArrowLeft, Save, Image as ImageIcon, Plus, Trash2, X,
+  CheckCircle, AlertCircle, UploadCloud, Database,
 } from "lucide-react";
 import Quill from "quill";
 import "quill/dist/quill.snow.css";
 import { quillModules } from "../../utils/quillConfig";
-
 import api from "../../api";
 import { getImageUrl } from "../../utils/imageHelper";
 
@@ -24,7 +15,6 @@ export default function ProductAdd() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const editorRef = useRef(null);
   const quillInstance = useRef(null);
-
   const fileInputRef = useRef(null);
   const [activeSlot, setActiveSlot] = useState(null);
   const [activeVariantSlot, setActiveVariantSlot] = useState(null);
@@ -32,49 +22,29 @@ export default function ProductAdd() {
 
   const [sizeGuides, setSizeGuides] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [customAlert, setCustomAlert] = useState({
-    show: false,
-    message: "",
-    type: "success",
-  });
+  const [tags, setTags] = useState([]);
 
+  const [customAlert, setCustomAlert] = useState({ show: false, message: "", type: "success" });
   const showAlert = (message, type = "success") => {
     setCustomAlert({ show: true, message, type });
-    if (type === "error") {
-      setTimeout(
-        () => setCustomAlert({ show: false, message: "", type: "success" }),
-        4000,
-      );
-    }
+    if (type === "error") setTimeout(() => setCustomAlert({ show: false, message: "", type: "success" }), 4000);
   };
 
   const [formData, setFormData] = useState({
-    name: "",
-    category: "",
-    size_guide_id: "",
-    description: "",
-    video_url: "",
-    price: "",
-    original_price: "",
-    stock: "",
-    sku: "",
-    weight: "",
-    status: "available",
-    seo_title: "",
-    seo_description: "",
-    seo_keywords: "",
+    name: "", category: "", size_guide_id: "", description: "", video_url: "",
+    price: "", original_price: "", stock: "", sku: "", weight: "", status: "available",
+    seo_title: "", seo_description: "", seo_keywords: "",
   });
 
-  const [images, setImages] = useState([null, null, null, null, null]);
+  // KOREKSI UTAMA: State dinamis, dimulai dengan 1 slot kosong untuk foto utama
+  const [images, setImages] = useState([null]);
   const [showGallery, setShowGallery] = useState(false);
   const [galleryMedia, setGalleryMedia] = useState([]);
   const [isGalleryLoading, setIsGalleryLoading] = useState(false);
-  const [tags, setTags] = useState([]);
+  
   const [wholesales, setWholesales] = useState([]);
   const [hasVariant, setHasVariant] = useState(false);
-  const [variantTypes, setVariantTypes] = useState([
-    { name: "Ukuran", options: ["S", "M", "L"] },
-  ]);
+  const [variantTypes, setVariantTypes] = useState([{ name: "Ukuran", options: ["S", "M", "L"] }]);
   const [optionInputs, setOptionInputs] = useState({});
   const [variantMatrix, setVariantMatrix] = useState([]);
 
@@ -82,11 +52,8 @@ export default function ProductAdd() {
     const fetchMasterData = async () => {
       try {
         const [guidesRes, catsRes, tagsRes] = await Promise.all([
-          api.get(`/size-guides`),
-          api.get(`/categories`),
-          api.get(`/tags`),
+          api.get(`/size-guides`), api.get(`/categories`), api.get(`/tags`),
         ]);
-
         if (guidesRes.data.success) setSizeGuides(guidesRes.data.data);
         if (catsRes.data.success) setCategories(catsRes.data.data);
         if (tagsRes.data.success) setTags(tagsRes.data.data);
@@ -99,40 +66,32 @@ export default function ProductAdd() {
 
   useEffect(() => {
     if (!editorRef.current || quillInstance.current) return;
-
     quillInstance.current = new Quill(editorRef.current, {
       theme: "snow",
-      placeholder:
-        "Tuliskan detail bahan, ukuran, dan spesifikasi produk di sini...",
+      placeholder: "Tuliskan detail bahan, ukuran, dan spesifikasi produk di sini...",
       modules: quillModules,
     });
-
     quillInstance.current.on("text-change", () => {
-      setFormData((prev) => ({
-        ...prev,
-        description: quillInstance.current.root.innerHTML,
-      }));
+      setFormData((prev) => ({ ...prev, description: quillInstance.current.root.innerHTML }));
     });
   }, []);
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-  };
+  const handleChange = (e) => setFormData((prev) => ({ ...prev, [e.target.name]: e.target.value }));
 
   // =======================================================================
-  // LOGIKA MEDIA YANG SUDAH DIPERBARUI (UPLOAD PC & GALERI REAL-TIME)
+  // LOGIKA MEDIA DINAMIS (PENYIMPANAN LOKAL VS UPLOAD LANGSUNG)
   // =======================================================================
+  const addMoreImageSlot = () => setImages([...images, null]);
+
   const triggerPCUpload = (slotIdx) => {
     setActiveSlot(slotIdx);
-    setActiveVariantSlot(null); // Pastikan varian tidak aktif
+    setActiveVariantSlot(null);
     fileInputRef.current.click();
   };
 
-  // FUNGSI BARU: Pemicu Upload PC langsung ke baris variasi
   const triggerVariantPCUpload = (matrixIndex) => {
     setActiveVariantSlot(matrixIndex);
-    setActiveSlot(null); // Pastikan slot utama tidak aktif
+    setActiveSlot(null);
     fileInputRef.current.click();
   };
 
@@ -145,8 +104,22 @@ export default function ProductAdd() {
       return;
     }
 
-    setIsDirectUploading(true);
+    // KOREKSI: Jika upload untuk katalog utama, simpan file secara LOKAL di memori browser
+    if (activeSlot !== null) {
+      const newImages = [...images];
+      newImages[activeSlot] = {
+        type: "pc",
+        file: file,
+        url: URL.createObjectURL(file), // Membuat preview gambar sementara
+      };
+      setImages(newImages);
+      setActiveSlot(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
 
+    // Jika upload untuk variasi produk, tembak langsung ke gallery
+    setIsDirectUploading(true);
     const directUploadData = new FormData();
     directUploadData.append("galleryFile", file);
 
@@ -154,32 +127,14 @@ export default function ProductAdd() {
       const response = await api.post(`/gallery/upload`, directUploadData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-
       if (response.data.success) {
         const uploadedFilePath = response.data.data.file_path;
-
-        // PEMBARUAN PENTING: Suntikkan gambar baru ke state galeri agar langsung muncul di modal
-        setGalleryMedia((prev) => [
-          { id: Date.now(), file_path: uploadedFilePath },
-          ...prev,
-        ]);
+        setGalleryMedia((prev) => [{ id: Date.now(), file_path: uploadedFilePath }, ...prev]);
 
         if (activeVariantSlot !== null) {
-          // A. Jika gambar diupload dari baris tabel variasi
           updateMatrixValue(activeVariantSlot, "image", uploadedFilePath);
           setActiveVariantSlot(null);
-        } else if (activeSlot !== null) {
-          // B. Jika gambar diupload dari slot katalog utama (0-4)
-          const newImages = [...images];
-          newImages[activeSlot] = {
-            type: "server",
-            path: uploadedFilePath,
-            url: getImageUrl(uploadedFilePath),
-          };
-          setImages(newImages);
-          setActiveSlot(null);
         }
-
         showAlert("Gambar berhasil diunggah!", "success");
       }
     } catch (error) {
@@ -209,9 +164,7 @@ export default function ProductAdd() {
     setIsGalleryLoading(true);
     try {
       const response = await api.get(`/gallery?limit=50`);
-      if (response.data.success) {
-        setGalleryMedia(response.data.data);
-      }
+      if (response.data.success) setGalleryMedia(response.data.data);
     } catch (err) {
       console.error(err);
     } finally {
@@ -237,13 +190,17 @@ export default function ProductAdd() {
 
   const removeImageSlot = (slotIdx, e) => {
     e.preventDefault();
-    const newImages = [...images];
-    newImages[slotIdx] = null;
-    setImages(newImages);
+    if (images.length === 1 && slotIdx === 0) {
+      setImages([null]); // Jangan hapus kotaknya jika tersisa 1, cukup kosongkan
+    } else {
+      const newImages = [...images];
+      newImages.splice(slotIdx, 1);
+      setImages(newImages);
+    }
   };
 
   // =======================================================================
-  // LOGIKA SIMPAN DATA
+  // LOGIKA SIMPAN DATA KE BACKEND
   // =======================================================================
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -253,18 +210,15 @@ export default function ProductAdd() {
     }
 
     setIsSubmitting(true);
-
     try {
       const dataToSend = new FormData();
 
-      if (images[0].type === "pc" && images[0].file) {
-        dataToSend.append("primaryImage", images[0].file);
-      }
-      for (let i = 1; i <= 4; i++) {
-        if (images[i] && images[i].type === "pc" && images[i].file) {
-          dataToSend.append("supportingImages", images[i].file);
+      // KOREKSI: Masukkan seluruh gambar PC ke dalam satu wadah array bernama 'productImages'
+      images.forEach((img) => {
+        if (img && img.type === "pc" && img.file) {
+          dataToSend.append("productImages", img.file);
         }
-      }
+      });
 
       const imagesConfig = images.map((img) => {
         if (!img) return null;
@@ -303,6 +257,7 @@ export default function ProductAdd() {
     }
   };
 
+  // --- LOGIKA VARIASI & GROSIR TETAP SAMA ---
   const addWholesale = () => setWholesales([...wholesales, { minQty: "", price: "" }]);
   const removeWholesale = (index) => setWholesales(wholesales.filter((_, i) => i !== index));
   const updateWholesale = (index, field, value) => {
@@ -329,10 +284,7 @@ export default function ProductAdd() {
     }
   };
   const handleOptionKeyDown = (e, typeIndex) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      handleAddOption(typeIndex);
-    }
+    if (e.key === "Enter") { e.preventDefault(); handleAddOption(typeIndex); }
   };
   const handleRemoveOption = (typeIndex, optIndex) => {
     const newVt = [...variantTypes];
@@ -350,99 +302,53 @@ export default function ProductAdd() {
     const validTypes = variantTypes.filter((vt) => vt.name.trim() && vt.options.length > 0);
     if (validTypes.length === 0) return;
     const optionsArrays = validTypes.map((vt) => vt.options);
-    const combos = optionsArrays.reduce(
-      (a, b) => a.flatMap((d) => b.map((e) => [...d, e])),
-      [[]],
-    );
+    const combos = optionsArrays.reduce((a, b) => a.flatMap((d) => b.map((e) => [...d, e])), [[]]);
     setVariantMatrix((prevMatrix) => {
       return combos.map((combo) => {
         const key = combo.join("-");
         const existing = prevMatrix.find((p) => p.key === key);
-        return (
-          existing || {
-            key,
-            combination: combo,
-            price: "",
-            original_price: "",
-            stock: "",
-            weight: "",
-            sku: "",
-            image: "",
-          }
-        );
+        return existing || { key, combination: combo, price: "", original_price: "", stock: "", weight: "", sku: "", image: "" };
       });
     });
   }, [variantTypes, hasVariant]);
 
+  // --- LOGIKA SEO SMART TAGS TETAP SAMA ---
   const [tagInput, setTagInput] = useState("");
   const [showSuggestions, setShowSuggestions] = useState(false);
-
-  const currentKeywords = formData.seo_keywords
-    ? formData.seo_keywords.split(",").map((k) => k.trim()).filter((k) => k)
-    : [];
-
-  const suggestedTags = tags.filter(
-    (t) =>
-      t.name.toLowerCase().includes(tagInput.toLowerCase()) &&
-      !currentKeywords.map((k) => k.toLowerCase()).includes(t.name.toLowerCase()),
-  );
+  const currentKeywords = formData.seo_keywords ? formData.seo_keywords.split(",").map((k) => k.trim()).filter((k) => k) : [];
+  const suggestedTags = tags.filter((t) => t.name.toLowerCase().includes(tagInput.toLowerCase()) && !currentKeywords.map((k) => k.toLowerCase()).includes(t.name.toLowerCase()));
 
   const addTagToSEO = async (tagName) => {
     const trimmedName = tagName.trim();
     if (!trimmedName) return;
-
-    if (currentKeywords.map((k) => k.toLowerCase()).includes(trimmedName.toLowerCase())) {
-      setTagInput("");
-      return;
-    }
-
+    if (currentKeywords.map((k) => k.toLowerCase()).includes(trimmedName.toLowerCase())) { setTagInput(""); return; }
     const isExistInDB = tags.find((t) => t.name.toLowerCase() === trimmedName.toLowerCase());
     if (!isExistInDB) {
       try {
         await api.post(`/tags`, { name: trimmedName });
         setTags([...tags, { id: Date.now(), name: trimmedName }]);
-      } catch (error) {
-        console.error("Gagal auto-save tag:", error);
-      }
+      } catch (error) { console.error("Gagal auto-save tag:", error); }
     }
-
     const newKeywords = [...currentKeywords, trimmedName];
     setFormData((prev) => ({ ...prev, seo_keywords: newKeywords.join(", ") }));
     setTagInput("");
     setShowSuggestions(false);
   };
-
   const removeTagFromSEO = (indexToRemove) => {
     const newKeywords = currentKeywords.filter((_, idx) => idx !== indexToRemove);
     setFormData((prev) => ({ ...prev, seo_keywords: newKeywords.join(", ") }));
   };
-
   const handleTagKeyDown = (e) => {
-    if (e.key === "Enter" || e.key === ",") {
-      e.preventDefault();
-      addTagToSEO(tagInput);
-    }
+    if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addTagToSEO(tagInput); }
   };
 
   return (
     <div className="max-w-5xl mx-auto pb-12 relative">
-      <input
-        type="file"
-        accept="image/*"
-        ref={fileInputRef}
-        onChange={handlePCFileChange}
-        className="hidden"
-      />
+      <input type="file" accept="image/*" ref={fileInputRef} onChange={handlePCFileChange} className="hidden" />
 
       {customAlert.show && (
         <div className="fixed top-6 right-6 z-50 animate-bounce">
-          <div
-            className={`flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-xl border text-sm font-semibold text-white ${
-              customAlert.type === "success"
-                ? "bg-emerald-500 border-emerald-400"
-                : "bg-rose-500 border-rose-400"
-            }`}
-          >
+          <div className={`flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-xl border text-sm font-semibold text-white ${customAlert.type === "success" ? "bg-emerald-500 border-emerald-400" : "bg-rose-500 border-rose-400"}`}>
             {customAlert.type === "success" ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
             <span>{customAlert.message}</span>
           </div>
@@ -453,44 +359,21 @@ export default function ProductAdd() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden animate-scale-up">
             <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-              <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2">
-                Pilih Foto dari Galeri Server
-              </h3>
-              <button
-                onClick={() => {
-                  setShowGallery(false);
-                  setActiveSlot(null);
-                  setActiveVariantSlot(null);
-                }}
-                className="p-2 text-gray-400 hover:text-red-500 transition rounded-lg hover:bg-red-50"
-              >
+              <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2">Pilih Foto dari Galeri Server</h3>
+              <button onClick={() => { setShowGallery(false); setActiveSlot(null); setActiveVariantSlot(null); }} className="p-2 text-gray-400 hover:text-red-500 transition rounded-lg hover:bg-red-50">
                 <X size={20} />
               </button>
             </div>
             <div className="p-6 overflow-y-auto flex-1 bg-gray-50/50">
               {isGalleryLoading ? (
-                <div className="flex flex-col items-center justify-center h-40 gap-2">
-                  <div className="h-6 w-6 border-2 border-chester-pink border-t-transparent rounded-full animate-spin"></div>
-                </div>
+                <div className="flex justify-center h-40 items-center"><div className="h-6 w-6 border-2 border-chester-pink border-t-transparent rounded-full animate-spin"></div></div>
               ) : galleryMedia.length === 0 ? (
                 <p className="text-center text-gray-400 py-10">Pustaka media kosong.</p>
               ) : (
                 <div className="grid grid-cols-4 sm:grid-cols-5 gap-4">
                   {galleryMedia.map((media) => (
-                    <div
-                      key={media.id}
-                      onClick={() => handleSelectFromGallery(media.file_path)}
-                      className="cursor-pointer aspect-square rounded-xl overflow-hidden border hover:border-chester-pink transition shadow-sm"
-                    >
-                      <img
-                        src={getImageUrl(media.file_path)}
-                        alt="Media"
-                        className="w-full h-full object-cover"
-                        onError={(e) => {
-                          e.currentTarget.onerror = null;
-                          e.currentTarget.src = "/placeholder.png";
-                        }}
-                      />
+                    <div key={media.id} onClick={() => handleSelectFromGallery(media.file_path)} className="cursor-pointer aspect-square rounded-xl overflow-hidden border hover:border-chester-pink transition shadow-sm">
+                      <img src={getImageUrl(media.file_path)} alt="Media" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = "/placeholder.png"; }} />
                     </div>
                   ))}
                 </div>
@@ -502,38 +385,24 @@ export default function ProductAdd() {
 
       <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
         <div className="flex items-center gap-4">
-          <Link
-            to="/admin/products"
-            className="p-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600"
-          >
-            <ArrowLeft size={20} />
-          </Link>
+          <Link to="/admin/products" className="p-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600"><ArrowLeft size={20} /></Link>
           <h1 className="text-2xl font-bold text-chester-text">Tambah Produk Baru</h1>
         </div>
-        <button
-          onClick={handleSubmit}
-          disabled={isSubmitting || isDirectUploading}
-          className="bg-chester-pink text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-gray-900 transition shadow-sm disabled:opacity-50"
-        >
+        <button onClick={handleSubmit} disabled={isSubmitting || isDirectUploading} className="bg-chester-pink text-white px-6 py-2.5 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-gray-900 transition shadow-sm disabled:opacity-50">
           <Save size={18} /> {isSubmitting ? "Menyimpan..." : (isDirectUploading ? "Mengunggah Media..." : "Publish Produk")}
         </button>
       </div>
 
       <form className="grid grid-cols-1 lg:grid-cols-3 gap-8" onSubmit={handleSubmit}>
         <div className="lg:col-span-2 flex flex-col gap-8">
+          
+          {/* INFORMASI DASAR */}
           <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
             <h2 className="text-lg font-bold text-chester-text mb-6">Informasi Dasar</h2>
             <div className="flex flex-col gap-5">
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">Nama Produk *</label>
-                <input
-                  type="text"
-                  name="name"
-                  required
-                  value={formData.name}
-                  onChange={handleChange}
-                  className="w-full border border-gray-300 px-4 py-2.5 rounded-lg focus:outline-none focus:border-chester-pink"
-                />
+                <input type="text" name="name" required value={formData.name} onChange={handleChange} className="w-full border border-gray-300 px-4 py-2.5 rounded-lg focus:outline-none focus:border-chester-pink" />
               </div>
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">Deskripsi Produk</label>
@@ -542,22 +411,14 @@ export default function ProductAdd() {
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">URL Video Produk (Opsional)</label>
                 <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <span className="text-gray-400 font-bold text-sm">🔗</span>
-                  </div>
-                  <input
-                    type="url"
-                    name="video_url"
-                    value={formData.video_url}
-                    onChange={handleChange}
-                    placeholder="Contoh: https://youtube.com/watch?v=..."
-                    className="w-full border border-gray-300 pl-10 pr-4 py-2.5 rounded-lg focus:outline-none focus:border-chester-pink transition bg-white"
-                  />
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><span className="text-gray-400 font-bold text-sm">🔗</span></div>
+                  <input type="url" name="video_url" value={formData.video_url} onChange={handleChange} placeholder="Contoh: https://youtube.com/watch?v=..." className="w-full border border-gray-300 pl-10 pr-4 py-2.5 rounded-lg focus:outline-none focus:border-chester-pink transition bg-white" />
                 </div>
               </div>
             </div>
           </div>
 
+          {/* VARIASI PRODUK */}
           <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
             <div className="flex justify-between items-center mb-6">
               <div>
@@ -565,12 +426,7 @@ export default function ProductAdd() {
                 <p className="text-xs text-gray-500 mt-1">Aktifkan untuk ukuran atau warna bersilang.</p>
               </div>
               <label className="flex items-center cursor-pointer relative">
-                <input
-                  type="checkbox"
-                  className="sr-only"
-                  checked={hasVariant}
-                  onChange={() => setHasVariant(!hasVariant)}
-                />
+                <input type="checkbox" className="sr-only" checked={hasVariant} onChange={() => setHasVariant(!hasVariant)} />
                 <div className={`w-11 h-6 rounded-full transition ${hasVariant ? "bg-chester-pink" : "bg-gray-300"}`}></div>
                 <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform ${hasVariant ? "translate-x-5" : ""}`}></div>
               </label>
@@ -580,55 +436,28 @@ export default function ProductAdd() {
               <div className="flex flex-col gap-6 border-t pt-6">
                 {variantTypes.map((vt, index) => (
                   <div key={index} className="flex flex-col gap-4 p-5 bg-gray-50 rounded-xl border relative">
-                    <button
-                      type="button"
-                      onClick={() => removeVariantType(index)}
-                      className="absolute top-4 right-4 text-gray-400 hover:text-red-500"
-                    >
-                      <Trash2 size={18} />
-                    </button>
+                    <button type="button" onClick={() => removeVariantType(index)} className="absolute top-4 right-4 text-gray-400 hover:text-red-500"><Trash2 size={18} /></button>
                     <div className="w-full max-w-sm">
                       <label className="block text-sm font-bold text-gray-700 mb-1">Variasi Induk</label>
-                      <input
-                        type="text"
-                        value={vt.name}
-                        onChange={(e) => updateVariantTypeName(index, e.target.value)}
-                        className="w-full border px-3 py-2 rounded-lg text-sm"
-                      />
+                      <input type="text" value={vt.name} onChange={(e) => updateVariantTypeName(index, e.target.value)} className="w-full border px-3 py-2 rounded-lg text-sm" />
                     </div>
                     <div className="w-full">
                       <label className="block text-sm font-bold text-gray-700 mb-2">Sub Variasi</label>
                       <div className="flex flex-wrap gap-2 mb-3">
                         {vt.options?.map((opt, optIndex) => (
                           <span key={optIndex} className="bg-white border border-chester-pink text-chester-pink px-3 py-1.5 rounded-lg text-sm font-semibold flex items-center gap-2">
-                            {opt}
-                            <button type="button" onClick={() => handleRemoveOption(index, optIndex)}>
-                              <X size={14} />
-                            </button>
+                            {opt} <button type="button" onClick={() => handleRemoveOption(index, optIndex)}><X size={14} /></button>
                           </span>
                         ))}
                       </div>
                       <div className="flex gap-2 max-w-sm">
-                        <input
-                          type="text"
-                          value={optionInputs[index] || ""}
-                          onChange={(e) => setOptionInputs({ ...optionInputs, [index]: e.target.value })}
-                          onKeyDown={(e) => handleOptionKeyDown(e, index)}
-                          placeholder="Ketik lalu Enter"
-                          className="flex-1 border px-3 py-2 rounded-lg text-sm"
-                        />
-                        <button type="button" onClick={() => handleAddOption(index)} className="bg-gray-800 text-white px-4 py-2 rounded-lg text-sm">
-                          Tambah
-                        </button>
+                        <input type="text" value={optionInputs[index] || ""} onChange={(e) => setOptionInputs({ ...optionInputs, [index]: e.target.value })} onKeyDown={(e) => handleOptionKeyDown(e, index)} placeholder="Ketik lalu Enter" className="flex-1 border px-3 py-2 rounded-lg text-sm" />
+                        <button type="button" onClick={() => handleAddOption(index)} className="bg-gray-800 text-white px-4 py-2 rounded-lg text-sm">Tambah</button>
                       </div>
                     </div>
                   </div>
                 ))}
-                <button
-                  type="button"
-                  onClick={addVariantType}
-                  className="w-max py-2 px-4 border-2 border-dashed border-chester-pink text-chester-pink text-sm font-bold rounded-lg flex items-center gap-2"
-                >
+                <button type="button" onClick={addVariantType} className="w-max py-2 px-4 border-2 border-dashed border-chester-pink text-chester-pink text-sm font-bold rounded-lg flex items-center gap-2">
                   <Plus size={16} /> Tambah Kategori Variasi
                 </button>
 
@@ -638,7 +467,7 @@ export default function ProductAdd() {
                       <thead>
                         <tr className="bg-gray-100 text-xs text-gray-700 font-bold uppercase">
                           <th className="p-4">Kombinasi</th>
-                          <th className="p-4 w-28 text-center">Gambar</th> {/* Kolom Gambar Baru */}
+                          <th className="p-4 w-28 text-center">Gambar</th>
                           <th className="p-4 w-28">Harga (Rp)</th>
                           <th className="p-4 w-28">Coret (Rp)</th>
                           <th className="p-4 w-24">Stok</th>
@@ -649,91 +478,27 @@ export default function ProductAdd() {
                       <tbody>
                         {variantMatrix.map((item, index) => (
                           <tr key={index} className="border-b hover:bg-gray-50/50 transition">
-                            <td className="p-3 text-sm font-bold text-chester-pink align-middle">
-                              {item.key}
-                            </td>
-                            {/* SEL GAMBAR VARIASI DENGAN 2 TOMBOL UPLOAD */}
+                            <td className="p-3 text-sm font-bold text-chester-pink align-middle">{item.key}</td>
                             <td className="p-3 text-center align-middle">
                               <div className="flex flex-col items-center gap-2">
                                 {item.image ? (
                                   <div className="relative w-12 h-12 rounded border border-gray-200 overflow-hidden group shadow-sm">
-                                    <img 
-                                      src={getImageUrl(item.image)} 
-                                      alt="Varian" 
-                                      className="w-full h-full object-cover" 
-                                      onError={(e) => { e.currentTarget.src = "/placeholder.png"; }}
-                                    />
-                                    <button
-                                      type="button"
-                                      onClick={() => updateMatrixValue(index, "image", "")}
-                                      className="absolute inset-0 bg-black/50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                                      title="Hapus Gambar"
-                                    >
-                                      <X size={14} />
-                                    </button>
+                                    <img src={getImageUrl(item.image)} alt="Varian" className="w-full h-full object-cover" onError={(e) => { e.currentTarget.src = "/placeholder.png"; }} />
+                                    <button type="button" onClick={() => updateMatrixValue(index, "image", "")} className="absolute inset-0 bg-black/50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" title="Hapus Gambar"><X size={14} /></button>
                                   </div>
                                 ) : (
                                   <div className="flex gap-1.5 justify-center">
-                                    <button
-                                      type="button"
-                                      onClick={() => triggerVariantPCUpload(index)}
-                                      className="w-8 h-8 border border-gray-300 rounded flex items-center justify-center text-gray-500 hover:text-white hover:bg-gray-800 transition bg-white shadow-sm"
-                                      title="Upload langsung dari PC"
-                                    >
-                                      <UploadCloud size={14} />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => triggerVariantGallery(index)}
-                                      className="w-8 h-8 border border-gray-300 rounded flex items-center justify-center text-chester-pink hover:text-white hover:bg-chester-pink transition bg-white shadow-sm"
-                                      title="Pilih dari Galeri Server"
-                                    >
-                                      <Database size={14} />
-                                    </button>
+                                    <button type="button" onClick={() => triggerVariantPCUpload(index)} className="w-8 h-8 border border-gray-300 rounded flex items-center justify-center text-gray-500 hover:text-white hover:bg-gray-800 transition bg-white shadow-sm" title="Upload langsung dari PC"><UploadCloud size={14} /></button>
+                                    <button type="button" onClick={() => triggerVariantGallery(index)} className="w-8 h-8 border border-gray-300 rounded flex items-center justify-center text-chester-pink hover:text-white hover:bg-chester-pink transition bg-white shadow-sm" title="Pilih dari Galeri Server"><Database size={14} /></button>
                                   </div>
                                 )}
                               </div>
                             </td>
-                            <td className="p-3 align-middle">
-                              <input
-                                type="number"
-                                value={item.price}
-                                onChange={(e) => updateMatrixValue(index, "price", e.target.value)}
-                                className="w-full p-2 border rounded text-sm outline-none focus:border-chester-pink"
-                              />
-                            </td>
-                            <td className="p-3 align-middle">
-                              <input
-                                type="number"
-                                value={item.original_price}
-                                onChange={(e) => updateMatrixValue(index, "original_price", e.target.value)}
-                                className="w-full p-2 border rounded text-sm outline-none focus:border-chester-pink"
-                              />
-                            </td>
-                            <td className="p-3 align-middle">
-                              <input
-                                type="number"
-                                value={item.stock}
-                                onChange={(e) => updateMatrixValue(index, "stock", e.target.value)}
-                                className="w-full p-2 border rounded text-sm outline-none focus:border-chester-pink"
-                              />
-                            </td>
-                            <td className="p-3 align-middle">
-                              <input
-                                type="number"
-                                value={item.weight}
-                                onChange={(e) => updateMatrixValue(index, "weight", e.target.value)}
-                                className="w-full p-2 border rounded text-sm outline-none focus:border-chester-pink"
-                              />
-                            </td>
-                            <td className="p-3 align-middle">
-                              <input
-                                type="text"
-                                value={item.sku}
-                                onChange={(e) => updateMatrixValue(index, "sku", e.target.value)}
-                                className="w-full p-2 border rounded text-sm uppercase outline-none focus:border-chester-pink"
-                              />
-                            </td>
+                            <td className="p-3 align-middle"><input type="number" value={item.price} onChange={(e) => updateMatrixValue(index, "price", e.target.value)} className="w-full p-2 border rounded text-sm outline-none focus:border-chester-pink" /></td>
+                            <td className="p-3 align-middle"><input type="number" value={item.original_price} onChange={(e) => updateMatrixValue(index, "original_price", e.target.value)} className="w-full p-2 border rounded text-sm outline-none focus:border-chester-pink" /></td>
+                            <td className="p-3 align-middle"><input type="number" value={item.stock} onChange={(e) => updateMatrixValue(index, "stock", e.target.value)} className="w-full p-2 border rounded text-sm outline-none focus:border-chester-pink" /></td>
+                            <td className="p-3 align-middle"><input type="number" value={item.weight} onChange={(e) => updateMatrixValue(index, "weight", e.target.value)} className="w-full p-2 border rounded text-sm outline-none focus:border-chester-pink" /></td>
+                            <td className="p-3 align-middle"><input type="text" value={item.sku} onChange={(e) => updateMatrixValue(index, "sku", e.target.value)} className="w-full p-2 border rounded text-sm uppercase outline-none focus:border-chester-pink" /></td>
                           </tr>
                         ))}
                       </tbody>
@@ -752,30 +517,16 @@ export default function ProductAdd() {
                 <div key={index} className="flex gap-4 items-center bg-gray-50 p-3 rounded-lg border">
                   <div className="flex-1">
                     <label className="block text-xs font-bold mb-1">Minimal Qty</label>
-                    <input
-                      type="number"
-                      value={ws.minQty}
-                      onChange={(e) => updateWholesale(index, "minQty", e.target.value)}
-                      className="w-full border px-4 py-2 rounded-lg text-sm"
-                    />
+                    <input type="number" value={ws.minQty} onChange={(e) => updateWholesale(index, "minQty", e.target.value)} className="w-full border px-4 py-2 rounded-lg text-sm" />
                   </div>
                   <div className="flex-1">
-                    <label className="block text-xs font-bold mb-1">Harga Satuan Grosir (Rp)</label>
-                    <input
-                      type="number"
-                      value={ws.price}
-                      onChange={(e) => updateWholesale(index, "price", e.target.value)}
-                      className="w-full border px-4 py-2 rounded-lg text-sm"
-                    />
+                    <label className="block text-xs font-bold mb-1">Harga Satuan (Rp)</label>
+                    <input type="number" value={ws.price} onChange={(e) => updateWholesale(index, "price", e.target.value)} className="w-full border px-4 py-2 rounded-lg text-sm" />
                   </div>
-                  <button type="button" onClick={() => removeWholesale(index)} className="mt-5 p-2 text-gray-400 hover:text-red-500">
-                    <Trash2 size={20} />
-                  </button>
+                  <button type="button" onClick={() => removeWholesale(index)} className="mt-5 p-2 text-gray-400 hover:text-red-500"><Trash2 size={20} /></button>
                 </div>
               ))}
-              <button type="button" onClick={addWholesale} className="w-max mt-2 text-sm font-bold text-chester-pink flex items-center gap-1">
-                <Plus size={16} /> Tambah Batasan Grosir
-              </button>
+              <button type="button" onClick={addWholesale} className="w-max mt-2 text-sm font-bold text-chester-pink flex items-center gap-1"><Plus size={16} /> Tambah Batasan Grosir</button>
             </div>
           </div>
 
@@ -797,38 +548,19 @@ export default function ProductAdd() {
                   <div className="flex flex-wrap gap-2 w-full border border-gray-300 px-3 py-2 rounded-lg bg-white focus-within:border-chester-pink min-h-[46px] items-center transition-colors">
                     {currentKeywords.map((kw, idx) => (
                       <span key={idx} className="bg-pink-50 text-chester-pink border border-pink-200 px-2.5 py-1 rounded-md text-xs font-bold flex items-center gap-1.5 shadow-sm">
-                        {kw}
-                        <button type="button" onClick={() => removeTagFromSEO(idx)} className="hover:bg-red-500 hover:text-white rounded-full p-0.5 transition-colors">
-                          <X size={12} />
-                        </button>
+                        {kw} <button type="button" onClick={() => removeTagFromSEO(idx)} className="hover:bg-red-500 hover:text-white rounded-full p-0.5 transition-colors"><X size={12} /></button>
                       </span>
                     ))}
-                    <input
-                      type="text"
-                      value={tagInput}
-                      onChange={(e) => {
-                        setTagInput(e.target.value);
-                        setShowSuggestions(true);
-                      }}
-                      onKeyDown={handleTagKeyDown}
-                      onFocus={() => setShowSuggestions(true)}
-                      onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
-                      placeholder={currentKeywords.length === 0 ? "Ketik keyword lalu tekan Enter atau Koma..." : "Ketik lagi..."}
-                      className="flex-1 min-w-[150px] outline-none bg-transparent text-sm text-gray-700 placeholder-gray-400"
-                    />
+                    <input type="text" value={tagInput} onChange={(e) => { setTagInput(e.target.value); setShowSuggestions(true); }} onKeyDown={handleTagKeyDown} onFocus={() => setShowSuggestions(true)} onBlur={() => setTimeout(() => setShowSuggestions(false), 200)} placeholder={currentKeywords.length === 0 ? "Ketik keyword lalu tekan Enter atau Koma..." : "Ketik lagi..."} className="flex-1 min-w-[150px] outline-none bg-transparent text-sm text-gray-700 placeholder-gray-400" />
                   </div>
                   {showSuggestions && tagInput && (
                     <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-2xl max-h-48 overflow-y-auto">
                       {suggestedTags.length > 0 ? (
                         suggestedTags.map((tag) => (
-                          <div key={tag.id} onClick={() => addTagToSEO(tag.name)} className="px-4 py-2.5 hover:bg-pink-50 hover:text-chester-pink cursor-pointer text-sm font-semibold text-gray-700 transition border-b border-gray-50 last:border-0">
-                            <span className="opacity-40 mr-2">#</span>{tag.name}
-                          </div>
+                          <div key={tag.id} onClick={() => addTagToSEO(tag.name)} className="px-4 py-2.5 hover:bg-pink-50 hover:text-chester-pink cursor-pointer text-sm font-semibold text-gray-700 transition border-b border-gray-50 last:border-0"><span className="opacity-40 mr-2">#</span>{tag.name}</div>
                         ))
                       ) : (
-                        <div className="px-4 py-3 text-sm text-gray-500 bg-gray-50 rounded-b-xl border-t border-gray-100">
-                          Tekan <span className="font-bold text-gray-700">Enter</span> untuk menambahkan <span className="font-bold text-chester-pink">"{tagInput}"</span> sebagai Tag baru di server.
-                        </div>
+                        <div className="px-4 py-3 text-sm text-gray-500 bg-gray-50 rounded-b-xl border-t border-gray-100">Tekan <span className="font-bold text-gray-700">Enter</span> untuk menambahkan Tag baru.</div>
                       )}
                     </div>
                   )}
@@ -840,51 +572,37 @@ export default function ProductAdd() {
 
         {/* KOLOM KANAN */}
         <div className="flex flex-col gap-8">
+          
+          {/* MEDIA KATALOG DINAMIS */}
           <div className="bg-white p-6 rounded-xl border border-gray-100 shadow-sm">
-            <h2 className="text-lg font-bold text-chester-text mb-4">Media Katalog</h2>
-            <div className="relative border-2 border-dashed border-gray-200 bg-gray-50 rounded-xl p-4 flex flex-col items-center justify-center text-center aspect-square mb-4 overflow-hidden group">
-              {images[0] ? (
-                <>
-                  <img src={images[0].url} alt="Utama" className="absolute inset-0 w-full h-full object-cover z-10" />
-                  <button onClick={(e) => removeImageSlot(0, e)} className="absolute top-3 right-3 bg-white text-red-500 rounded p-1.5 shadow-md z-20 hover:bg-red-500 hover:text-white">
-                    <Trash2 size={16} />
-                  </button>
-                </>
-              ) : (
-                <div className="z-10 flex flex-col items-center">
-                  <ImageIcon className="text-gray-300 mb-2" size={32} />
-                  <p className="text-xs font-bold text-gray-500 mb-3">Foto Utama Produk</p>
-                  <div className="flex gap-2">
-                    <button type="button" onClick={() => triggerPCUpload(0)} className="px-2.5 py-1.5 bg-gray-800 text-white text-xs rounded font-semibold flex items-center gap-1 hover:bg-black">
-                      <UploadCloud size={12} /> PC
-                    </button>
-                    <button type="button" onClick={() => triggerServerGallery(0)} className="px-2.5 py-1.5 bg-white text-chester-pink border border-chester-pink text-xs rounded font-semibold flex items-center gap-1 hover:bg-pink-50">
-                      <Database size={12} /> Server
-                    </button>
-                  </div>
-                </div>
-              )}
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-bold text-chester-text">Media Katalog</h2>
+              <button type="button" onClick={addMoreImageSlot} className="text-sm font-bold text-chester-pink hover:text-gray-900 flex items-center gap-1 transition">
+                <Plus size={16} /> Tambah Kolom
+              </button>
             </div>
-
-            <div className="grid grid-cols-4 gap-2">
-              {[1, 2, 3, 4].map((idx) => (
-                <div key={idx} className="relative border-2 border-dashed border-gray-200 bg-gray-50 rounded-lg aspect-square flex flex-col items-center justify-center text-center overflow-hidden group">
-                  {images[idx] ? (
+            
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              {images.map((img, idx) => (
+                <div key={idx} className="relative border-2 border-dashed border-gray-200 bg-gray-50 rounded-xl flex flex-col items-center justify-center text-center aspect-square overflow-hidden group">
+                  {img ? (
                     <>
-                      <img src={images[idx].url} alt="Pendukung" className="absolute inset-0 w-full h-full object-cover z-10" />
-                      <button onClick={(e) => removeImageSlot(idx, e)} className="absolute top-1 right-1 bg-white/80 text-red-500 rounded p-1 z-20">
-                        <X size={12} />
+                      <img src={img.url} alt={`Gambar ${idx}`} className="absolute inset-0 w-full h-full object-cover z-10" onError={(e) => { e.currentTarget.src = "/placeholder.png"; }} />
+                      <button type="button" onClick={(e) => removeImageSlot(idx, e)} className="absolute top-2 right-2 bg-white text-red-500 rounded p-1.5 shadow-md z-20 hover:bg-red-500 hover:text-white transition">
+                        <Trash2 size={16} />
                       </button>
+                      {idx === 0 && <span className="absolute bottom-0 left-0 right-0 bg-chester-pink text-white text-[10px] font-bold py-1 z-20 uppercase tracking-widest">Utama</span>}
                     </>
                   ) : (
-                    <div className="flex flex-col items-center gap-1 p-0.5">
-                      <Plus size={14} className="text-gray-400" />
-                      <div className="flex flex-col gap-1">
-                        <button type="button" onClick={() => triggerPCUpload(idx)} className="p-1 bg-gray-800 text-white rounded text-[9px] font-bold">
-                          <UploadCloud size={10} className="mx-auto" />
+                    <div className="z-10 flex flex-col items-center p-2">
+                      <ImageIcon className="text-gray-300 mb-2" size={28} />
+                      <p className="text-[11px] font-bold text-gray-500 mb-3">{idx === 0 ? "Foto Utama *" : "Foto Pendukung"}</p>
+                      <div className="flex flex-col w-full gap-1.5">
+                        <button type="button" onClick={() => triggerPCUpload(idx)} className="w-full py-1.5 bg-gray-800 text-white text-[10px] rounded font-semibold flex justify-center items-center gap-1 hover:bg-black">
+                          <UploadCloud size={12} /> PC
                         </button>
-                        <button type="button" onClick={() => triggerServerGallery(idx)} className="p-1 bg-white text-chester-pink border border-chester-pink rounded text-[9px] font-bold">
-                          <Database size={10} className="mx-auto" />
+                        <button type="button" onClick={() => triggerServerGallery(idx)} className="w-full py-1.5 bg-white text-chester-pink border border-chester-pink text-[10px] rounded font-semibold flex justify-center items-center gap-1 hover:bg-pink-50">
+                          <Database size={12} /> Server
                         </button>
                       </div>
                     </div>

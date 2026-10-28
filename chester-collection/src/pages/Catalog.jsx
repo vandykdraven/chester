@@ -60,7 +60,7 @@ const ProductCard = ({ product }) => {
   return (
     <Link
       to={`/product/${product.slug}`}
-      className="group font-lora block cursor-pointer"
+      className="group font-geova block cursor-pointer"
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
@@ -75,6 +75,7 @@ const ProductCard = ({ product }) => {
                 <img
                   src={img}
                   alt={`${product.name} ${idx + 1}`}
+                  loading="lazy"
                   className={`w-full h-full object-cover ${stockStatus === "sold" ? "opacity-70 grayscale" : ""}`}
                   onError={(e) => {
                     e.currentTarget.onerror = null;
@@ -262,7 +263,7 @@ export default function Catalog() {
   };
 
   return (
-    <div className="bg-white min-h-screen font-lora py-8">
+    <div className="bg-white min-h-screen font-geova py-8">
       <div className="container mx-auto px-4 relative max-w-7xl">
         <div className="mb-8 text-center md:text-left flex flex-col md:flex-row justify-between items-center gap-4">
           <div>
@@ -441,7 +442,7 @@ export default function Catalog() {
             )}
 
             {totalPages > 1 && (
-              <div className="flex justify-center items-center gap-2 pt-8 border-t border-gray-100 font-lora">
+              <div className="flex justify-center items-center gap-2 pt-8 border-t border-gray-100 font-geova">
                 <button
                   onClick={() => {
                     setPage((p) => Math.max(1, p - 1));

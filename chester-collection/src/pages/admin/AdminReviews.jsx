@@ -180,7 +180,7 @@ export default function AdminReviews() {
   }
 
   return (
-    <div className="p-4 lg:p-6 font-lora relative">
+    <div className="p-4 lg:p-6 font-geova relative">
       {alert.show && (
         <div className="fixed top-6 right-6 z-50 animate-bounce flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-xl text-white font-semibold text-sm bg-gray-900">
           {alert.type === "success" ? (

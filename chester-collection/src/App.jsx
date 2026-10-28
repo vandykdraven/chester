@@ -171,7 +171,7 @@ const Header = ({ setIsCartOpen, cartCount }) => {
 
   return (
     <>
-      <header className="bg-white border-b border-gray-100 font-lora sticky top-0 z-40">
+      <header className="bg-white border-b border-gray-100 font-geova sticky top-0 z-40">
         {activeVouchers.length > 0 && (
           <div className="bg-chester-pink text-white text-xs py-2 px-4 relative overflow-hidden min-h-[36px] flex justify-center items-center">
             {activeVouchers.map((voucher, index) => (
@@ -267,7 +267,7 @@ const Header = ({ setIsCartOpen, cartCount }) => {
               <X className="h-6 w-6 text-gray-400 hover:text-chester-pink" />
             </button>
           </div>
-          <nav className="flex flex-col gap-6 font-lora">
+          <nav className="flex flex-col gap-6 font-geova">
             <Link to="/" onClick={() => setIsMobileMenuOpen(false)} className="text-lg font-bold text-chester-text hover:text-chester-pink">
               Beranda
             </Link>
@@ -332,7 +332,7 @@ const Footer = () => {
   }, []);
 
   return (
-    <footer className="bg-chester-pink text-white py-8 font-lora mt-auto">
+    <footer className="bg-chester-pink text-white py-8 font-geova mt-auto">
       <div className="container mx-auto px-4">
         <div className="flex flex-col md:flex-row flex-wrap justify-center items-center gap-6 md:gap-10 mb-8">
           <div className="bg-white rounded-full p-1.5 shadow-sm">
@@ -423,13 +423,25 @@ function MarketingScripts() {
       try {
         const response = await api.get("/settings");
         if (response.data.success) {
+          
           let settingsMap = {};
-          response.data.data.forEach((i) => (settingsMap[i.setting_key] = i.setting_value));
+          
+          // KOREKSI: Pengecekan cerdas apakah data berupa Array atau Object
+          if (Array.isArray(response.data.data)) {
+            response.data.data.forEach((i) => {
+              settingsMap[i.setting_key] = i.setting_value;
+            });
+          } else {
+            // Jika sudah berupa objek langsung pakai
+            settingsMap = response.data.data;
+          }
 
           const gaId = settingsMap.google_analytics_id;
           const pixelId = settingsMap.meta_pixel_id;
           const gscTag = settingsMap.gsc_verification_tag;
 
+          // ... (sisa kode injeksi script GA, Pixel, dan GSC tetap sama seperti sebelumnya) ...
+          
           if (gaId && !document.getElementById("ga-script-manager")) {
             const script1 = document.createElement("script");
             script1.id = "ga-script-manager";
@@ -579,7 +591,7 @@ export default function App() {
         <Route
           path="/*"
           element={
-            <div className="min-h-screen bg-white flex flex-col font-lora">
+            <div className="min-h-screen bg-white flex flex-col font-geova">
               <Header setIsCartOpen={setIsCartOpen} cartCount={cartCount} />
 
               <div className="flex-grow">

@@ -164,7 +164,7 @@ export default function HomepageSettings() {
     );
 
   return (
-    <div className="max-w-4xl mx-auto pb-12 relative font-lora">
+    <div className="max-w-4xl mx-auto pb-12 relative font-geova">
       {customAlert.show && (
         <div className="fixed top-6 right-6 z-50 animate-bounce">
           <div
@@ -223,6 +223,7 @@ export default function HomepageSettings() {
                     <img
                       src={url}
                       alt={`Preview ${idx}`}
+                      loading="lazy"
                       className="w-full h-full object-cover"
                       onError={(e) => (e.target.src = "/placeholder.png")}
                     />
@@ -307,6 +308,7 @@ export default function HomepageSettings() {
                   <img
                     src={featuredCol1.image}
                     alt="Prev 1"
+                    loading="lazy"
                     className="w-full h-full object-cover"
                   />
                 ) : (
@@ -411,6 +413,7 @@ export default function HomepageSettings() {
                   <img
                     src={featuredCol2.image}
                     alt="Prev 2"
+                    loading="lazy"
                     className="w-full h-full object-cover"
                   />
                 ) : (

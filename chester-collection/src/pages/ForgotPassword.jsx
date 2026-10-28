@@ -49,7 +49,7 @@ export default function ForgotPassword() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 font-lora">
+    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 font-geova">
       {/* ALERT NOTIFIKASI */}
       {customAlert.show && (
         <div className="fixed top-6 right-6 z-50 animate-fade-in">
@@ -72,6 +72,7 @@ export default function ForgotPassword() {
             <img
               src={logo}
               alt="Chester Logo"
+              loading="lazy"
               className="h-16 mx-auto object-contain mb-4"
             />
             <h2 className="text-2xl font-black text-gray-900 tracking-tight">

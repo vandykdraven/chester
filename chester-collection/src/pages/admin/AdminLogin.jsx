@@ -62,7 +62,7 @@ export default function AdminLogin() {
   };
 
   return (
-    <div className="bg-gray-50 min-h-screen font-lora flex flex-col justify-center items-center py-12 px-4 sm:px-6 lg:px-8">
+    <div className="bg-gray-50 min-h-screen font-geova flex flex-col justify-center items-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="absolute top-8 left-8">
         <Link
           to="/"

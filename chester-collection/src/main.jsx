@@ -17,9 +17,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         Data ini akan selalu dieksekusi jika halaman spesifik tidak memiliki komponen <SEO/> sendiri.
       */}
       <SEO 
-        title="Chester Collection | Mroblong" 
-        description="Produsen kaos polos terbesar di Surakarta. Menyediakan bahan cotton combed premium 30s & 24s dan melayani pemesanan kaos custom sablon DTF."
-        keywords="kaos polos surakarta, sablon dtf, cotton combed premium, mroblong, chester collection"
+        title="Chester Collection" 
+        description="Fashion Wanita terlengkap di Solo Raya dengan koleksi pakaian dan aksesoris wanita yang stylish dan berkualitas tinggi. Temukan tren terbaru dan penawaran eksklusif hanya di Chester Collection."
+        keywords="chester collection, Fashion Wanita, Solo Raya, Pakaian Wanita, Aksesoris Wanita"
       />
       <App />
     </HelmetProvider>

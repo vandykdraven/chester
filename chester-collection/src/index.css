@@ -1,7 +1,15 @@
 /* ================================================
-   IMPORT GOOGLE FONT - LORA (WAJIB!)
+   IMPORT LOKAL FONT - GEOVA SEMI BOLD
    ================================================ */
-@import url("https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400..700;1,400..700&display=swap");
+/* Menghapus import Lora dan memuat file .ttf dari folder lokal */
+@font-face {
+  font-family: 'Geova';
+  /* Asumsi file index.css berada di dalam folder src/ */
+  src: url('./assets/Fonts/Geova-SemiBold.ttf') format('truetype');
+  font-weight: 600; /* 600 adalah standar untuk Semi Bold */
+  font-style: normal;
+  font-display: swap; /* Mencegah teks menghilang saat font sedang dimuat */
+}
 
 /* ================================================
    TAILWIND CSS DIRECTIVES
@@ -11,7 +19,7 @@
 @tailwind utilities;
 
 /* ================================================
-   BASE STYLES - SET DEFAULT FONT KE LORA
+   BASE STYLES - SET DEFAULT FONT KE GEOVA
    ================================================ */
 @layer base {
   html {
@@ -19,7 +27,8 @@
   }
 
   body {
-    @apply font-lora text-chester-text bg-white antialiased;
+    /* MENGGANTI font-geova MENJADI font-geova DI SINI */
+    @apply font-geova text-chester-text bg-white antialiased;
   }
 
   /* Fix default link styles */

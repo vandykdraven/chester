@@ -9,6 +9,7 @@ const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const multer = require("multer");
+const sharp = require("sharp");
 const path = require("path");
 const fs = require("fs");
 require("dotenv").config();
@@ -19,6 +20,27 @@ app.use(express.json());
 
 // Mengizinkan browser mengakses folder 'uploads' secara langsung untuk pratinjau gambar
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+
+app.get("/sitemap.xml", (req, res) => {
+  const filePath = path.join(__dirname, "sitemap.xml");
+  if (fs.existsSync(filePath)) {
+    res.setHeader("Content-Type", "application/xml");
+    res.sendFile(filePath);
+  } else {
+    res.status(404).send("Sitemap belum di-generate.");
+  }
+});
+
+app.get("/robots.txt", (req, res) => {
+  const filePath = path.join(__dirname, "robots.txt");
+  if (fs.existsSync(filePath)) {
+    res.setHeader("Content-Type", "text/plain");
+    res.sendFile(filePath);
+  } else {
+    res.status(404).send("Robots.txt belum di-generate.");
+  }
+});
 
 // Konfigurasi Koneksi Database MySQL Menggunakan Pool (Dengan Keep-Alive)
 const db = mysql
@@ -36,34 +58,9 @@ const db = mysql
   .promise();
 
 // =======================================================================
-// CONFIGURATION MULTER (UNGGAH GAMBAR PRODUK & PROFIL)
+// CONFIGURATION MULTER (MEMORY STORAGE UNTUK SHARP)
 // =======================================================================
-const uploadDir = "./uploads/products";
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-const profileDir = "./uploads/profiles";
-if (!fs.existsSync(profileDir)) {
-  fs.mkdirSync(profileDir, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    if (file.fieldname === "avatar") {
-      cb(null, profileDir);
-    } else {
-      cb(null, uploadDir);
-    }
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(
-      null,
-      file.fieldname + "-" + uniqueSuffix + path.extname(file.originalname),
-    );
-  },
-});
+const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
   if (file.mimetype.startsWith("image/")) {
@@ -79,49 +76,23 @@ const upload = multer({
   limits: { fileSize: 7 * 1024 * 1024 }, // Maksimal 7MB per file
 });
 
-const cpUpload = upload.fields([
-  { name: "primaryImage", maxCount: 1 },
-  { name: "supportingImages", maxCount: 4 },
-]);
+// Catatan Kritis: Variabel cpUpload (upload.fields) dihapus sepenuhnya.
+// Pengaturan jumlah maksimal gambar (dinamis) akan diatur langsung di tingkat rute API.
 
 // =======================================================================
 // ENDPOINT: MANAJEMEN PRODUK (PRODUCTS)
 // =======================================================================
-app.post("/api/products", cpUpload, async (req, res) => {
+app.post("/api/products", upload.array("productImages", 50), async (req, res) => {
   try {
     const productData = JSON.parse(req.body.data);
     const {
-      name,
-      category,
-      size_guide_id,
-      description,
-      video_url,
-      price,
-      original_price,
-      stock,
-      weight,
-      sku,
-      status,
-      hasVariant,
-      variantTypes,
-      variantMatrix,
-      wholesales,
-      seo_title,
-      seo_description,
-      seo_keywords,
-      imagesConfig,
+      name, category, size_guide_id, description, video_url, price, original_price, 
+      stock, weight, sku, status, hasVariant, variantTypes, variantMatrix, 
+      wholesales, seo_title, seo_description, seo_keywords, imagesConfig
     } = productData;
 
-    if (!name)
-      return res
-        .status(400)
-        .json({ success: false, message: "Nama produk wajib diisi!" });
-
-    // Membuat slug otomatis dari nama produk
-    const slug = name
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/(^-|-$)+/g, "");
+    if (!name) return res.status(400).json({ success: false, message: "Nama produk wajib diisi!" });
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)+/g, "");
 
     const connection = await db.getConnection();
     await connection.beginTransaction();
@@ -129,125 +100,67 @@ app.post("/api/products", cpUpload, async (req, res) => {
     try {
       const [productResult] = await connection.query(
         `INSERT INTO products (name, slug, category_id, size_guide_id, description, video_url, status, price, original_price, stock, weight, sku, has_variant, variant_types_json, seo_title, seo_description, seo_keywords) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          name,
-          slug,
-          category || null,
-          size_guide_id || null,
-          description || null,
-          video_url || null,
-          status || "available",
-          hasVariant ? 0 : price || 0,
-          hasVariant ? 0 : original_price || 0,
-          hasVariant ? 0 : stock || 0,
-          hasVariant ? 0 : weight || 0,
-          hasVariant ? null : sku || null,
-          hasVariant ? 1 : 0,
-          hasVariant ? JSON.stringify(variantTypes) : null,
-          seo_title || null,
-          seo_description || null,
-          seo_keywords || null,
-        ],
+        [name, slug, category || null, size_guide_id || null, description || null, video_url || null, status || "available", hasVariant ? 0 : price || 0, hasVariant ? 0 : original_price || 0, hasVariant ? 0 : stock || 0, hasVariant ? 0 : weight || 0, hasVariant ? null : sku || null, hasVariant ? 1 : 0, hasVariant ? JSON.stringify(variantTypes) : null, seo_title || null, seo_description || null, seo_keywords || null]
       );
 
       const productId = productResult.insertId;
-      const imgCfg = imagesConfig || [];
 
-      // PROSES SLOT FOTO UTAMA
-      if (imgCfg[0]) {
-        if (imgCfg[0].type === "pc" && req.files["primaryImage"]) {
-          const file = req.files["primaryImage"][0];
-          const filePath = `/uploads/products/${file.filename}`;
-
-          await connection.query(
-            `INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 1)`,
-            [productId, filePath],
-          );
-          
-          await connection.query(
-            `INSERT INTO gallery_media (filename, file_path, file_size) VALUES (?, ?, ?)`,
-            [file.originalname, filePath, file.size],
-          );
-        } else if (imgCfg[0].type === "server" && imgCfg[0].path) {
-          await connection.query(
-            `INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 1)`,
-            [productId, imgCfg[0].path],
-          );
-        }
-      }
-
-      // PROSES SLOT FOTO PENDUKUNG (1-4)
-      let pcUploadIndex = 0;
-      for (let i = 1; i <= 4; i++) {
-        const slotConfig = imgCfg[i];
-        if (slotConfig) {
-          if (
-            slotConfig.type === "pc" &&
-            req.files["supportingImages"] &&
-            req.files["supportingImages"][pcUploadIndex]
-          ) {
-            const file = req.files["supportingImages"][pcUploadIndex];
-            const filePath = `/uploads/products/${file.filename}`;
-
-            await connection.query(
-              `INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 0)`,
-              [productId, filePath],
-            );
-
-            await connection.query(
-              `INSERT INTO gallery_media (filename, file_path, file_size) VALUES (?, ?, ?)`,
-              [file.originalname, filePath, file.size],
-            );
-            
-            pcUploadIndex++;
-          } else if (slotConfig.type === "server" && slotConfig.path) {
-            await connection.query(
-              `INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 0)`,
-              [productId, slotConfig.path],
-            );
-          }
-        }
-      }
-
-      // -------------------------------------------------------------
-      // PERBAIKAN: Menambahkan kolom image_url pada query variants
-      // -------------------------------------------------------------
+      // VARIASI & GROSIR
       if (hasVariant && variantMatrix && variantMatrix.length > 0) {
         for (const variant of variantMatrix) {
-          await connection.query(
-            `INSERT INTO product_variants (product_id, variant_key, price, original_price, stock, weight, sku, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-              productId,
-              variant.key,
-              variant.price || 0,
-              variant.original_price || 0,
-              variant.stock || 0,
-              variant.weight || 0,
-              variant.sku || null,
-              variant.image || null, // Menangkap data URL gambar variasi
-            ],
-          );
+          await connection.query(`INSERT INTO product_variants (product_id, variant_key, price, original_price, stock, weight, sku, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [productId, variant.key, variant.price || 0, variant.original_price || 0, variant.stock || 0, variant.weight || 0, variant.sku || null, variant.image || null]);
         }
       }
 
       if (wholesales && wholesales.length > 0) {
         for (const ws of wholesales) {
-          if (ws.minQty && ws.price) {
-            await connection.query(
-              `INSERT INTO product_wholesales (product_id, min_qty, wholesale_price) VALUES (?, ?, ?)`,
-              [productId, ws.minQty, ws.price],
-            );
-          }
+          if (ws.minQty && ws.price) await connection.query(`INSERT INTO product_wholesales (product_id, min_qty, wholesale_price) VALUES (?, ?, ?)`, [productId, ws.minQty, ws.price]);
+        }
+      }
+
+      // ================================================================
+      // LOGIKA GAMBAR DINAMIS + SHARP WEBP CONVERSION
+      // ================================================================
+      const uploadsDir = path.resolve(__dirname, "uploads/products");
+      if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+      const imgCfg = imagesConfig || [];
+      let pcUploadIndex = 0;
+
+      for (let i = 0; i < imgCfg.length; i++) {
+        const slotConfig = imgCfg[i];
+        if (!slotConfig) continue;
+        
+        const isPrimary = (i === 0) ? 1 : 0;
+
+        if (slotConfig.type === "pc" && req.files && req.files[pcUploadIndex]) {
+          const file = req.files[pcUploadIndex];
+          const webpFilename = `prod-${productId}-${Date.now()}-${Math.round(Math.random() * 1000)}.webp`;
+          const outputPath = path.join(uploadsDir, webpFilename);
+
+          // 1. Eksekusi sharp dan tangkap informasi hasilnya (termasuk ukuran file webp baru)
+          const sharpInfo = await sharp(file.buffer).webp({ quality: 80 }).toFile(outputPath);
+
+          const dbPath = `/uploads/products/${webpFilename}`;
+          
+          // 2. Simpan relasi gambar ke tabel produk
+          await connection.query("INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, ?)", [productId, dbPath, isPrimary]);
+
+          // 3. TAMBAHAN BARU: Daftarkan file WebP ini ke dalam tabel galeri agar muncul di GalleryList.jsx
+          await connection.query(
+            "INSERT INTO gallery_media (filename, file_path, file_size) VALUES (?, ?, ?)",
+            [webpFilename, dbPath, sharpInfo.size]
+          );
+          
+          pcUploadIndex++;
+        } else if (slotConfig.type === "server" && slotConfig.path) {
+          await connection.query("INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, ?)", [productId, slotConfig.path, isPrimary]);
         }
       }
 
       await connection.commit();
       connection.release();
-      return res.status(201).json({
-        success: true,
-        message: "Produk berhasil disimpan!",
-        productId: productId,
-      });
+      return res.status(201).json({ success: true, message: "Produk berhasil disimpan!", productId: productId });
     } catch (dbError) {
       await connection.rollback();
       connection.release();
@@ -255,11 +168,7 @@ app.post("/api/products", cpUpload, async (req, res) => {
     }
   } catch (error) {
     console.error("Error menyimpan produk:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Gagal menyimpan produk.",
-      error: error.message,
-    });
+    return res.status(500).json({ success: false, message: "Gagal menyimpan produk.", error: error.message });
   }
 });
 
@@ -465,159 +374,108 @@ app.get("/api/products/:slug", async (req, res) => {
   }
 });
 
-app.put(
-  "/api/products/:id",
-  upload.fields([
-    { name: "primaryImage", maxCount: 1 },
-    { name: "supportingImages", maxCount: 4 },
-  ]),
-  async (req, res) => {
-    if (!req.body.data)
-      return res.status(400).json({ success: false, message: "Data produk tidak ditemukan." });
+app.put("/api/products/:id", upload.array("productImages", 50), async (req, res) => {
+  if (!req.body.data) return res.status(400).json({ success: false, message: "Data produk tidak ditemukan." });
 
-    const productId = req.params.id;
-    const {
-      name,
-      category_id,
-      size_guide_id,
-      description,
-      video_url,
-      status,
-      price,
-      original_price,
-      stock,
-      weight,
-      sku,
-      has_variant,
-      variantTypes,
-      variantMatrix,
-      wholesales,
-      seo_title,
-      seo_description,
-      seo_keywords,
-      imagesConfig,
-    } = JSON.parse(req.body.data);
+  const productId = req.params.id;
+  const productData = JSON.parse(req.body.data);
+  const {
+    name, category_id, size_guide_id, description, video_url, status, price, 
+    original_price, stock, weight, sku, has_variant, variantTypes, variantMatrix, 
+    wholesales, seo_title, seo_description, seo_keywords, imagesConfig
+  } = productData;
 
-    const safeName = name || "Produk Tanpa Nama";
-    const slug = safeName
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/(^-|-$)+/g, "");
+  const safeName = name || "Produk Tanpa Nama";
+  const slug = safeName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)+/g, "");
 
-    const connection = await db.getConnection();
-    try {
-      await connection.beginTransaction();
+  const connection = await db.getConnection();
+  try {
+    await connection.beginTransaction();
 
-      const finalPrice = has_variant ? 0 : (Number(price) || 0);
-      const finalOriginalPrice = has_variant ? 0 : (Number(original_price) || 0);
-      const finalStock = has_variant ? 0 : (Number(stock) || 0);
-      const finalWeight = has_variant ? 0 : (Number(weight) || 0);
+    const finalPrice = has_variant ? 0 : (Number(price) || 0);
+    const finalOriginalPrice = has_variant ? 0 : (Number(original_price) || 0);
+    const finalStock = has_variant ? 0 : (Number(stock) || 0);
+    const finalWeight = has_variant ? 0 : (Number(weight) || 0);
 
-      await connection.query(
-        `UPDATE products SET name = ?, slug = ?, category_id = ?, size_guide_id = ?, description = ?, video_url = ?, status = ?, price = ?, original_price = ?, stock = ?, weight = ?, sku = ?, has_variant = ?, variant_types_json = ?, seo_title = ?, seo_description = ?, seo_keywords = ? WHERE id = ?`,
-        [
-          safeName,
-          slug,
-          category_id || null,
-          size_guide_id || null,
-          description || null,
-          video_url || null,
-          status || "available",
-          finalPrice,
-          finalOriginalPrice,
-          finalStock,
-          finalWeight,
-          sku || null,
-          has_variant ? 1 : 0,
-          has_variant ? JSON.stringify(variantTypes) : null,
-          seo_title || null,
-          seo_description || null,
-          seo_keywords || null,
-          productId,
-        ]
-      );
+    await connection.query(
+      `UPDATE products SET name = ?, slug = ?, category_id = ?, size_guide_id = ?, description = ?, video_url = ?, status = ?, price = ?, original_price = ?, stock = ?, weight = ?, sku = ?, has_variant = ?, variant_types_json = ?, seo_title = ?, seo_description = ?, seo_keywords = ? WHERE id = ?`,
+      [safeName, slug, category_id || null, size_guide_id || null, description || null, video_url || null, status || "available", finalPrice, finalOriginalPrice, finalStock, finalWeight, sku || null, has_variant ? 1 : 0, has_variant ? JSON.stringify(variantTypes) : null, seo_title || null, seo_description || null, seo_keywords || null, productId]
+    );
 
-      await connection.query("DELETE FROM product_wholesales WHERE product_id = ?", [productId]);
-      if (wholesales && wholesales.length > 0) {
-        for (const ws of wholesales) {
-          if (ws.minQty && ws.price) {
-            await connection.query(
-              "INSERT INTO product_wholesales (product_id, min_qty, wholesale_price) VALUES (?, ?, ?)",
-              [productId, Number(ws.minQty) || 0, Number(ws.price) || 0]
-            );
-          }
+    // GROSIR
+    await connection.query("DELETE FROM product_wholesales WHERE product_id = ?", [productId]);
+    if (wholesales && wholesales.length > 0) {
+      for (const ws of wholesales) {
+        if (ws.minQty && ws.price) {
+          await connection.query("INSERT INTO product_wholesales (product_id, min_qty, wholesale_price) VALUES (?, ?, ?)", [productId, Number(ws.minQty) || 0, Number(ws.price) || 0]);
         }
       }
-
-      await connection.query("DELETE FROM product_variants WHERE product_id = ?", [productId]);
-      
-      // -------------------------------------------------------------
-      // PERBAIKAN: Menambahkan kolom image_url pada query variants edit
-      // -------------------------------------------------------------
-      if (has_variant && variantMatrix && variantMatrix.length > 0) {
-        for (const row of variantMatrix) {
-          await connection.query(
-            `INSERT INTO product_variants (product_id, variant_key, price, original_price, stock, weight, sku, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-              productId,
-              row.key || row.variant_key || row.combination?.join("-"),
-              Number(row.price) || 0,
-              Number(row.original_price) || 0,
-              Number(row.stock) || 0,
-              Number(row.weight) || 0,
-              row.sku || null,
-              row.image || null, // Menangkap data URL gambar variasi
-            ]
-          );
-        }
-      }
-
-      await connection.query("DELETE FROM product_images WHERE product_id = ?", [productId]);
-      const imgCfg = imagesConfig || [];
-      if (imgCfg[0]) {
-        if (imgCfg[0].type === "pc" && req.files["primaryImage"]) {
-          await connection.query(
-            "INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 1)",
-            [productId, `/uploads/products/${req.files["primaryImage"][0].filename}`]
-          );
-        } else if ((imgCfg[0].type === "server" || imgCfg[0].type === "existing") && imgCfg[0].path) {
-          await connection.query(
-            "INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 1)",
-            [productId, imgCfg[0].path]
-          );
-        }
-      }
-
-      let pcUploadIndex = 0;
-      for (let i = 1; i <= 4; i++) {
-        const slotConfig = imgCfg[i];
-        if (slotConfig) {
-          if (slotConfig.type === "pc" && req.files["supportingImages"] && req.files["supportingImages"][pcUploadIndex]) {
-            await connection.query(
-              "INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 0)",
-              [productId, `/uploads/products/${req.files["supportingImages"][pcUploadIndex].filename}`]
-            );
-            pcUploadIndex++;
-          } else if ((slotConfig.type === "server" || slotConfig.type === "existing") && slotConfig.path) {
-            await connection.query(
-              "INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, 0)",
-              [productId, slotConfig.path]
-            );
-          }
-        }
-      }
-
-      await connection.commit();
-      return res.json({ success: true, message: "Produk dan media berhasil diperbarui!" });
-    } catch (error) {
-      await connection.rollback();
-      console.error("Gagal update produk:", error);
-      return res.status(500).json({ success: false, message: "Gagal memperbarui data pada server." });
-    } finally {
-      connection.release();
     }
+
+    // VARIASI
+    await connection.query("DELETE FROM product_variants WHERE product_id = ?", [productId]);
+    if (has_variant && variantMatrix && variantMatrix.length > 0) {
+      for (const row of variantMatrix) {
+        await connection.query(
+          `INSERT INTO product_variants (product_id, variant_key, price, original_price, stock, weight, sku, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [productId, row.key || row.variant_key || row.combination?.join("-"), Number(row.price) || 0, Number(row.original_price) || 0, Number(row.stock) || 0, Number(row.weight) || 0, row.sku || null, row.image || null]
+        );
+      }
+    }
+
+    // ================================================================
+    // LOGIKA GAMBAR DINAMIS + SHARP WEBP CONVERSION
+    // ================================================================
+    await connection.query("DELETE FROM product_images WHERE product_id = ?", [productId]);
+    
+    // Pastikan folder target tersedia
+    const uploadsDir = path.resolve(__dirname, "uploads/products");
+    if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+    const imgCfg = imagesConfig || [];
+    let pcUploadIndex = 0;
+
+    for (let i = 0; i < imgCfg.length; i++) {
+      const slotConfig = imgCfg[i];
+      if (!slotConfig) continue;
+      
+      const isPrimary = (i === 0) ? 1 : 0; // Gambar pertama otomatis menjadi primary
+
+      if (slotConfig.type === "pc" && req.files && req.files[pcUploadIndex]) {
+        const file = req.files[pcUploadIndex];
+        const webpFilename = `prod-${productId}-${Date.now()}-${Math.round(Math.random() * 1000)}.webp`;
+        const outputPath = path.join(uploadsDir, webpFilename);
+
+        // 1. Eksekusi sharp dan tangkap informasi hasilnya (termasuk ukuran file webp baru)
+          const sharpInfo = await sharp(file.buffer).webp({ quality: 80 }).toFile(outputPath);
+
+          const dbPath = `/uploads/products/${webpFilename}`;
+          
+          // 2. Simpan relasi gambar ke tabel produk
+          await connection.query("INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, ?)", [productId, dbPath, isPrimary]);
+
+          // 3. TAMBAHAN BARU: Daftarkan file WebP ini ke dalam tabel galeri agar muncul di GalleryList.jsx
+          await connection.query(
+            "INSERT INTO gallery_media (filename, file_path, file_size) VALUES (?, ?, ?)",
+            [webpFilename, dbPath, sharpInfo.size]
+          );
+        
+        pcUploadIndex++;
+      } else if ((slotConfig.type === "server" || slotConfig.type === "existing") && slotConfig.path) {
+        await connection.query("INSERT INTO product_images (product_id, image_url, is_primary) VALUES (?, ?, ?)", [productId, slotConfig.path, isPrimary]);
+      }
+    }
+
+    await connection.commit();
+    return res.json({ success: true, message: "Produk dan media berhasil diperbarui!" });
+  } catch (error) {
+    await connection.rollback();
+    console.error("Gagal update produk:", error);
+    return res.status(500).json({ success: false, message: "Gagal memperbarui data pada server." });
+  } finally {
+    connection.release();
   }
-);
+});
 
 // =======================================================================
 // ENDPOINT: [PELANGGAN] MENGAMBIL ULASAN PUBLIK PADA HALAMAN PRODUK
@@ -3395,86 +3253,66 @@ app.get("/api/dashboard/stats", async (req, res) => {
 });
 
 // ===================================================================
-// GENERATE SEO FILES (SITEMAP, ROBOTS.TXT, GSC INJECTION)
+// GENERATE SEO FILES (SITEMAP & ROBOTS.TXT DI BACKEND ROOT)
 // ===================================================================
-// KOREKSI: Mengubah app.get menjadi app.post dan menyesuaikan rute
 app.post("/api/sitemap/generate", async (req, res) => {
   try {
-    const domain = process.env.FRONTEND_URL;
-    const publicPath = process.env.FRONTEND_PUBLIC_PATH || path.resolve(__dirname, "../public_html"); 
+    const domain = process.env.FRONTEND_URL || "https://chestercollection.id";
+    const fs = require('fs');
+    const path = require('path');
 
-    // 1. BUAT FILE FISIK ROBOTS.TXT
-    const robotsText = `User-agent: *\nAllow: /\nDisallow: /admin-login\nDisallow: /admin/\n\nSitemap: ${domain}/sitemap.xml`;
-    const fs = require('fs'); // Memastikan modul fs dipanggil
-    const path = require('path'); // Memastikan modul path dipanggil
-    
-    fs.writeFileSync(path.join(publicPath, "robots.txt"), robotsText);
+    // 1. PENENTUAN FOLDER PENYIMPANAN
+    // Memaksa file disimpan langsung di root folder backend (chester-backend)
+    const targetDir = __dirname;
 
-    // 2. BUAT FILE FISIK SITEMAP.XML
-    const connection = await db.getConnection(); // Menggunakan pool koneksi yang aman
+    // 2. AMBIL DATA DARI DATABASE
+    const [products] = await db.query("SELECT slug, updated_at FROM products WHERE status = 'available'");
+
+    let categories = [];
     try {
-      const [products] = await connection.query("SELECT slug, updated_at FROM products WHERE status = 'available'");
-      const [categories] = await connection.query("SELECT slug FROM categories"); // Disesuaikan dengan nama tabel kategorimu yang umum
-
-      let urls = `
-        <url><loc>${domain}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>
-        <url><loc>${domain}/products</loc><changefreq>daily</changefreq><priority>0.8</priority></url>
-      `;
-
-      categories.forEach((category) => {
-        urls += `<url><loc>${domain}/products?category=${category.slug}</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>`;
-      });
-
-      products.forEach((product) => {
-        const lastMod = product.updated_at ? new Date(product.updated_at).toISOString().split("T")[0] : new Date().toISOString().split("T")[0];
-        urls += `<url><loc>${domain}/product/${product.slug}</loc><lastmod>${lastMod}</lastmod><changefreq>weekly</changefreq><priority>0.9</priority></url>`;
-      });
-
-      const sitemapXML = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>`;
-      fs.writeFileSync(path.join(publicPath, "sitemap.xml"), sitemapXML);
-
-      // ===================================================================
-      // 3. FITUR BARU: INJEKSI OTOMATIS TAG GOOGLE KE INDEX.HTML
-      // ===================================================================
-      const [settings] = await connection.query("SELECT setting_value FROM settings WHERE setting_key = 'gsc_verification_tag'");
-      const gscTag = settings.length > 0 ? settings[0].setting_value : null;
-
-      if (gscTag) {
-        const indexPath = path.join(publicPath, "index.html");
-        
-        // Evaluasi Kritis: Jika file tidak ada, lemparkan error
-        if (!fs.existsSync(indexPath)) {
-          throw new Error(`File index.html tidak ditemukan di target direktori: ${indexPath}. Cek FRONTEND_PUBLIC_PATH di .env.`);
-        }
-
-        let htmlContent = fs.readFileSync(indexPath, "utf8");
-        const metaString = `<meta name="google-site-verification" content="${gscTag}" />`;
-
-        // Cek apakah kode verifikasi sudah pernah ditanam agar tidak ganda
-        if (!htmlContent.includes("google-site-verification")) {
-          // Gunakan Regex /<\/head>/i agar tahan terhadap perubahan kapitalisasi (<HEAD> atau </head>)
-          htmlContent = htmlContent.replace(/<\/head>/i, `  ${metaString}\n</head>`);
-          fs.writeFileSync(indexPath, htmlContent);
-        } else if (!htmlContent.includes(gscTag)) {
-          // Jika sudah ada tag GSC lama, perbarui dengan kode yang baru
-          htmlContent = htmlContent.replace(/<meta name="google-site-verification" content=".*?"\s*\/>/i, metaString);
-          fs.writeFileSync(indexPath, htmlContent);
-        }
-      }
-
-      return res.status(200).json({ 
-        success: true, 
-        message: "Sitemap, Robots.txt, dan injeksi verifikasi Google berhasil diterapkan ke frontend.",
-        url: `${domain}/sitemap.xml`
-      });
-    } finally {
-      connection.release();
+      const [catResult] = await db.query("SELECT slug FROM categories");
+      categories = catResult;
+    } catch (dbError) {
+      const [catResultFallback] = await db.query("SELECT slug FROM product_categories");
+      categories = catResultFallback;
     }
+
+    // 3. BUAT FILE ROBOTS.TXT
+    const robotsText = `User-agent: *\nAllow: /\nDisallow: /admin-login\nDisallow: /admin/\n\nSitemap: ${domain}/sitemap.xml`;
+    fs.writeFileSync(path.join(targetDir, "robots.txt"), robotsText);
+
+    // 4. BUAT FILE SITEMAP.XML
+    let urls = `
+      <url><loc>${domain}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>
+      <url><loc>${domain}/products</loc><changefreq>daily</changefreq><priority>0.8</priority></url>
+    `;
+
+    categories.forEach((category) => {
+      urls += `<url><loc>${domain}/products?category=${category.slug}</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>`;
+    });
+
+    products.forEach((product) => {
+      const lastMod = product.updated_at ? new Date(product.updated_at).toISOString().split("T")[0] : new Date().toISOString().split("T")[0];
+      urls += `<url><loc>${domain}/product/${product.slug}</loc><lastmod>${lastMod}</lastmod><changefreq>weekly</changefreq><priority>0.9</priority></url>`;
+    });
+
+    const sitemapXML = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>`;
+    fs.writeFileSync(path.join(targetDir, "sitemap.xml"), sitemapXML);
+
+    // Catatan: Logika injeksi GSC ke index.html frontend saya hapus dari sini 
+    // karena index.html tidak berada di dalam backend root. Ini mencegah error.
+
+    return res.status(200).json({
+      success: true,
+      message: "Sitemap & Robots.txt berhasil dicetak di folder backend.",
+      url: `${domain}/sitemap.xml`
+    });
+
   } catch (error) {
     console.error("Gagal mencetak file SEO:", error);
-    return res.status(500).json({ 
-      success: false, 
-      message: error.message || "Terjadi kesalahan internal saat mencetak SEO." 
+    return res.status(500).json({
+      success: false,
+      message: `Error di Server: ${error.message}`
     });
   }
 });

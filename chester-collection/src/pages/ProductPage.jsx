@@ -514,7 +514,7 @@ export default function ProductPage() {
         url={`/product/${product.slug}`}
       />
       
-      <div className="bg-white min-h-screen font-lora relative">
+      <div className="bg-white min-h-screen font-geova relative">
         {customAlert.show && (
           <div className="fixed top-6 right-6 z-50 animate-bounce">
             <div
@@ -555,6 +555,7 @@ export default function ProductPage() {
                 <img
                   src={product.displayImages[currentImgIndex]}
                   alt={`${product.name} Main`}
+                  loading="lazy"
                   className="w-full h-full object-cover transition-transform duration-200 ease-out"
                   style={zoomStyle}
                   onError={(e) => {
@@ -595,6 +596,7 @@ export default function ProductPage() {
                     <img
                       src={img}
                       alt={`Thumbnail ${index + 1}`}
+                      loading="lazy"
                       className="w-full h-full object-cover rounded-sm"
                       onError={(e) => {
                         e.currentTarget.onerror = null;
@@ -802,6 +804,7 @@ export default function ProductPage() {
                               <img
                                 src={getImageUrl(rev.avatar)}
                                 alt="Avatar"
+                                loading="lazy"
                                 className="w-full h-full object-cover"
                                 onError={(e) => {
                                   e.currentTarget.onerror = null;
@@ -936,12 +939,13 @@ export default function ProductPage() {
                     <Link
                       key={rel.id}
                       to={`/product/${rel.slug}`}
-                      className="group font-lora block cursor-pointer"
+                      className="group font-geova block cursor-pointer"
                     >
                       <div className="aspect-[4/5] overflow-hidden mb-4 bg-gray-100 relative rounded-lg">
                         <img
                           src={getImageUrl(rel.primary_image)}
                           alt={rel.name}
+                          loading="lazy"
                           className={`w-full h-full object-cover transition-transform duration-500 ${rel.status !== "available" ? "opacity-70 grayscale" : "group-hover:scale-105"}`}
                           onError={(e) => {
                             e.currentTarget.onerror = null;

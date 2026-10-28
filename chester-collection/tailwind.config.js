@@ -9,7 +9,9 @@ module.exports = {
         "chester-text": "#333333",
       },
       fontFamily: {
-        lora: ["Lora", "serif"],
+        // Hapus lora, ganti dengan geova
+        // Kita beri fallback 'sans-serif' jika geova gagal dimuat
+        geova: ["Geova", "sans-serif"],
       },
     },
   },

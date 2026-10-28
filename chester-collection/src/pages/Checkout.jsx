@@ -325,7 +325,7 @@ export default function Checkout() {
   }
 
   return (
-    <div className="bg-gray-50/50 min-h-screen font-lora py-10">
+    <div className="bg-gray-50/50 min-h-screen font-geova py-10">
       <div className="container mx-auto px-4 max-w-6xl">
         <Link
           to="/products"

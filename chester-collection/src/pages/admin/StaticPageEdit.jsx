@@ -145,7 +145,7 @@ export default function StaticPageEdit() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto pb-12 relative font-lora animate-fade-in">
+    <div className="max-w-4xl mx-auto pb-12 relative font-geova animate-fade-in">
       {customAlert.show && (
         <div className="fixed top-6 right-6 z-50 animate-bounce">
           <div
@@ -187,7 +187,7 @@ export default function StaticPageEdit() {
           <div className="bg-white rounded-xl overflow-hidden border border-gray-200 shadow-xs">
             <div
               ref={editorRef}
-              className="min-h-[350px] font-lora bg-white"
+              className="min-h-[350px] font-geova bg-white"
             ></div>
           </div>
         </div>

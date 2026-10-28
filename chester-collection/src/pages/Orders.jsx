@@ -186,7 +186,7 @@ export default function Orders() {
   if (!userData) return null;
 
   return (
-    <div className="min-h-screen bg-gray-50 py-10 font-lora relative">
+    <div className="min-h-screen bg-gray-50 py-10 font-geova relative">
       {/* CUSTOM ALERTS */}
       {customAlert.show && (
         <div className="fixed top-6 right-6 z-[100] animate-bounce">
@@ -419,6 +419,7 @@ export default function Orders() {
                     <img
                       src={avatarPreview}
                       alt="Avatar"
+                      loading="lazy"
                       className="w-full h-full object-cover"
                     />
                   ) : (

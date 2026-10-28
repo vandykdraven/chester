@@ -157,7 +157,7 @@ export default function PaymentConfirmation() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-10 font-lora">
+    <div className="min-h-screen bg-gray-50 py-10 font-geova">
       <div className="max-w-xl mx-auto px-4">
         <Link
           to="/orders"
