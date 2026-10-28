@@ -521,33 +521,59 @@ app.get("/api/products/:id/reviews", async (req, res) => {
 });
 
 // =======================================================================
-// ENDPOINT: MEDIA GALERI (GALLERY)
+// ENDPOINT: MEDIA GALERI (GALLERY) DENGAN KONVERSI WEBP
 // =======================================================================
+
 app.post(
   "/api/gallery/upload",
-  upload.single("galleryFile"),
+  upload.single("galleryFile"), // Multer menangkap file dan menaruhnya di RAM
   async (req, res) => {
     try {
-      if (!req.file)
+      // 1. Validasi keberadaan file
+      if (!req.file) {
         return res
           .status(400)
           .json({ success: false, message: "Tidak ada file yang diunggah." });
-      const filePath = `/uploads/products/${req.file.filename}`;
+      }
+
+      // 2. Tentukan folder penyimpanan tujuan di backend
+      const uploadsDir = path.resolve(__dirname, "uploads/products");
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+
+      // 3. Buat nama file unik dengan ekstensi .webp
+      const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1000);
+      const webpFilename = `gallery-${uniqueSuffix}.webp`;
+      const outputPath = path.join(uploadsDir, webpFilename);
+
+      // 4. Proses gambar dengan sharp (Konversi ke WebP & Kompresi 80%)
+      const sharpInfo = await sharp(req.file.buffer)
+        .webp({ quality: 80 })
+        .toFile(outputPath);
+
+      // 5. Siapkan path yang akan disimpan ke database
+      const dbPath = `/uploads/products/${webpFilename}`;
+
+      // 6. Simpan informasi gambar baru ke tabel gallery_media
       const [result] = await db.query(
         "INSERT INTO gallery_media (filename, file_path, file_size) VALUES (?, ?, ?)",
-        [req.file.originalname, filePath, req.file.size],
+        [webpFilename, dbPath, sharpInfo.size],
       );
+
+      // 7. Berikan respons sukses kembali ke Frontend
       return res.status(201).json({
         success: true,
-        message: "Gambar berhasil ditambahkan!",
+        message: "Gambar berhasil dikompresi ke WebP dan ditambahkan!",
         data: {
           id: result.insertId,
-          filename: req.file.originalname,
-          file_path: filePath,
-          file_size: req.file.size,
+          filename: webpFilename,
+          file_path: dbPath,
+          file_size: sharpInfo.size,
         },
       });
     } catch (error) {
+      console.error("Error upload gallery:", error);
       return res
         .status(500)
         .json({ success: false, message: "Gagal memproses unggahan gambar." });
@@ -555,30 +581,44 @@ app.post(
   },
 );
 
+// =======================================================================
+// ENDPOINT: AMBIL DAFTAR MEDIA GALERI DENGAN PAGINATION & SEARCH
+// =======================================================================
 app.get("/api/gallery", async (req, res) => {
   try {
+    // 1. Tangkap parameter dari URL (frontend), berikan nilai default jika kosong
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 15;
     const search = req.query.search || "";
+    
+    // 2. Hitung titik mulai data (offset) untuk pagination
     const offset = (page - 1) * limit;
 
     let queryCount = "SELECT COUNT(*) as total FROM gallery_media";
     let queryData = "SELECT * FROM gallery_media";
     const queryParams = [];
 
+    // 3. Jika ada kata kunci pencarian, tambahkan klausa WHERE
     if (search) {
       queryCount += " WHERE filename LIKE ?";
       queryData += " WHERE filename LIKE ?";
-      queryParams.push(`%${search}%`);
+      queryParams.push(`%${search}%`); // % menandakan pencarian teks parsial
     }
+    
+    // 4. Urutkan dari yang terbaru, lalu batasi jumlah data yang keluar
     queryData += " ORDER BY created_at DESC LIMIT ? OFFSET ?";
+    
+    // 5. Eksekusi query penghitung total data
     const [countResult] = await db.query(
       queryCount,
       search ? [queryParams[0]] : [],
     );
+    
+    // 6. Masukkan angka limit dan offset, lalu ambil data aslinya
     queryParams.push(limit, offset);
     const [rows] = await db.query(queryData, queryParams);
 
+    // 7. Kembalikan data sukses ke frontend
     return res.status(200).json({
       success: true,
       message: "Daftar galeri berhasil dimuat",
@@ -591,30 +631,54 @@ app.get("/api/gallery", async (req, res) => {
       },
     });
   } catch (error) {
+    console.error("Error Get Gallery:", error);
     return res
       .status(500)
       .json({ success: false, message: "Terjadi kesalahan server." });
   }
 });
 
+// =======================================================================
+// ENDPOINT: HAPUS MEDIA GALERI (DB DAN FILE FISIK)
+// =======================================================================
 app.delete("/api/gallery/:id", async (req, res) => {
   try {
+    // 1. Cari data gambar di database berdasarkan ID
     const [rows] = await db.query(
       "SELECT file_path FROM gallery_media WHERE id = ?",
       [req.params.id],
     );
-    if (rows.length === 0)
+    
+    // Jika tidak ada data, hentikan proses
+    if (rows.length === 0) {
       return res
         .status(404)
         .json({ success: false, message: "Media tidak ditemukan." });
+    }
+
+    // 2. Hapus data dari tabel database
     await db.query("DELETE FROM gallery_media WHERE id = ?", [req.params.id]);
-    const filePath = path.join(__dirname, rows[0].file_path);
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    
+    // 3. PENYEMPURNAAN: Bersihkan garis miring di awal path agar akurat di semua OS server
+    // Contoh: "/uploads/gambar.webp" menjadi "uploads/gambar.webp"
+    const cleanPath = rows[0].file_path.replace(/^\//, "");
+    
+    // 4. Susun alamat lengkap file fisik di hardisk
+    const fs = require('fs');
+    const path = require('path');
+    const filePath = path.join(__dirname, cleanPath);
+    
+    // 5. Jika file fisik benar-benar ada di hardisk, hapus file tersebut
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+    
     return res.json({
       success: true,
-      message: "Gambar berhasil dihapus dari server!",
+      message: "Gambar berhasil dihapus secara permanen!",
     });
   } catch (error) {
+    console.error("Error Delete Gallery:", error);
     return res
       .status(500)
       .json({ success: false, message: "Terjadi kesalahan server." });
@@ -624,88 +688,122 @@ app.delete("/api/gallery/:id", async (req, res) => {
 // =======================================================================
 // ENDPOINT: PANDUAN UKURAN (SIZE GUIDES)
 // =======================================================================
+
+// 1. GET ALL: Mengambil semua daftar panduan ukuran
 app.get("/api/size-guides", async (req, res) => {
   try {
     const [rows] = await db.query(
-      "SELECT * FROM size_guides ORDER BY created_at DESC",
+      "SELECT * FROM size_guides ORDER BY created_at DESC"
     );
     return res.status(200).json({ success: true, data: rows });
   } catch (error) {
+    console.error("Error Get Size Guides:", error);
     return res
       .status(500)
-      .json({ success: false, message: "Terjadi kesalahan server." });
+      .json({ success: false, message: "Terjadi kesalahan server saat memuat panduan ukuran." });
   }
 });
 
+// 2. POST: Menambah panduan ukuran baru
 app.post("/api/size-guides", async (req, res) => {
   const { name, content, image_url } = req.body;
-  if (!name)
+  
+  // Validasi ketat di awal
+  if (!name || name.trim() === "") {
     return res
       .status(400)
       .json({ success: false, message: "Nama panduan wajib diisi!" });
+  }
+
   try {
     await db.query(
       "INSERT INTO size_guides (name, content, image_url) VALUES (?, ?, ?)",
-      [name, content || null, image_url || null],
+      [name.trim(), content || null, image_url || null]
     );
     return res
       .status(201)
       .json({ success: true, message: "Panduan ukuran berhasil ditambahkan!" });
   } catch (error) {
+    console.error("Error Post Size Guide:", error);
     return res
       .status(500)
-      .json({ success: false, message: "Gagal menyimpan ke database." });
+      .json({ success: false, message: "Gagal menyimpan panduan ke database." });
   }
 });
 
+// 3. GET BY ID: Mengambil satu panduan spesifik
 app.get("/api/size-guides/:id", async (req, res) => {
   try {
     const [rows] = await db.query("SELECT * FROM size_guides WHERE id = ?", [
       req.params.id,
     ]);
-    if (rows.length === 0)
+    if (rows.length === 0) {
       return res
         .status(404)
-        .json({ success: false, message: "Data tidak ditemukan!" });
+        .json({ success: false, message: "Data panduan ukuran tidak ditemukan!" });
+    }
     return res.status(200).json({ success: true, data: rows[0] });
   } catch (error) {
+    console.error("Error Get Size Guide by ID:", error);
     return res
       .status(500)
       .json({ success: false, message: "Terjadi kesalahan server." });
   }
 });
 
+// 4. PUT: Mengubah data panduan ukuran
 app.put("/api/size-guides/:id", async (req, res) => {
   const { name, content, image_url } = req.body;
-  if (!name)
+  
+  if (!name || name.trim() === "") {
     return res
       .status(400)
-      .json({ success: false, message: "Nama panduan wajib diisi!" });
+      .json({ success: false, message: "Nama panduan tidak boleh kosong!" });
+  }
+
   try {
+    // Pastikan data yang mau diubah benar-benar ada
+    const [check] = await db.query("SELECT id FROM size_guides WHERE id = ?", [req.params.id]);
+    if (check.length === 0) {
+      return res.status(404).json({ success: false, message: "Panduan ukuran tidak ditemukan." });
+    }
+
     await db.query(
       "UPDATE size_guides SET name = ?, content = ?, image_url = ? WHERE id = ?",
-      [name, content || null, image_url || null, req.params.id],
+      [name.trim(), content || null, image_url || null, req.params.id]
     );
     return res
       .status(200)
       .json({ success: true, message: "Panduan ukuran berhasil diperbarui!" });
   } catch (error) {
+    console.error("Error Put Size Guide:", error);
     return res
       .status(500)
-      .json({ success: false, message: "Gagal memperbarui data." });
+      .json({ success: false, message: "Gagal memperbarui data panduan." });
   }
 });
 
+// 5. DELETE: Menghapus data panduan ukuran
 app.delete("/api/size-guides/:id", async (req, res) => {
   try {
+    const [check] = await db.query("SELECT id FROM size_guides WHERE id = ?", [req.params.id]);
+    if (check.length === 0) {
+      return res.status(404).json({ success: false, message: "Panduan ukuran tidak ditemukan." });
+    }
+
     await db.query("DELETE FROM size_guides WHERE id = ?", [req.params.id]);
+    
+    // CATATAN STRATEGIS: Penghapusan file fisik gambar saat ini DIMATIKAN.
+    // Menunggu konfirmasi arsitektur frontend.
+
     return res
       .status(200)
-      .json({ success: true, message: "Panduan ukuran berhasil dihapus!" });
+      .json({ success: true, message: "Panduan ukuran berhasil dihapus dari database!" });
   } catch (error) {
+    console.error("Error Delete Size Guide:", error);
     return res.status(500).json({
       success: false,
-      message: "Terjadi kesalahan server saat menghapus.",
+      message: "Terjadi kesalahan server saat menghapus panduan.",
     });
   }
 });

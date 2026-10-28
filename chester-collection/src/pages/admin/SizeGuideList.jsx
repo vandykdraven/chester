@@ -10,7 +10,8 @@ import {
   AlertCircle,
   Ruler,
 } from "lucide-react";
-import axios from "axios";
+// KOREKSI: Gunakan master API, bukan axios mentah
+import api from "../../api"; 
 
 export default function SizeGuideList() {
   const [guides, setGuides] = useState([]);
@@ -35,9 +36,8 @@ export default function SizeGuideList() {
 
   const fetchGuides = async () => {
     try {
-      const response = await axios.get(
-        `${import.meta.env.VITE_API_URL}/size-guides`,
-      );
+      // KOREKSI: Panggilan API menjadi jauh lebih bersih
+      const response = await api.get(`/size-guides`);
       if (response.data.success) {
         setGuides(response.data.data);
       }
@@ -63,9 +63,8 @@ export default function SizeGuideList() {
 
   const confirmDelete = async () => {
     try {
-      const response = await axios.delete(
-        `${import.meta.env.VITE_API_URL}/size-guides/${deleteModal.id}`,
-      );
+      // KOREKSI: Gunakan master API untuk proses delete
+      const response = await api.delete(`/size-guides/${deleteModal.id}`);
       if (response.data.success) {
         showAlert("Panduan ukuran berhasil dihapus!", "success");
         fetchGuides();
